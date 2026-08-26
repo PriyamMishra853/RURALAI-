@@ -2,11 +2,16 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Activity, ShieldCheck, HeartPulse, Stethoscope, ArrowRight, AlertTriangle, Users, FileText, CheckCircle2, Mic, Globe2, Sparkles, Building2 } from 'lucide-react';
 import ThreeDMedicalCanvas from '../components/ThreeDMedicalCanvas';
+import ClinicalUseNotice from '../components/ClinicalUseNotice';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      
+
+      {/* Shown before anything else — a disclaimer below the fold is not a
+          disclaimer. Public pages only; never on an authenticated view. */}
+      <ClinicalUseNotice variant="strip" />
+
       {/* HERO SECTION WITH 3D CANVAS ANIMATION */}
       <section className="relative pt-12 pb-16 overflow-hidden px-4 lg:px-8 border-b border-slate-200 bg-white">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">

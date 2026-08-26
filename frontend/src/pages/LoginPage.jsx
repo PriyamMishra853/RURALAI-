@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ClinicalUseNotice from '../components/ClinicalUseNotice';
 import { ArrowRight, Lock, Eye, EyeOff } from 'lucide-react';
 
 const DEMO_ACCOUNTS = [
@@ -48,6 +49,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md p-8 rounded-lg border border-slate-200 shadow-sm space-y-6">
+
+        <ClinicalUseNotice variant="card" />
 
         <div className="text-center space-y-2">
           <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center mx-auto">
