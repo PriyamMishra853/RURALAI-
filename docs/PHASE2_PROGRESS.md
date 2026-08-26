@@ -287,6 +287,69 @@ same shape: an assertion that passes when the thing it tests never runs.
 
 ---
 
+## Batch 9 — Video evaluation: Zego vs LiveKit vs custom WebRTC
+
+Isolated 1:1 call harness at `frontend/public/video-lab.html`
+(`?impl=webrtc|livekit&role=a|b&room=…`), driven from two browser tabs.
+
+Media is **synthetic** — a canvas video track plus an oscillator audio track —
+so the test needs no camera or microphone permission and feeds every
+implementation byte-identical input. Real devices would make the comparison
+depend on hardware rather than on the SDK.
+
+### Results
+
+| | Connects | Remote A/V | Console errors | Survives refresh |
+|---|---|---|---|---|
+| **ZegoCloud** | Room join only | ❌ **unprovable** | 0 | not reached |
+| **LiveKit** | ✅ both directions | ✅ live audio + video | 0 (1 transient warning) | ✅ |
+| **Custom WebRTC** | ✅ both directions | ✅ live audio + video | 0 errors, 0 warnings | ✅ |
+
+### ZegoCloud — removed
+
+Rejected on four counts, none of which needed a media test:
+
+1. **Already dead code.** `VideoConsultationModal.jsx` was imported by nothing.
+   All four call sites use `WebRTCVideoCallModal`.
+2. **Requires the server secret in the browser.**
+   `ZegoUIKitPrebuilt.generateKitTokenForTest` takes the app ID *and the server
+   secret* client-side. Anyone loading the page could mint tokens for any room
+   on the account. This is what `generateKitTokenForTest` is named for.
+3. **Those credentials are published** in `README.md` and have never been
+   rotated — app ID `1586356449`.
+4. **Not testable.** The prebuilt UIKit insists on real capture devices and
+   will not accept synthetic tracks, so its media path cannot be exercised in
+   CI or in any headless environment. It joined the room and reported the peer,
+   but no media was ever proven to flow.
+
+Removed: the component, the `@zegocloud/zego-uikit-prebuilt` dependency, the
+config block, the `.env.example` vars and the dev-only `/api/calls/zego-config`
+endpoint. Verified: 0 occurrences in the built bundle, endpoint returns 404.
+
+### What the WebRTC result does NOT prove
+
+Both tabs ran on one machine. `getStats()` reports the nominated candidate pair
+as **`host` ↔ `host` over UDP** — 147 KB received, so real media flowed, but
+**no NAT traversal was exercised at all**. Across two networks, peer-to-peer
+WebRTC commonly needs TURN, and no TURN server is configured (`VITE_TURN_URL`
+is read but unset). That risk is invisible in this test and is exactly the
+condition a venue network imposes.
+
+### Harness bugs found and fixed (mine, not the app's)
+
+- Read `msg.offer`/`msg.answer`; the wire field is `sdp`. The app was right.
+- Both peers offered on `peer-joined`. The server already elects exactly one
+  initiator (the second joiner) to prevent glare — the app respects it.
+- Applied ICE candidates before the remote description existed. The real modal
+  buffers them; the harness now does too.
+
+The signaling service and `WebRTCVideoCallModal` were correct on all three.
+
+**Decision pending:** LiveKit and the custom WebRTC path both passed cleanly.
+See the open question below.
+
+---
+
 ## Known gaps
 
 | Gap | Detail |

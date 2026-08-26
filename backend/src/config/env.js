@@ -108,13 +108,7 @@ export const config = {
   resend: {
     apiKey: process.env.RESEND_API_KEY,
   },
-  zegoCloud: {
-    appId: process.env.ZEGOCLOUD_APP_ID,
-    serverSecret: process.env.ZEGOCLOUD_SERVER_SECRET,
-  },
-  // Credentials are configured but the video path still runs on ZegoCloud plus
-  // the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; the
-  // migration is a separate decision and has not been made.
+  // ZegoCloud was removed after evaluation — see docs/PHASE2_PROGRESS.md.
   livekit: {
     url: process.env.LIVEKIT_URL,
     apiKey: process.env.LIVEKIT_API_KEY,

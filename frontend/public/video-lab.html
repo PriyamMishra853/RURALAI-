@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RuralAI Video Lab</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; margin: 12px; background:#0f172a; color:#e2e8f0; font-size: 12px; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  #log { white-space: pre-wrap; background:#020617; padding:8px; border-radius:4px; height: 240px; overflow:auto; border:1px solid #1e293b; }
+  video { width: 220px; background:#000; border:1px solid #1e293b; border-radius:4px; }
+  .row { display:flex; gap:8px; margin: 8px 0; }
+  .ok { color:#4ade80 } .err { color:#f87171 } .warn { color:#fbbf24 }
+</style>
+</head>
+<body>
+<h1>RuralAI Video Lab — <span id="cfg"></span></h1>
+<div class="row">
+  <div>local<br><video id="local" autoplay muted playsinline></video></div>
+  <div>remote<br><video id="remote" autoplay playsinline></video></div>
+</div>
+<div id="log"></div>
+
+<script type="module">
+/*
+ * Isolated 1:1 call test harness. Not part of the application.
+ *
+ * Query params:
+ *   impl = webrtc | livekit
+ *   role = a | b        (distinct identities in the same room)
+ *   room = <room id>
+ *
+ * Media is SYNTHETIC — a canvas video track and an oscillator audio track —
+ * so the test needs no camera, no microphone and no permission prompt, and
+ * gives both implementations byte-identical input. Real devices would make the
+ * comparison depend on hardware rather than on the SDK.
+ *
+ * Results are written to window.__lab so an automated check can read them
+ * without scraping the DOM.
+ */
+const q = new URLSearchParams(location.search);
+const IMPL = q.get('impl') || 'webrtc';
+const ROLE = q.get('role') || 'a';
+const ROOM = q.get('room') || 'lab-room';
+document.getElementById('cfg').textContent = `${IMPL} / role ${ROLE} / room ${ROOM}`;
+
+const lab = window.__lab = {
+  impl: IMPL, role: ROLE, room: ROOM,
+  connected: false, remoteVideo: false, remoteAudio: false,
+  errors: [], warnings: [], events: []
+};
+
+const logEl = document.getElementById('log');
+const log = (msg, cls='') => {
+  lab.events.push(msg);
+  logEl.innerHTML += `<span class="${cls}">${new Date().toISOString().slice(11,19)} ${msg}</span>\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+};
+
+// Capture anything the SDKs report so "clean console" is measurable.
+const origError = console.error, origWarn = console.warn;
+console.error = (...a) => { lab.errors.push(a.map(String).join(' ').slice(0,300)); origError(...a); };
+console.warn  = (...a) => { lab.warnings.push(a.map(String).join(' ').slice(0,300)); origWarn(...a); };
+window.addEventListener('error', e => lab.errors.push('window.onerror: ' + e.message));
+window.addEventListener('unhandledrejection', e => lab.errors.push('unhandledrejection: ' + (e.reason?.message || e.reason)));
+
+/** Synthetic media: a moving canvas + a quiet oscillator. */
+function syntheticStream() {
+  const canvas = Object.assign(document.createElement('canvas'), { width: 320, height: 240 });
+  const ctx = canvas.getContext('2d');
+  let f = 0;
+  setInterval(() => {
+    ctx.fillStyle = `hsl(${(f * 4) % 360} 70% 45%)`;
+    ctx.fillRect(0, 0, 320, 240);
+    ctx.fillStyle = '#fff';
+    ctx.font = '28px sans-serif';
+    ctx.fillText(`${ROLE} ${f++}`, 20, 130);
+  }, 100);
+  const vTrack = canvas.captureStream(10).getVideoTracks()[0];
+
+  const ac = new AudioContext();
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  gain.gain.value = 0.01;
+  const dest = ac.createMediaStreamDestination();
+  osc.connect(gain).connect(dest);
+  osc.start();
+  const aTrack = dest.stream.getAudioTracks()[0];
+
+  return new MediaStream([vTrack, aTrack]);
+}
+
+function attachRemote(stream) {
+  document.getElementById('remote').srcObject = stream;
+  const v = stream.getVideoTracks().length, a = stream.getAudioTracks().length;
+  if (v) lab.remoteVideo = true;
+  if (a) lab.remoteAudio = true;
+  log(`remote stream attached — video:${v} audio:${a}`, 'ok');
+}
+
+/* ─────────────────────────── custom WebRTC ─────────────────────────── */
+async function runWebRTC() {
+  const local = syntheticStream();
+  document.getElementById('local').srcObject = local;
+
+  const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/signal`;
+  const ws = new WebSocket(wsUrl);
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  lab.pc = pc;
+
+  local.getTracks().forEach(t => pc.addTrack(t, local));
+
+  const remote = new MediaStream();
+  pc.ontrack = (e) => { e.streams[0].getTracks().forEach(t => remote.addTrack(t)); attachRemote(remote); };
+  pc.onicecandidate = (e) => {
+    if (e.candidate && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'ice-candidate', roomId: ROOM, candidate: e.candidate }));
+    }
+  };
+  pc.onconnectionstatechange = () => {
+    log(`pc state: ${pc.connectionState}`, pc.connectionState === 'connected' ? 'ok' : '');
+    if (pc.connectionState === 'connected') lab.connected = true;
+    if (pc.connectionState === 'failed') lab.errors.push('peer connection failed');
+  };
+
+  ws.onopen = () => {
+    log('signaling open', 'ok');
+    // userId matters: the server replaces a socket whose userId matches on
+    // rejoin. Omitting it makes every peer look like the same user, so the
+    // second joiner would evict the first.
+    ws.send(JSON.stringify({ type: 'join-room', roomId: ROOM, role: ROLE, userId: `user-${ROLE}` }));
+  };
+  ws.onerror = () => lab.errors.push('signaling websocket error');
+  ws.onclose = (e) => log(`signaling closed (code ${e.code})`, e.code === 1000 ? '' : 'warn');
+
+  // ICE candidates can arrive before the remote description is set. Applying
+  // one then fails with "remote description was null" and that candidate is
+  // lost. The real modal buffers them; so does this.
+  const pendingCandidates = [];
+  const flushCandidates = async () => {
+    while (pendingCandidates.length) {
+      await pc.addIceCandidate(new RTCIceCandidate(pendingCandidates.shift()));
+    }
+  };
+
+  ws.onmessage = async (evt) => {
+    const msg = JSON.parse(evt.data);
+    log(`recv ${msg.type}`);
+    try {
+      if (msg.type === 'peer-joined') {
+        // The server elects exactly one initiator (the second joiner). Both
+        // sides offering would be SDP glare.
+        log(`peer joined — initiator: ${msg.initiator}`);
+        if (msg.initiator) {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          ws.send(JSON.stringify({ type: 'offer', roomId: ROOM, sdp: offer }));
+          log('sent offer');
+        }
+      } else if (msg.type === 'offer') {
+        // The wire field is `sdp`, not `offer`.
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        await flushCandidates();
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: 'answer', roomId: ROOM, sdp: answer }));
+        log('sent answer');
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        await flushCandidates();
+      } else if (msg.type === 'ice-candidate' && msg.candidate) {
+        if (pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        else pendingCandidates.push(msg.candidate);
+      } else if (msg.type === 'error') {
+        lab.errors.push('signaling error: ' + msg.message);
+      }
+    } catch (err) {
+      lab.errors.push(`${msg.type} handling: ${err.message}`);
+      log(`ERROR handling ${msg.type}: ${err.message}`, 'err');
+    }
+  };
+}
+
+/* ─────────────────────────── LiveKit ─────────────────────────── */
+async function runLiveKit() {
+  const LK = await import('https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.esm.mjs');
+  log('livekit-client loaded');
+
+  // Real token from the real backend using the configured credentials.
+  const auth = await fetch('/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'assistant@clinic.org', password: 'Assist@123' })
+  }).then(r => r.json());
+
+  const res = await fetch('/api/calls/video-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+    body: JSON.stringify({ room: ROOM, identity: `role-${ROLE}` })
+  });
+  const t = await res.json();
+  if (!res.ok) { lab.errors.push('token endpoint: ' + (t.error || res.status)); log('token FAILED', 'err'); return; }
+  log(`token issued for ${t.url}`, 'ok');
+
+  const room = new LK.Room({ adaptiveStream: true, dynacast: true });
+  lab.room = room;
+
+  room.on(LK.RoomEvent.Connected, () => { lab.connected = true; log('room connected', 'ok'); });
+  room.on(LK.RoomEvent.Disconnected, (r) => log(`room disconnected: ${r}`, 'warn'));
+  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+    log(`subscribed remote ${track.kind}`, 'ok');
+    if (track.kind === 'video') lab.remoteVideo = true;
+    if (track.kind === 'audio') lab.remoteAudio = true;
+    const el = document.getElementById('remote');
+    track.attach(el);
+  });
+
+  await room.connect(t.url, t.token);
+
+  const local = syntheticStream();
+  document.getElementById('local').srcObject = local;
+  for (const track of local.getTracks()) {
+    await room.localParticipant.publishTrack(track);
+  }
+  log(`published ${local.getTracks().length} local tracks`, 'ok');
+}
+
+(async () => {
+  try {
+    if (IMPL === 'livekit') await runLiveKit();
+    else await runWebRTC();
+  } catch (err) {
+    lab.errors.push('fatal: ' + err.message);
+    log('FATAL: ' + err.message, 'err');
+  }
+})();
+</script>
+</body>
+</html>
