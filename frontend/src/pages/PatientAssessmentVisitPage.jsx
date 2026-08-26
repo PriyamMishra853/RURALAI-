@@ -8,6 +8,7 @@ import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import CallSchedulerModal from '../components/CallSchedulerModal';
 import DoctorSelectGrid from '../components/DoctorSelectGrid';
 import { useAuth } from '../context/AuthContext';
+import DemoBadge from '../components/DemoBadge';
 
 export default function PatientAssessmentVisitPage() {
   const { id: patientId } = useParams();
@@ -375,7 +376,7 @@ export default function PatientAssessmentVisitPage() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Clinical Assessment Report - ${patient?.full_name || 'Patient'}</title>
+        <title>${patient?.is_demo ? '[DEMO] ' : ''}Clinical Assessment Report - ${patient?.full_name || 'Patient'}</title>
         <style>
           body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 30px; color: #0F172A; line-height: 1.5; font-size: 13px; }
           .header { text-align: center; border-bottom: 2px solid #2563EB; padding-bottom: 12px; margin-bottom: 20px; }
@@ -388,12 +389,18 @@ export default function PatientAssessmentVisitPage() {
           .field { font-size: 12px; }
           .label { font-weight: bold; color: #475569; }
           .value { color: #0F172A; }
+          .demo-banner { border: 2px solid #B45309; background: #FFFBEB; color: #B45309; font-weight: bold; text-align: center; padding: 10px; margin-bottom: 16px; border-radius: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
           .wound-img { max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 4px; border: 1px solid #CBD5E1; }
           .warning-box { background: #FFFBEB; border: 1px solid #FCD34D; color: #78350F; padding: 10px; border-radius: 6px; font-size: 11px; margin-top: 10px; }
           .footer { text-align: center; font-size: 10px; color: #94A3B8; margin-top: 30px; border-top: 1px solid #E2E8F0; padding-top: 10px; }
         </style>
       </head>
       <body>
+        ${patient?.is_demo ? `
+        <div class="demo-banner">
+          DEMONSTRATION RECORD — NOT A REAL PATIENT. This report is test data and must not be used for clinical care.
+        </div>` : ''}
+
         <div class="header">
           <h1>Virtual Village Clinic — Official Clinical Visit Report</h1>
           <p>Generated on ${new Date().toLocaleString()} | Visit ID: ${visitId || 'N/A'}</p>
@@ -493,7 +500,9 @@ export default function PatientAssessmentVisitPage() {
               {patient.full_name?.substring(0, 2) || 'PT'}
             </div>
             <div>
-              <div className="font-bold text-xs text-slate-900">{patient.full_name || patient.name}</div>
+              <div className="font-bold text-xs text-slate-900">
+                {patient.full_name || patient.name} <DemoBadge patient={patient} />
+              </div>
               <div className="text-[11px] text-slate-500 font-mono">Code: {patient.patient_code}</div>
             </div>
           </div>

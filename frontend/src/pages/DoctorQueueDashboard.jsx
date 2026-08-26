@@ -6,6 +6,7 @@ import RiskBadge from '../components/RiskBadge';
 import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import DemoBadge from '../components/DemoBadge';
 
 export default function DoctorQueueDashboard() {
   const { user } = useAuth();
@@ -263,7 +264,9 @@ export default function DoctorQueueDashboard() {
                           {pCode}
                         </span>
                       )}
-                      <h3 className="text-base font-bold text-slate-900">{pName}</h3>
+                      <h3 className="text-base font-bold text-slate-900">
+                        {pName} <DemoBadge patient={patient} />
+                      </h3>
                       <RiskBadge level={riskLevel} />
                     </div>
 

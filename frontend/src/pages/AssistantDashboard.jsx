@@ -6,6 +6,7 @@ import RiskBadge from '../components/RiskBadge';
 import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import DemoBadge from '../components/DemoBadge';
 
 export default function AssistantDashboard() {
   const { user } = useAuth();
@@ -221,7 +222,9 @@ export default function AssistantDashboard() {
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3.5 font-mono text-blue-600 font-bold">{p.patient_code}</td>
                     <td className="px-4 py-3.5">
-                      <div className="font-semibold text-slate-900">{p.name || p.full_name}</div>
+                      <div className="font-semibold text-slate-900">
+                        {p.name || p.full_name} <DemoBadge patient={p} />
+                      </div>
                       <div className="text-[11px] text-slate-500">{p.age || p.age_years} yrs | {p.gender}</div>
                     </td>
                     <td className="px-4 py-3.5">{p.village}</td>

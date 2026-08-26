@@ -6,6 +6,7 @@ import AIDoctorVisualSeparation from '../components/AIDoctorVisualSeparation';
 import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../config/supabase';
+import DemoBadge from '../components/DemoBadge';
 
 export default function DoctorCaseViewPage() {
   const { id: visitId } = useParams();
@@ -172,7 +173,7 @@ export default function DoctorCaseViewPage() {
           </button>
           <div>
             <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Stethoscope className="w-5 h-5 text-blue-600" /> Case File: {pName}
+              <Stethoscope className="w-5 h-5 text-blue-600" /> Case File: {pName} <DemoBadge patient={patient} />
             </h1>
             <p className="text-xs text-slate-500">Visit <code className="font-mono text-blue-600 font-bold">{visit?.visit_code || visitId}</code> — live-synced with the database</p>
           </div>
@@ -190,7 +191,9 @@ export default function DoctorCaseViewPage() {
       <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6 text-xs">
         <div>
           <span className="text-slate-500 block text-[11px]">Patient</span>
-          <div className="font-bold text-slate-900 text-sm mt-0.5">{pName}</div>
+          <div className="font-bold text-slate-900 text-sm mt-0.5">
+            {pName} <DemoBadge patient={patient} />
+          </div>
           {pCode && <div className="font-mono text-blue-600 font-semibold">{pCode}</div>}
         </div>
 
