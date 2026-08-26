@@ -13,7 +13,7 @@ An AI-assisted Virtual Village Clinic platform designed for trained village heal
 - **📄 Prescription & Lab Report OCR with Mandatory Human Verification**: Upload paper prescriptions or medical reports using Tesseract OCR & Groq Multimodal Vision with side-by-side mandatory clinic assistant verification before saving.
 - **🧠 Groq LLM + Qdrant Cloud RAG Clinical Protocol Engine**: Queries approved MoHFW Standard Treatment Guidelines (metadata `approved = true`) to output structured patient summaries and step-by-step approved first-aid guidance.
 - **🛡️ Rule-Based Safety Triage Engine**: Segregates cases into **LOW (Green)**, **MODERATE (Yellow)**, **HIGH (Orange)**, and **EMERGENCY (Red)** risk levels with automated red-flag detection.
-- **📹 ZegoCloud 1-on-1 Video Teleconsultation**: Instant WebRTC video call between village sub-centre clinic assistant and remote doctor.
+- **📹 Peer-to-Peer WebRTC Video Teleconsultation**: Instant WebRTC video call between village sub-centre clinic assistant and remote doctor.
 - **📊 India-Level Rural Health Admin Analytics**: Real-time national metrics across 142 tele-clinics in 12 states, risk distribution breakdown, and qualified doctor roster management.
 - **☀️🌙 Light & Dark Minimalist UI with Dynamic Cursor Shader**: Sleek glassmorphic theme with a cursor-following dynamic radial mesh gradient.
 - **📄 Printable Clinical Summary PDF Export**: 1-click formatted PDF export of complete patient case file.
@@ -39,7 +39,7 @@ An AI-assisted Virtual Village Clinic platform designed for trained village heal
             └────────────────────────────┘   └─────────────────┘   └─────────────────────────────┘
 ```
 
-- **Frontend**: React 18, Vite, Tailwind CSS, Three.js, Lucide Icons, Framer Motion, `@zegocloud/zego-uikit-prebuilt`.
+- **Frontend**: React 18, Vite, Tailwind CSS, Three.js, Lucide Icons, Framer Motion, native WebRTC.
 - **Backend**: Node.js, Express.js, JWT Authentication, Multer file upload.
 - **Database & Storage**: PostgreSQL via hosted Supabase (`supabase-js`).
 - **AI & RAG Engine**: Groq Cloud (`llama-3.3-70b-versatile`, `llama-3.2-11b-vision-preview`, `whisper-large-v3-turbo`), Qdrant Cloud Vector Database (`@qdrant/js-client-rest`).
@@ -63,7 +63,7 @@ An AI-assisted Virtual Village Clinic platform designed for trained village heal
 ### 3. Frontend Web Application (`/frontend`)
 - Landing Page (`/`): Product vision, safety notice, 6-step workflow, and 3D WebGL interactive node canvas.
 - Clinic Assistant Workspace (`/assistant/dashboard`): Real-time village patient directory, register patient modal, and 5-step visit assessment wizard.
-- Remote Doctor Workspace (`/doctor/queue`): Triage queue sorted by risk level, explicit AI assistance vs Doctor decision visual separation, ZegoCloud video calls, and signed digital prescription submission.
+- Remote Doctor Workspace (`/doctor/queue`): Triage queue sorted by risk level, explicit AI assistance vs Doctor decision visual separation, WebRTC video calls, and signed digital prescription submission.
 - Admin Panel (`/admin/dashboard`): India-level village analytics, state coverage breakdown, doctor roster provisioning, protocol ingestion to Qdrant, and compliance audit logs.
 
 ---
@@ -83,7 +83,7 @@ cd BOB
 Create a `.env` file in `backend/.env`:
 ```env
 PORT=5000
-JWT_SECRET=virtual_clinic_jwt_secret_key_2026
+JWT_SECRET=            # generate with: openssl rand -base64 48
 
 # Supabase Credentials
 SUPABASE_URL=https://ucivhqksbbwhdwetrkbd.supabase.co
@@ -95,16 +95,19 @@ GROQ_API_KEY=your_groq_api_key
 QDRANT_URL=https://cc6c04a5-4d82-4ada-83db-a20f1cddccb6.sa-east-1-0.aws.cloud.qdrant.io
 QDRANT_API_KEY=your_qdrant_api_key
 
-# Video Teleconsultation
-ZEGOCLOUD_APP_ID=1586356449
-ZEGOCLOUD_SERVER_SECRET=37d7de5083083e70e9d7b6315a428884
+# Video Teleconsultation (peer-to-peer WebRTC — no third-party SDK)
+# TURN is required for calls between different networks.
+TURN_URL=
+TURN_USERNAME=
+TURN_CREDENTIAL=
 ```
 
 Create a `.env` file in `frontend/.env`:
 ```env
 VITE_API_BASE_URL=http://localhost:5000/api
-VITE_ZEGOCLOUD_APP_ID=1586356449
-VITE_ZEGOCLOUD_SERVER_SECRET=37d7de5083083e70e9d7b6315a428884
+VITE_TURN_URL=
+VITE_TURN_USERNAME=
+VITE_TURN_CREDENTIAL=
 ```
 
 ### 2. Install Dependencies & Start Backend Server
@@ -132,7 +135,7 @@ For testing and evaluation, click **Role Login** on the homepage or log in using
 | Role | Email | Password | Access Rights |
 | :--- | :--- | :--- | :--- |
 | **Clinic Assistant** | `assistant@clinic.org` | *Any / demo* | Register patients, record vitals, upload OCR prescriptions, run AI assessment |
-| **Doctor** | `doctor@clinic.org` | *Any / demo* | View priority consultation queue, launch ZegoCloud video calls, issue signed prescriptions |
+| **Doctor** | `doctor@clinic.org` | *Any / demo* | View priority consultation queue, launch WebRTC video calls, issue signed prescriptions |
 | **Admin** | `admin@clinic.org` | *Any / demo* | View India-level analytics, manage doctor roster, ingest protocols into Qdrant, view audit logs |
 
 ---

@@ -384,12 +384,13 @@ now reports its absence as a warning rather than staying silent.
 | Gap | Detail |
 |---|---|
 | **Rate limit store is in-memory** | Per-process, so behind N instances the real limit is N×. Needs a shared Redis store — plan §A.4. Blocked on a Redis URL |
+| **`/api/calls` is unauthenticated** | Every route in `call.routes.js` except the removed token route runs with no auth guard: scheduling, listing and status updates are open to anyone who can reach the API |
 | **Helmet CSP disabled** | The default policy blocks the SPA's own bundle. Needs a real per-directive policy, not left off |
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
 | **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
 
 | **Only 3 protocols seeded** | The corpus holds 3 demo protocols from `seedQdrant.js`. A real MoHFW STG corpus, physician-reviewed, is still needed — plan §D.1 and §J.5 #17 |
-| **Video still on ZegoCloud** | LiveKit credentials are configured and reachable, but the video path still runs on ZegoCloud plus the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; migrating is a separate, unmade decision |
+| **No TURN server** | Video is peer-to-peer WebRTC. STUN alone fails across carrier-grade NAT and restrictive wifi — the call negotiates and then carries no media. Needs a TURN credential before any demo spanning two networks |
 | **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |
-| **Thresholds unvalidated** | NEWS2/IMNCI-derived but not reviewed for this deployment. The app carries no "not for clinical use" notice yet — plan §J.5 item 22 |
-| **Leaked credentials** | `README.md` commits `ZEGOCLOUD_SERVER_SECRET` in plaintext. Rotate before any public demonstration |
+| **Thresholds unvalidated** | NEWS2/IMNCI-derived but not reviewed for this deployment. The landing and sign-in pages now carry a "not for clinical use" notice — plan §J.5 item 22 |
+| **Leaked credentials in README** | `README.md` still commits `ZEGOCLOUD_SERVER_SECRET` and a `JWT_SECRET` in plaintext, in a public repo. ZegoCloud is gone from the code but the README was not updated. Rotate and scrub |
