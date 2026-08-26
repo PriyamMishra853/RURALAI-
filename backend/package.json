@@ -16,7 +16,8 @@
     "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "check": "node src/scripts/checkServices.js",
     "seed:staff": "node src/scripts/seedStaffAccounts.js",
-    "check:pipelines": "node src/scripts/checkPipelines.js"
+    "check:pipelines": "node src/scripts/checkPipelines.js",
+    "check:flow": "node src/scripts/checkClinicalFlow.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",

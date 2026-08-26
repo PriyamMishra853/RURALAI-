@@ -70,7 +70,16 @@ const resolveAllowedOrigins = () => {
     );
   }
 
-  return ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:5173'];
+  // The API also serves the built frontend, so its own origin must be allowed
+  // or the app cannot call itself when PORT is anything non-default.
+  const ownPort = process.env.PORT || 5000;
+  return [
+    `http://localhost:${ownPort}`,
+    `http://127.0.0.1:${ownPort}`,
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'http://localhost:5173'
+  ];
 };
 
 export const config = {

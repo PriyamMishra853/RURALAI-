@@ -44,7 +44,13 @@ app.use(
     origin(origin, callback) {
       // Same-origin and non-browser callers (curl, health checks) send no Origin.
       if (!origin || config.allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error(`Origin ${origin} is not allowed by CORS policy`));
+
+      // Deny by withholding the CORS headers — never by throwing. An error here
+      // propagates to the global handler and turns the request into a 500, which
+      // took down same-origin stylesheets and scripts the moment anything added
+      // an Origin header. Without the headers the browser blocks the cross-origin
+      // read itself, which is the actual enforcement.
+      return callback(null, false);
     },
     credentials: true
   })

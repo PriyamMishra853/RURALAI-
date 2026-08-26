@@ -228,6 +228,65 @@ defaults in `seedQdrant.js`, in a public repository.
 
 ---
 
+## Batch 8 — Database live, full flow verified end to end ✅
+
+Schema applied via the SQL Editor. All 28 tables present, migration 001 landed.
+
+- **Staff accounts provisioned.** 7 demo accounts plus an admin. The admin
+  password was generated locally into `backend/.env` as `SEED_ADMIN_PASSWORD`
+  and never had a default.
+- **`npm run check:flow`** drives the real HTTP API the way the frontend does
+  and asserts the safety invariants on the way through.
+
+```
+✓ Login — all three roles                    assistant + doctor + admin
+✓ Unauthenticated request is rejected        401
+✓ Admin is blocked from clinical routes      2 routes → 403
+✓ Assistant registers a patient
+✓ Assistant opens a visit with vitals
+✓ AI assessment runs and persists            tier=MEDIUM via groq:openai/gpt-oss-120b
+✓ Assessment cites retrieved protocols
+✓ Every medication carries a formulary rule id
+✓ Doctor can see the case in their queue
+✓ Database rejects medication with no rule source   23514 check_violation
+```
+
+### Three more bugs found while verifying
+
+**1. My own CORS handler broke every static asset. 🚨**
+Rejecting a disallowed origin by `callback(new Error(...))` sends that error to
+the global handler, which returns **500 with `application/json`** — so
+stylesheets and scripts failed with a MIME-type error the moment anything
+attached an `Origin` header. A rejected origin must be denied by *withholding*
+the CORS headers, not by throwing; the browser is what enforces it. The
+allowlist also now includes the API's own origin, since it serves the frontend.
+
+**2. The frontend pointed at the decommissioned hackathon project.**
+`frontend/src/config/supabase.js` hardcoded `ucivhqksbbwhdwetrkbd.supabase.co`
+with a literal `"dummy"` anon key as fallbacks, and there was no `frontend/.env`
+at all — so those fallbacks were what shipped. Every page load opened realtime
+WebSockets to a dead host in a retry loop. **Realtime has never worked.** Now
+configured from `frontend/.env`, with no fallbacks.
+
+**3. A null client would have white-screened the dashboards.**
+Three pages call `supabase.channel(...)` directly. Removing the fallbacks made
+the export null when unconfigured, which turns a missing `.env` into a blank
+page. Exports a no-op channel shim instead — losing live updates is a
+degradation, losing the page is an outage.
+
+### And one false pass in my own test
+
+The constraint probe reported success on error `23502` — `not_null_violation`.
+The insert was dying on a NOT NULL column before ever reaching the medication
+CHECK, so it proved nothing. Now it attaches a real assessment id, requires
+`23514 check_violation` specifically, and additionally confirms a properly
+sourced row *is* accepted.
+
+That is the second false-positive check I have written and caught. Both had the
+same shape: an assertion that passes when the thing it tests never runs.
+
+---
+
 ## Known gaps
 
 | Gap | Detail |
@@ -236,7 +295,7 @@ defaults in `seedQdrant.js`, in a public repository.
 | **Helmet CSP disabled** | The default policy blocks the SPA's own bundle. Needs a real per-directive policy, not left off |
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
 | **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
-| **Database has no schema** 🚨 | 0 of 28 tables exist, and 0 auth users had existed. Run `database/apply_all.sql` in the Supabase SQL Editor, then `npm run seed:staff`. This blocks login, RAG retrieval, and every clinical route |
+
 | **Only 3 protocols seeded** | The corpus holds 3 demo protocols from `seedQdrant.js`. A real MoHFW STG corpus, physician-reviewed, is still needed — plan §D.1 and §J.5 #17 |
 | **Video still on ZegoCloud** | LiveKit credentials are configured and reachable, but the video path still runs on ZegoCloud plus the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; migrating is a separate, unmade decision |
 | **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |
