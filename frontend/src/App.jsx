@@ -7,7 +7,6 @@ import CursorGradient from './components/CursorGradient';
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 
 import AssistantDashboard from './pages/AssistantDashboard';
 import PatientRegistrationPage from './pages/PatientRegistrationPage';
@@ -39,7 +38,8 @@ export default function App() {
             {/* Public Routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+            {/* No public /register. Staff accounts are created by an Admin
+                via the admin console — see docs/PHASE1_PRODUCTION_READINESS_PLAN.md §C.3. */}
 
             {/* Clinic Assistant Routes */}
             <Route

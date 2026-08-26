@@ -1,8 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+
+import { config } from './config/env.js';
+import { globalRateLimiter } from './middleware/rateLimit.middleware.js';
 
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
@@ -18,10 +22,40 @@ import callRoutes from './routes/call.routes.js';
 
 const app = express();
 
+// Trust the platform proxy so rate limiting and logging see the real client IP
+// rather than the load balancer's. Without this every request behind the LB
+// shares one bucket and the limiters are meaningless.
+app.set('trust proxy', 1);
+
 // Middleware
-app.use(cors({ origin: '*' }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(
+  helmet({
+    // The SPA is served from this same origin; the default CSP would block its
+    // own bundle. A real policy is listed as a gap in docs/PHASE2_PROGRESS.md.
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+  })
+);
+
+// Origin allowlist, not `*`. With `*` any website could drive this API using a
+// signed-in user's browser. Configure via CORS_ALLOWED_ORIGINS.
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Same-origin and non-browser callers (curl, health checks) send no Origin.
+      if (!origin || config.allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`Origin ${origin} is not allowed by CORS policy`));
+    },
+    credentials: true
+  })
+);
+
+// Uploads arrive as multipart via multer, so JSON bodies are small. The former
+// 50mb ceiling let a single request allocate 50mb of heap.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+app.use('/api', globalRateLimiter);
 
 // Serve the built frontend (frontend/dist) when it exists — lets a single
 // Railway service host the whole app: UI + /api + /signal on one origin.
@@ -82,12 +116,23 @@ if (HAS_FRONTEND) {
 }
 
 // Global Error Handler
+//
+// The message is logged in full but only returned to the client outside
+// production. Internal errors routinely carry table names, query fragments and
+// upstream provider detail, and that is reconnaissance material.
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
-  res.status(err.status || 500).json({
-    error: 'Internal Server Error',
-    message: err.message || 'An unexpected error occurred.'
-  });
+
+  const status = err.status || 500;
+  const body = { error: status === 500 ? 'Internal Server Error' : err.name || 'Request Error' };
+
+  if (!config.isProduction || status < 500) {
+    body.message = err.message || 'An unexpected error occurred.';
+  } else {
+    body.message = 'An unexpected error occurred. Contact an administrator if this persists.';
+  }
+
+  res.status(status).json(body);
 });
 
 export default app;

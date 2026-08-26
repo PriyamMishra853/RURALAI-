@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ArrowRight, Lock, Eye, EyeOff } from 'lucide-react';
 
@@ -126,10 +126,7 @@ export default function LoginPage() {
         </div>
 
         <div className="text-center text-xs text-slate-500">
-          New staff member?{' '}
-          <Link to="/register" className="text-blue-600 font-semibold hover:underline">
-            Create a staff account
-          </Link>
+          Staff accounts are issued by your administrator.
         </div>
       </div>
     </div>

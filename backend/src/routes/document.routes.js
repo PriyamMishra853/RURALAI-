@@ -3,7 +3,12 @@ import multer from 'multer';
 import { uploadDocument, runOCR, verifyDocumentExtraction } from '../controllers/document.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Cap upload size: memoryStorage buffers the whole file in heap, so an
+// unbounded upload is a trivial denial-of-service.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 10 }
+});
 const router = Router();
 
 router.use(authenticateUser);

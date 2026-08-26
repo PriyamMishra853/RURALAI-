@@ -8,12 +8,6 @@ const ROLE_DB_TO_API = {
   doctor: 'DOCTOR',
   admin: 'ADMIN'
 };
-const ROLE_API_TO_DB = {
-  CLINIC_ASSISTANT: 'clinic_assistant',
-  DOCTOR: 'doctor',
-  ADMIN: 'admin'
-};
-
 const issueToken = (profile) =>
   jwt.sign(
     {
@@ -90,110 +84,6 @@ export const login = async (req, res) => {
   } catch (error) {
     console.error('Login error:', error.message);
     return res.status(500).json({ error: 'Server error during authentication', details: error.message });
-  }
-};
-
-/**
- * POST /api/auth/register
- * { email, password, full_name, role, phone, registration_number?, specialization?, qualification? }
- * Creates a Supabase Auth user (password holder) + staff_profiles row.
- * Doctors also get a doctor_profiles row with their medical registration number.
- */
-export const register = async (req, res) => {
-  try {
-    const {
-      email,
-      password,
-      full_name,
-      role = 'CLINIC_ASSISTANT',
-      phone,
-      registration_number,
-      specialization,
-      qualification
-    } = req.body;
-
-    if (!email || !password || !full_name) {
-      return res.status(400).json({ error: 'email, password and full_name are required.' });
-    }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
-    }
-
-    const dbRole = ROLE_API_TO_DB[role];
-    if (!dbRole) {
-      return res.status(400).json({ error: `Invalid role '${role}'. Allowed: CLINIC_ASSISTANT, DOCTOR, ADMIN.` });
-    }
-    if (dbRole === 'doctor' && !registration_number) {
-      return res.status(400).json({ error: 'Doctors must provide their medical council registration_number.' });
-    }
-
-    const cleanEmail = email.toLowerCase().trim();
-
-    // Reject duplicate staff profile up front
-    const { data: existing } = await supabaseAdmin
-      .from('staff_profiles')
-      .select('id')
-      .eq('email', cleanEmail)
-      .maybeSingle();
-    if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists. Please sign in.' });
-    }
-
-    // 1. Create the Supabase Auth user (stores the password securely)
-    const { data: created, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-      email: cleanEmail,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name, role: dbRole }
-    });
-
-    if (authErr && !/already.*(registered|exists)/i.test(authErr.message)) {
-      return res.status(400).json({ error: `Account creation failed: ${authErr.message}` });
-    }
-
-    // 2. Create the staff profile
-    const { data: profile, error: profErr } = await supabaseAdmin
-      .from('staff_profiles')
-      .insert([{ full_name, role: dbRole, email: cleanEmail, phone: phone || null, status: 'active' }])
-      .select()
-      .single();
-
-    if (profErr) {
-      // Roll back the auth user so the email is not left half-registered
-      if (created?.user?.id) {
-        await supabaseAdmin.auth.admin.deleteUser(created.user.id).catch(() => {});
-      }
-      return res.status(500).json({ error: `Staff profile creation failed: ${profErr.message}` });
-    }
-
-    // 3. Doctor credentials
-    if (dbRole === 'doctor') {
-      const { error: docErr } = await supabaseAdmin.from('doctor_profiles').insert([{
-        staff_id: profile.id,
-        registration_number,
-        specialization: specialization || 'General Medicine',
-        qualification: qualification || null
-      }]);
-      if (docErr) {
-        console.warn('doctor_profiles insert warning:', docErr.message);
-      }
-    }
-
-    const token = issueToken(profile);
-
-    await logAuditEvent({
-      actorId: profile.id,
-      actorRole: ROLE_DB_TO_API[profile.role],
-      action: 'USER_REGISTERED',
-      entityType: 'STAFF_PROFILES',
-      entityId: profile.id,
-      metadata: { email: profile.email, role: profile.role }
-    });
-
-    return res.status(201).json({ token, user: publicUser(profile) });
-  } catch (error) {
-    console.error('Registration error:', error.message);
-    return res.status(500).json({ error: 'Server error during registration', details: error.message });
   }
 };
 

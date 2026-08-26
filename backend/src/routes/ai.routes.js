@@ -8,11 +8,19 @@ import {
   analyzeImageAI
 } from '../controllers/ai.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
+import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Cap upload size: memoryStorage buffers the whole file in heap, so an
+// unbounded upload is a trivial denial-of-service.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 10 }
+});
 const router = Router();
 
 router.use(authenticateUser);
+// Every route below spends money per call at an external provider.
+router.use(aiRateLimiter);
 
 // Route aliases matching both /api/ai/assess and /api/ai/analyze-patient
 router.post('/assess', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR', 'ADMIN'), analyzePatientCase);

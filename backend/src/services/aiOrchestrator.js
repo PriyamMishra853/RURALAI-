@@ -45,8 +45,11 @@ export const runFullPatientAssessment = async (patientContext) => {
   const combinedAllergies = [visit.allergies, ...ocrAllergies].filter(Boolean).join(', ');
 
   // ---- 1. Deterministic risk triage (HIGH / MEDIUM / LOW) ----
-  const riskResult = calculateRiskLevel(vitals, combinedSymptoms, combinedHistory);
-  let finalRiskLevel = riskResult.riskLevel;
+  // The rule tier is a floor. Every source below may raise it and none may
+  // lower it — final_tier = MAX(rule_tier, vision_tier, model_tier).
+  const riskResult = calculateRiskLevel(vitals, combinedSymptoms, combinedHistory, patient);
+  const ruleTier = riskResult.riskLevel;
+  let finalRiskLevel = ruleTier;
   const riskWarnings = [...riskResult.warnings];
 
   // Vision severity can raise (never lower) the triage level
@@ -160,7 +163,17 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
   };
 
   // ---- 5. Groq LLM synthesis ----
-  if (groq) {
+  //
+  // Degraded AI fails safe to MEDIUM, never LOW. A missing key, a timeout, a
+  // malformed response — all of them mean the case was never actually
+  // assessed by the model, and an unassessed case must reach a doctor. The
+  // previous behaviour kept whatever the rules produced, so an outage during
+  // the demo would have silently returned LOW cases with no model input.
+  let degradedReason = null;
+
+  if (!groq) {
+    degradedReason = 'No LLM provider is configured';
+  } else {
     try {
       const chatCompletion = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -174,21 +187,55 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
 
       const parsed = JSON.parse(chatCompletion.choices[0].message.content);
       if (parsed && parsed.patient_summary) {
+        // The model may raise the tier and can never lower it.
+        const modelTier = RISK_RANK[parsed.risk_level] !== undefined ? parsed.risk_level : null;
+        if (modelTier && RISK_RANK[modelTier] > RISK_RANK[finalRiskLevel]) {
+          riskWarnings.push(`Model assessment raised triage from ${finalRiskLevel} to ${modelTier}.`);
+          finalRiskLevel = modelTier;
+        }
+
         finalAssessment = {
           ...finalAssessment,
           ...parsed,
-          risk_level: finalRiskLevel, // rule engine always wins
+          risk_level: finalRiskLevel,
           warnings: Array.from(new Set([...(parsed.warnings || []), ...riskWarnings])),
-          requires_doctor: riskResult.requiresDoctor || finalRiskLevel !== 'LOW',
           generated_by: 'groq-llama-3.3-70b'
         };
+      } else {
+        degradedReason = 'LLM response did not match the required schema';
       }
     } catch (llmErr) {
+      degradedReason = `LLM assessment failed (${llmErr.message})`;
       console.warn('Groq LLM assessment failed, using rule-engine assessment:', llmErr.message);
     }
   }
 
-  // ---- 6. Attach immutable safety metadata ----
+  if (degradedReason && finalRiskLevel === 'LOW') {
+    finalRiskLevel = 'MEDIUM';
+    riskWarnings.push(
+      `${degradedReason} — triage floored at MEDIUM for doctor review. This case was not assessed by the model.`
+    );
+  }
+
+  // ---- 6. Re-derive everything that depends on the final tier ----
+  // finalRiskLevel may have moved since the fallback object was built, so these
+  // must be recomputed rather than left at their earlier values.
+  finalAssessment.risk_level = finalRiskLevel;
+  finalAssessment.warnings = Array.from(new Set([...(finalAssessment.warnings || []), ...riskWarnings]));
+  finalAssessment.requires_doctor = riskResult.requiresDoctor || finalRiskLevel !== 'LOW';
+  finalAssessment.recommended_next_action =
+    finalRiskLevel === 'HIGH'
+      ? riskResult.immediateReferral
+        ? 'EMERGENCY_HOSPITAL_REFERRAL'
+        : 'URGENT_DOCTOR_REVIEW'
+      : finalRiskLevel === 'MEDIUM'
+        ? 'DOCTOR_REVIEW'
+        : 'PROTOCOL_CARE_DOCTOR_OPTIONAL';
+
+  // ---- 7. Attach immutable safety metadata ----
+  finalAssessment.rule_tier = ruleTier;
+  finalAssessment.degraded = Boolean(degradedReason);
+  finalAssessment.missing_data = riskResult.missingData;
   finalAssessment.immediate_referral = riskResult.immediateReferral || false;
   finalAssessment.risk_reasoning = riskResult.riskReasoning;
   finalAssessment.image_observations = imageObservations;

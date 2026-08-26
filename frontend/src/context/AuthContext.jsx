@@ -30,18 +30,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const registerUser = async (payload) => {
-    setLoading(true);
-    try {
-      const res = await api.post('/auth/register', payload);
-      const { token: jwtToken, user: userProfile } = res.data;
-      persistSession(jwtToken, userProfile);
-      return userProfile;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const logoutUser = async () => {
     try {
       await api.post('/auth/logout');
@@ -55,7 +43,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, loginUser, registerUser, logoutUser }}>
+    <AuthContext.Provider value={{ user, token, loading, loginUser, logoutUser }}>
       {children}
     </AuthContext.Provider>
   );
