@@ -53,6 +53,54 @@ cd backend && npm test
 **Verification:** `POST /api/auth/register` → 404. Health → 200. Frontend
 builds clean with no dangling references.
 
+## Batch 3 — Admin clinical lockout ✅
+
+Plan §C.2. `ADMIN` was permitted on every clinical route: patients, visits,
+documents, AI assessment, doctor queue and case views. Verified first that
+`AdminDashboard.jsx` only ever calls `/admin/*`, so nothing in the product
+depended on it.
+
+- `ADMIN` removed from every clinical route. It keeps `/doctor/directory`,
+  which is a staff roster, not clinical data.
+- Added `denyAdminClinicalAccess`, mounted on the whole clinical router rather
+  than per-route. A route added later that forgets its own role list still
+  fails closed. This is defence in depth, **not** a substitute for the RLS
+  policies that are still outstanding.
+
+## Batch 4 — Formulary rules engine ✅
+
+Plan §D.2, the largest clinical gap in the build. Medication was previously
+authored by the LLM prompt plus a hardcoded paracetamol/ORS list in
+`aiOrchestrator.js`.
+
+- `src/data/formulary.js` — 5 OTC entries (ORS, paracetamol, zinc, saline nasal
+  drops, povidone-iodine), every one stamped `UNSIGNED_PLACEHOLDER`, each
+  carrying dose bands by age, contraindications, allergy keys, pregnancy
+  safety, red-flag exclusions and a source reference.
+- `src/services/formularyService.js` — eight sequential gates: tier, signature,
+  red flags, contraindications, allergies, pregnancy, age band, weight. An
+  empty result is a valid answer and callers must render it as "no medication",
+  never fall back to something else.
+- The model is now instructed never to name a medicine, and
+  `supportive_medication_guidance` is **deleted and overwritten** after the LLM
+  returns rather than merged — a model that ignores its instructions still
+  cannot reach a health worker with a dose.
+- Persistence rebuilt from the structured output so `rule_source_id` travels
+  with each record. `assertRuleSourced()` throws rather than storing an orphan.
+- `database/migrations/001_medication_rule_source.sql` adds the real database
+  constraint. **Not yet applied** — needs a reachable database.
+
+Two behaviours worth knowing before the demo:
+
+1. **Unsigned entries are suppressed entirely when `REQUIRE_SIGNED_FORMULARY`
+   is on, which is the default in production.** A production deployment emits
+   no medication at all until a clinician signs the formulary. Set it to
+   `false` to demo the mechanism against placeholder data, where every line is
+   prefixed with an unsigned warning.
+2. **Unknown age suppresses medication** rather than defaulting to an adult
+   dose. Guessing an adult dose for a child is how a paediatric overdose
+   happens.
+
 ---
 
 ## Known gaps
@@ -61,8 +109,9 @@ builds clean with no dangling references.
 |---|---|
 | **Rate limit store is in-memory** | Per-process, so behind N instances the real limit is N×. Needs a shared Redis store — plan §A.4. Blocked on a Redis URL |
 | **Helmet CSP disabled** | The default policy blocks the SPA's own bundle. Needs a real per-directive policy, not left off |
-| **Admins can read patient routes** | `GET /api/patients` still permits `ADMIN`, contradicting plan §C.2 ("admins have no clinical access"). Not changed yet because the admin dashboard may depend on it — needs a check before removal |
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
-| **Formulary not implemented** | Medication is still authored by the LLM prompt and by a hardcoded fallback list in `aiOrchestrator.js`. Plan §D.2 requires a clinician-signed formulary behind a rules engine, with a `rule_source_id` the database enforces. **This is the largest remaining clinical gap and it is blocked on a clinician, not on code** |
+| **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
+| **DB medication constraint not applied** | `database/migrations/001_medication_rule_source.sql` is written but unapplied; the database was unreachable |
+| **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |
 | **Thresholds unvalidated** | NEWS2/IMNCI-derived but not reviewed for this deployment. The app carries no "not for clinical use" notice yet — plan §J.5 item 22 |
 | **Leaked credentials** | `README.md` commits `ZEGOCLOUD_SERVER_SECRET` in plaintext. Rotate before any public demonstration |

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { uploadDocument, runOCR, verifyDocumentExtraction } from '../controllers/document.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
+import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 
 // Cap upload size: memoryStorage buffers the whole file in heap, so an
 // unbounded upload is a trivial denial-of-service.
@@ -12,6 +13,9 @@ const upload = multer({
 const router = Router();
 
 router.use(authenticateUser);
+// Admins have no clinical access — plan §C.2. Fails closed for any route
+// added below, including one that forgets its own role list.
+router.use(denyAdminClinicalAccess);
 
 // Flexible multer middleware that accepts any field name ('document', 'file', etc.)
 const flexibleUpload = (req, res, next) => {
@@ -27,8 +31,8 @@ const flexibleUpload = (req, res, next) => {
   });
 };
 
-router.post('/upload', authorizeRoles('CLINIC_ASSISTANT', 'ADMIN'), flexibleUpload, uploadDocument);
-router.post('/:id/ocr', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR', 'ADMIN'), runOCR);
-router.post('/:id/verify', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR', 'ADMIN'), verifyDocumentExtraction);
+router.post('/upload', authorizeRoles('CLINIC_ASSISTANT'), flexibleUpload, uploadDocument);
+router.post('/:id/ocr', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), runOCR);
+router.post('/:id/verify', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), verifyDocumentExtraction);
 
 export default router;

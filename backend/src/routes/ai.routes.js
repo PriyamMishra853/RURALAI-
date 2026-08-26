@@ -8,6 +8,7 @@ import {
   analyzeImageAI
 } from '../controllers/ai.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
+import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
 
 // Cap upload size: memoryStorage buffers the whole file in heap, so an
@@ -19,12 +20,15 @@ const upload = multer({
 const router = Router();
 
 router.use(authenticateUser);
+// Admins have no clinical access — plan §C.2. Fails closed for any route
+// added below, including one that forgets its own role list.
+router.use(denyAdminClinicalAccess);
 // Every route below spends money per call at an external provider.
 router.use(aiRateLimiter);
 
 // Route aliases matching both /api/ai/assess and /api/ai/analyze-patient
-router.post('/assess', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR', 'ADMIN'), analyzePatientCase);
-router.post('/analyze-patient', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR', 'ADMIN'), analyzePatientCase);
+router.post('/assess', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), analyzePatientCase);
+router.post('/analyze-patient', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), analyzePatientCase);
 router.post('/transcribe', upload.single('audio'), transcribeSpeech);
 router.post('/analyze-document', upload.single('file'), analyzeDocumentAI);
 router.post('/risk-assessment', getRiskAssessment);

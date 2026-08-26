@@ -1,6 +1,7 @@
 import { groq } from '../config/groq.js';
 import { retrieveClinicalProtocols } from './ragEngine.js';
 import { calculateRiskLevel } from './riskEngine.js';
+import { assertRuleSourced, formatMedicationLine, selectMedications } from './formularyService.js';
 
 /**
  * Full AI Patient Assessment Pipeline:
@@ -17,8 +18,8 @@ const SYSTEM_PROMPT = `You are an AI clinical-assistance system for rural villag
 NON-NEGOTIABLE SAFETY & LEGAL RULES:
 1. You do not replace a qualified doctor and must never state a definitive diagnosis.
 2. Never fabricate patient information, findings, sources, or protocols. If information is missing, list it under missing_information.
-3. First-aid steps must be simple, numbered, specific actions a trained assistant can perform (positioning, cleaning, dressing, cold sponging, ORS, monitoring intervals).
-4. Medication guidance is restricted to over-the-counter supportive care permitted by the retrieved protocols (e.g. ORS, paracetamol with adult dosing limits, saline drops, antiseptic dressing). Every medicine line MUST end with "— subject to doctor approval".
+3. First-aid steps must be simple, numbered, specific actions a trained assistant can perform (positioning, wound cleaning, dressing, cold sponging, encouraging fluids, monitoring intervals) — never naming a medicine.
+4. NEVER name a medicine, a dose, a frequency or a duration. Not even an over-the-counter one, and not even when the retrieved protocol mentions it. Medication is selected by a separate rules engine from a formulary signed by a registered practitioner; anything you write about medicine is discarded. Omit the topic entirely.
 5. NEVER suggest antibiotics, steroids, opioids, or any prescription-only (Schedule H/H1/X) drug. Starting those without a registered doctor's prescription is illegal in India.
 6. Base protocol guidance only on the retrieved approved protocols provided to you.
 7. Clearly separate: patient observations, AI assistance, and decisions reserved for the doctor.`;
@@ -112,7 +113,6 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
   "observations": ["non-diagnostic clinical observation"],
   "risk_level": "${finalRiskLevel}",
   "first_aid_steps": ["Step 1: <specific action>", "Step 2: ..."],
-  "supportive_medication_guidance": ["<OTC medicine, exact dose & limit> — subject to doctor approval"],
   "protocol_matches": [{ "title": "...", "source": "...", "version": "...", "guidance": "..." }],
   "warnings": ["warning sign the assistant must watch for"],
   "recommended_next_action": "${finalRiskLevel === 'HIGH' ? (riskResult.immediateReferral ? 'EMERGENCY_HOSPITAL_REFERRAL' : 'URGENT_DOCTOR_REVIEW') : finalRiskLevel === 'MEDIUM' ? 'DOCTOR_REVIEW' : 'PROTOCOL_CARE_DOCTOR_OPTIONAL'}",
@@ -125,7 +125,7 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
     : [
         'Step 1: Seat the patient comfortably in a ventilated area and reassure them.',
         'Step 2: Re-check and record temperature, pulse, blood pressure and SpO2.',
-        'Step 3: Provide Oral Rehydration Solution (ORS) — 1 sachet in 1 litre of clean water, small frequent sips.',
+        'Step 3: Offer sips of clean drinking water and keep the patient hydrated. Any medicine comes from the medication section below, not from these steps.',
         'Step 4: Re-check vital signs every 2 hours and record any change.',
         'Step 5: Escalate to the doctor immediately if breathing difficulty, chest pain, or drowsiness develops.'
       ];
@@ -146,10 +146,6 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
     ],
     risk_level: finalRiskLevel,
     first_aid_steps: protocolFirstAid,
-    supportive_medication_guidance: [
-      'Oral Rehydration Solution (ORS): 1 sachet dissolved in 1 litre clean drinking water, small frequent sips — subject to doctor approval',
-      'Paracetamol 500 mg orally for temperature above 100°F in adults, maximum 3 doses in 24 hours — subject to doctor approval'
-    ],
     protocol_matches: retrievedProtocols.map((p) => ({
       title: p.title,
       source: p.source,
@@ -232,7 +228,29 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
         ? 'DOCTOR_REVIEW'
         : 'PROTOCOL_CARE_DOCTOR_OPTIONAL';
 
-  // ---- 7. Attach immutable safety metadata ----
+  // ---- 7. Medication: formulary only, never the model ----
+  //
+  // Whatever the model returned on this subject is discarded rather than
+  // merged. A model that ignores its instructions must not be able to reach a
+  // health worker with a dose, so the field is overwritten unconditionally.
+  delete finalAssessment.supportive_medication_guidance;
+
+  const formulary = selectMedications({
+    tier: finalRiskLevel,
+    patient,
+    symptoms: combinedSymptoms,
+    history: combinedHistory,
+    allergies: combinedAllergies
+  });
+  assertRuleSourced(formulary.medications);
+
+  finalAssessment.medications = formulary.medications;
+  finalAssessment.supportive_medication_guidance = formulary.medications.map(formatMedicationLine);
+  finalAssessment.medication_suppressed = formulary.suppressed;
+  finalAssessment.medication_notices = formulary.notices;
+  finalAssessment.medication_source = 'formulary-rules-engine';
+
+  // ---- 8. Attach immutable safety metadata ----
   finalAssessment.rule_tier = ruleTier;
   finalAssessment.degraded = Boolean(degradedReason);
   finalAssessment.missing_data = riskResult.missingData;

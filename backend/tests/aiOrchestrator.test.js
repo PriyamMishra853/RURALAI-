@@ -7,7 +7,7 @@
  *
  * Groq and the RAG engine are mocked. This suite never makes a network call.
  */
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 /** Complete, in-range vitals for an adult — the rule engine returns LOW here. */
 const NORMAL_VITALS = {
@@ -148,5 +148,57 @@ describe('final tier is the maximum of every source', () => {
     expect(result.risk_level).toBe('MEDIUM');
     expect(result.missing_data).toContain('SpO2 not recorded');
     expect(result.missing_data).toContain('Blood pressure not recorded');
+  });
+});
+
+describe('medication is never model-authored', () => {
+  /** A model ignoring its instructions and prescribing an antibiotic. */
+  const ROGUE_LLM_RESPONSE = {
+    ...VALID_LLM_RESPONSE,
+    supportive_medication_guidance: [
+      'Amoxicillin 500 mg three times daily for 5 days — subject to doctor approval',
+      'Prednisolone 20 mg once daily'
+    ]
+  };
+
+  beforeEach(() => {
+    process.env.REQUIRE_SIGNED_FORMULARY = 'false';
+  });
+  afterEach(() => {
+    delete process.env.REQUIRE_SIGNED_FORMULARY;
+  });
+
+  it('discards medication the model authored, even when it looks plausible', async () => {
+    const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
+    const result = await runFullPatientAssessment(CONTEXT);
+
+    const rendered = (result.supportive_medication_guidance || []).join(' ');
+    expect(rendered).not.toMatch(/Amoxicillin/i);
+    expect(rendered).not.toMatch(/Prednisolone/i);
+    expect(result.medication_source).toBe('formulary-rules-engine');
+  });
+
+  it('stamps every surviving medication with a formulary rule id', async () => {
+    const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
+    const result = await runFullPatientAssessment({
+      ...CONTEXT,
+      visit: { chief_complaint: 'fever', symptom_duration: '1 day' }
+    });
+
+    for (const med of result.medications) {
+      expect(med.rule_source_id).toMatch(/^FORM-/);
+    }
+  });
+
+  it('emits no medication at all for a HIGH-risk case', async () => {
+    const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
+    const result = await runFullPatientAssessment({
+      ...CONTEXT,
+      vitals: { ...NORMAL_VITALS, spo2: 85 }
+    });
+
+    expect(result.risk_level).toBe('HIGH');
+    expect(result.medications).toEqual([]);
+    expect(result.supportive_medication_guidance).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { transcribeAndExtractSymptoms } from '../services/speechService.js';
 import { processMedicalDocument } from '../services/ocrService.js';
 import { analyzeInjuryImage } from '../services/visionService.js';
 import { calculateRiskLevel } from '../services/riskEngine.js';
+import { assertRuleSourced, formatMedicationLine } from '../services/formularyService.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 
@@ -191,12 +192,20 @@ export const analyzePatientCase = async (req, res) => {
           recommendation: step,
           status: 'ai_suggested'
         })),
-        ...(aiResult.supportive_medication_guidance || []).map((med, i) => ({
+        // Medication rows are built from the structured formulary output, never
+        // from the rendered strings, so the originating rule travels with the
+        // record. assertRuleSourced throws rather than persisting an orphan —
+        // the database constraint in database/migrations/001 is the real
+        // guarantee, this is the early and loud failure.
+        ...assertRuleSourced(aiResult.medications || []).map((med) => ({
           ai_assessment_id: savedAssessmentId,
           recommendation_type: 'medicine',
-          title: `Supportive medication ${i + 1}`,
-          recommendation: med,
-          safety_warning: 'Subject to doctor approval. Not a prescription.',
+          title: `${med.drug} [${med.rule_source_id}]`,
+          recommendation: formatMedicationLine(med),
+          safety_warning:
+            med.signature_status === 'SIGNED'
+              ? 'Subject to doctor approval. Not a prescription.'
+              : 'UNSIGNED FORMULARY ENTRY — not reviewed by a registered practitioner. Not for clinical use.',
           status: 'ai_suggested'
         }))
       ];
