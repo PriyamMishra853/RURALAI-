@@ -23,6 +23,10 @@ export const retrieveClinicalProtocols = async (queryText, limit = 3) => {
         const res = await qdrantClient.query(COLLECTION_NAME, {
           query: queryVector,
           limit,
+          // Without with_payload the points come back as bare ids and scores,
+          // so every protocol rendered as the generic default title and the
+          // retrieved guidance was empty — the LLM was being handed nothing.
+          with_payload: true,
           filter: { must: [{ key: 'approved', match: { value: true } }] }
         });
         const points = res?.points || [];

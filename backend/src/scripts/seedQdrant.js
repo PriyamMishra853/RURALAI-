@@ -2,9 +2,16 @@ import dotenv from 'dotenv';
 dotenv.config();
 import { QdrantClient } from '@qdrant/js-client-rest';
 
+if (!process.env.QDRANT_CLUSTER_ENDPOINT && !process.env.QDRANT_URL) {
+  console.error('Set QDRANT_CLUSTER_ENDPOINT (or QDRANT_URL) and QDRANT_API_KEY in backend/.env');
+  process.exit(1);
+}
+
+// No hardcoded fallbacks. This file previously carried a live cluster URL and
+// API key as defaults, in a public repository.
 const client = new QdrantClient({
-  url: process.env.QDRANT_URL || 'https://cc6c04a5-4d82-4ada-83db-a20f1cddccb6.sa-east-1-0.aws.cloud.qdrant.io',
-  apiKey: process.env.QDRANT_API_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6ZTM3ZmIxMjUtN2ZhOC00M2ViLTk2MGEtNTE0NmMwYWVmYjQzIn0.KRdeO2ajvAdbzYlg1i7_0pQXdlGWnLIyjH2YKOxGwdQ',
+  url: process.env.QDRANT_CLUSTER_ENDPOINT || process.env.QDRANT_URL,
+  apiKey: process.env.QDRANT_API_KEY,
   checkCompatibility: false
 });
 
@@ -12,7 +19,7 @@ const COLLECTION_NAME = 'clinical_protocols';
 
 async function seedQdrant() {
   try {
-    console.log(`📡 Connecting to Qdrant Cloud at ${process.env.QDRANT_URL}...`);
+    console.log('📡 Connecting to Qdrant Cloud...');
 
     // 1. Create collection if not exists
     try {
@@ -25,6 +32,23 @@ async function seedQdrant() {
       console.log(`📦 Created collection '${COLLECTION_NAME}'`);
     } catch (e) {
       console.log(`Note on collection creation: ${e.message}`);
+    }
+
+    // A payload index is REQUIRED before Qdrant will filter on a field.
+    // Without it, `filter: { must: [{ key: 'approved', ... }] }` returns
+    // 400 "Index required but not found", the whole vector-search block throws,
+    // and retrieval silently falls through to the keyword store — so the
+    // approved-only safety filter never actually applies. Plan §D.1 requires
+    // that only protocols tagged approved are retrievable.
+    try {
+      await client.createPayloadIndex(COLLECTION_NAME, {
+        field_name: 'approved',
+        field_schema: 'bool',
+        wait: true
+      });
+      console.log("🔎 Created payload index on 'approved'");
+    } catch (e) {
+      console.log(`Note on payload index: ${e.message}`);
     }
 
     // 2. Sample MoHFW Clinical Protocols

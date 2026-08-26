@@ -87,7 +87,10 @@ export const config = {
     apiKey: process.env.GROQ_API_KEY,
   },
   qdrant: {
-    url: process.env.QDRANT_URL,
+    // QDRANT_CLUSTER_ENDPOINT wins: it is the name the Qdrant Cloud console
+    // uses, and QDRANT_URL has already been left pointing at a decommissioned
+    // cluster once. Whichever is set and reachable should be the one used.
+    url: process.env.QDRANT_CLUSTER_ENDPOINT || process.env.QDRANT_URL,
     apiKey: process.env.QDRANT_API_KEY,
   },
   gemini: {

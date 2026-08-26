@@ -203,6 +203,31 @@ second, so real short utterances survive.
 
 ---
 
+## Batch 7 — RAG restored, and the safety filter that never ran ✅
+
+New Qdrant cluster supplied. It was set as `QDRANT_CLUSTER_ENDPOINT` while
+`QDRANT_URL` still held the decommissioned cluster, so config now prefers the
+former and falls back to the latter.
+
+**Two bugs behind the empty retrieval:**
+
+1. **The `approved = true` filter has never worked. 🚨** Qdrant refuses to
+   filter on a payload field with no index: `400 Index required but not found
+   for "approved"`. That threw inside the vector-search block, which was caught
+   and silently fell through to the keyword store — so the filter restricting
+   retrieval to approved protocols (plan §D.1) was never applied. The seed
+   script now creates the payload index.
+2. **The query never asked for the payload.** Points came back as bare ids and
+   scores, so every protocol rendered with the generic default title and empty
+   content — the model was being handed nothing. Added `with_payload: true`.
+
+Also removed a **hardcoded Qdrant cluster URL and API key** that sat as
+defaults in `seedQdrant.js`, in a public repository.
+
+**All 7 pipelines now pass**, 87 tests green.
+
+---
+
 ## Known gaps
 
 | Gap | Detail |
@@ -212,7 +237,7 @@ second, so real short utterances survive.
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
 | **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
 | **Database has no schema** 🚨 | 0 of 28 tables exist, and 0 auth users had existed. Run `database/apply_all.sql` in the Supabase SQL Editor, then `npm run seed:staff`. This blocks login, RAG retrieval, and every clinical route |
-| **Qdrant cluster dead** | The URL in the public README 404s. RAG falls back to Supabase protocol tables, which need seeding |
+| **Only 3 protocols seeded** | The corpus holds 3 demo protocols from `seedQdrant.js`. A real MoHFW STG corpus, physician-reviewed, is still needed — plan §D.1 and §J.5 #17 |
 | **Video still on ZegoCloud** | LiveKit credentials are configured and reachable, but the video path still runs on ZegoCloud plus the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; migrating is a separate, unmade decision |
 | **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |
 | **Thresholds unvalidated** | NEWS2/IMNCI-derived but not reviewed for this deployment. The app carries no "not for clinical use" notice yet — plan §J.5 item 22 |
