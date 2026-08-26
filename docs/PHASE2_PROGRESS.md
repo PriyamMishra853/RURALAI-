@@ -103,6 +103,43 @@ Two behaviours worth knowing before the demo:
 
 ---
 
+## Batch 5 — Live credentials wired ✅
+
+Credentials supplied 2026-08-26. They arrived in `.env.example`, which is
+tracked by git, so they were moved to `backend/.env` (gitignored, verified with
+`git check-ignore`) and the template was restored to placeholders before any
+commit. **Nothing leaked into git.**
+
+`npm run check` added — a live connectivity script, deliberately outside the
+Jest suite so CI stays free and deterministic. Current state:
+
+| Service | Status |
+|---|---|
+| Supabase Auth | ✅ reachable |
+| Supabase schema | ❌ **0 of 28 tables exist — the project is empty** |
+| Groq (assessment + Whisper) | ✅ 14 models |
+| Gemini (wound vision) | ✅ 50 models |
+| Qdrant (protocol corpus) | ❌ HTTP 404 — the hackathon cluster is gone |
+| LiveKit | ✅ endpoint reachable |
+
+Two findings worth recording:
+
+1. **The check script initially reported the empty database as healthy.** A
+   Supabase `select('*', { head: true, count: 'exact' })` against a table that
+   does not exist returns **no error**. Replaced with a real row select. Do not
+   simplify it back — the comment in the script says so too.
+2. **Migration 001 had a live loophole.** Its grandfather clause exempted rows
+   created before a cutoff date, which on a fresh database exempts everything
+   inserted today. Removed; the constraint is now unconditional.
+
+`database/apply_all.sql` combines the schema and migration 001 into one file to
+paste into the Supabase SQL Editor.
+
+Qdrant being down is not blocking: `ragEngine.js` already falls back to the
+Supabase-hosted `clinical_protocols` tables, which the schema defines.
+
+---
+
 ## Known gaps
 
 | Gap | Detail |
@@ -111,7 +148,9 @@ Two behaviours worth knowing before the demo:
 | **Helmet CSP disabled** | The default policy blocks the SPA's own bundle. Needs a real per-directive policy, not left off |
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
 | **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
-| **DB medication constraint not applied** | `database/migrations/001_medication_rule_source.sql` is written but unapplied; the database was unreachable |
+| **Database has no schema** | 0 of 28 tables exist. Run `database/apply_all.sql` in the Supabase SQL Editor. Nothing clinical works until then |
+| **Qdrant cluster dead** | The URL in the public README 404s. RAG falls back to Supabase protocol tables, which need seeding |
+| **Video still on ZegoCloud** | LiveKit credentials are configured and reachable, but the video path still runs on ZegoCloud plus the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; migrating is a separate, unmade decision |
 | **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |
 | **Thresholds unvalidated** | NEWS2/IMNCI-derived but not reviewed for this deployment. The app carries no "not for clinical use" notice yet — plan §J.5 item 22 |
 | **Leaked credentials** | `README.md` commits `ZEGOCLOUD_SERVER_SECRET` in plaintext. Rotate before any public demonstration |

@@ -12,8 +12,10 @@
 ALTER TABLE ai_recommendations
   ADD COLUMN IF NOT EXISTS rule_source_id VARCHAR(64);
 
--- Existing rows predate the formulary and cannot be retro-attributed, so the
--- constraint is scoped to rows created from here on.
+-- Strict: no grandfather clause. An earlier draft exempted rows created before
+-- a cutoff date, which on a fresh database exempts everything inserted today —
+-- a permanent hole rather than a migration aid. If this is ever applied to a
+-- database that already holds medication rows, backfill or delete them first.
 ALTER TABLE ai_recommendations
   DROP CONSTRAINT IF EXISTS medicine_requires_rule_source;
 
@@ -22,7 +24,6 @@ ALTER TABLE ai_recommendations
   CHECK (
     recommendation_type <> 'medicine'
     OR rule_source_id IS NOT NULL
-    OR created_at < '2026-08-26'::timestamptz
   );
 
 COMMENT ON CONSTRAINT medicine_requires_rule_source ON ai_recommendations IS
