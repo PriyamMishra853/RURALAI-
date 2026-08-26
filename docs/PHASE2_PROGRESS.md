@@ -345,8 +345,37 @@ condition a venue network imposes.
 
 The signaling service and `WebRTCVideoCallModal` were correct on all three.
 
-**Decision pending:** LiveKit and the custom WebRTC path both passed cleanly.
-See the open question below.
+### Decision: custom WebRTC kept, LiveKit removed
+
+Both passed, so the stated rule did not separate them. Decided on:
+
+- It is **already integrated** in all four call sites; LiveKit was wired
+  nowhere, so choosing it meant rewriting the call flow before a demo.
+- It scored **0 errors and 0 warnings**; LiveKit had one transient
+  "subscribed quality update for unknown track".
+- No SDK in the runtime path, no per-minute cost, and no third party carrying
+  patient video.
+
+Removed: `videoToken.controller.js`, the token route, the `livekit-server-sdk`
+dependency, the config block, the `.env.example` vars, the service check, and
+the LiveKit branch of the harness. `LIVEKIT_*` values were left in the local
+`.env` — inert now, and not this tool's file to edit.
+
+`npm run check` gained a **signaling ping/pong probe** in LiveKit's place, since
+`/signal` is now the piece a call cannot happen without.
+
+### 🚨 The open risk this decision carries
+
+**No TURN server is configured.** STUN alone works when both parties can reach
+each other directly, which is why the loopback test passed. It is not enough
+across carrier-grade NAT, most mobile networks, or restrictive venue wifi —
+there the call negotiates and then carries no media, which looks like a frozen
+black screen rather than an error.
+
+`VITE_TURN_URL` / `VITE_TURN_USERNAME` / `VITE_TURN_CREDENTIAL` are read by
+`WebRTCVideoCallModal` and are documented in `frontend/.env.example`. A TURN
+credential is needed before any demo spanning two networks. `npm run check`
+now reports its absence as a warning rather than staying silent.
 
 ---
 

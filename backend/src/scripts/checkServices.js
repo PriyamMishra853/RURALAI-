@@ -102,15 +102,33 @@ await check('Qdrant — protocol corpus', false, async () => {
   return names.length ? `collections: ${names.join(', ')}` : 'reachable, no collections yet';
 });
 
-await check('LiveKit — video', false, async () => {
-  const url = requireEnv(process.env.LIVEKIT_URL, 'LIVEKIT_URL');
-  requireEnv(process.env.LIVEKIT_API_KEY, 'LIVEKIT_API_KEY');
-  requireEnv(process.env.LIVEKIT_API_SECRET, 'LIVEKIT_API_SECRET');
-  const httpUrl = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-  const res = await fetch(httpUrl, { method: 'GET' });
-  // LiveKit's root returns 200 with "OK" for a healthy deployment.
-  if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
-  return `endpoint reachable (HTTP ${res.status})`;
+await check('Signaling — WebRTC /signal', true, async () => {
+  // Video is peer-to-peer WebRTC signalled over this app's own WebSocket.
+  // If /signal does not accept a connection, no call can be set up at all.
+  const { WebSocketServer, WebSocket } = await import('ws');
+  void WebSocketServer;
+  const port = config.port || 5000;
+  return await new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/signal`);
+    const timer = setTimeout(() => { ws.terminate(); reject(new Error('no response within 5s — is the server running?')); }, 5000);
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ type: 'ping', roomId: 'healthcheck' }));
+    });
+    ws.on('message', (raw) => {
+      clearTimeout(timer);
+      const msg = JSON.parse(raw.toString());
+      ws.close();
+      resolve(msg.type === 'pong' ? 'ping/pong OK' : `unexpected reply: ${msg.type}`);
+    });
+    ws.on('error', (e) => { clearTimeout(timer); reject(new Error(e.message)); });
+  });
+});
+
+await check('TURN relay', false, async () => {
+  if (!process.env.VITE_TURN_URL && !process.env.TURN_URL) {
+    throw new Error('no TURN server configured — calls between different networks may carry no media');
+  }
+  return process.env.VITE_TURN_URL || process.env.TURN_URL;
 });
 
 await check('Model availability', true, async () => {

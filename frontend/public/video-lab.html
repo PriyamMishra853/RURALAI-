@@ -25,7 +25,6 @@
  * Isolated 1:1 call test harness. Not part of the application.
  *
  * Query params:
- *   impl = webrtc | livekit
  *   role = a | b        (distinct identities in the same room)
  *   room = <room id>
  *
@@ -180,53 +179,9 @@ async function runWebRTC() {
   };
 }
 
-/* ─────────────────────────── LiveKit ─────────────────────────── */
-async function runLiveKit() {
-  const LK = await import('https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.esm.mjs');
-  log('livekit-client loaded');
-
-  // Real token from the real backend using the configured credentials.
-  const auth = await fetch('/api/auth/login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'assistant@clinic.org', password: 'Assist@123' })
-  }).then(r => r.json());
-
-  const res = await fetch('/api/calls/video-token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
-    body: JSON.stringify({ room: ROOM, identity: `role-${ROLE}` })
-  });
-  const t = await res.json();
-  if (!res.ok) { lab.errors.push('token endpoint: ' + (t.error || res.status)); log('token FAILED', 'err'); return; }
-  log(`token issued for ${t.url}`, 'ok');
-
-  const room = new LK.Room({ adaptiveStream: true, dynacast: true });
-  lab.room = room;
-
-  room.on(LK.RoomEvent.Connected, () => { lab.connected = true; log('room connected', 'ok'); });
-  room.on(LK.RoomEvent.Disconnected, (r) => log(`room disconnected: ${r}`, 'warn'));
-  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
-    log(`subscribed remote ${track.kind}`, 'ok');
-    if (track.kind === 'video') lab.remoteVideo = true;
-    if (track.kind === 'audio') lab.remoteAudio = true;
-    const el = document.getElementById('remote');
-    track.attach(el);
-  });
-
-  await room.connect(t.url, t.token);
-
-  const local = syntheticStream();
-  document.getElementById('local').srcObject = local;
-  for (const track of local.getTracks()) {
-    await room.localParticipant.publishTrack(track);
-  }
-  log(`published ${local.getTracks().length} local tracks`, 'ok');
-}
-
 (async () => {
   try {
-    if (IMPL === 'livekit') await runLiveKit();
-    else await runWebRTC();
+    await runWebRTC();
   } catch (err) {
     lab.errors.push('fatal: ' + err.message);
     log('FATAL: ' + err.message, 'err');

@@ -108,12 +108,6 @@ export const config = {
   resend: {
     apiKey: process.env.RESEND_API_KEY,
   },
-  // ZegoCloud was removed after evaluation — see docs/PHASE2_PROGRESS.md.
-  livekit: {
-    url: process.env.LIVEKIT_URL,
-    apiKey: process.env.LIVEKIT_API_KEY,
-    apiSecret: process.env.LIVEKIT_API_SECRET,
-  }
 };
 
 /**
