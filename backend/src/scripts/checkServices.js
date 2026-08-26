@@ -113,6 +113,16 @@ await check('LiveKit — video', false, async () => {
   return `endpoint reachable (HTTP ${res.status})`;
 });
 
+await check('Model availability', true, async () => {
+  const { verifyModelsAvailable } = await import('../config/models.js');
+  const checks = await verifyModelsAvailable();
+  const dead = checks.filter((c) => !c.available);
+  if (dead.length) {
+    throw new Error(dead.map((d) => `${d.model} (${d.provider}) ${d.detail}`).join(' | '));
+  }
+  return checks.map((c) => c.model).join(', ');
+});
+
 await check('Formulary signature gate', true, async () => {
   const { isFormularySigned } = await import('../data/formulary.js');
   const requiring =

@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js';
+import { GEMINI_VISION_MODEL, GROQ_TEXT_MODEL } from '../config/models.js';
 import { groq } from '../config/groq.js';
 import { geminiGenerateJson } from '../config/gemini.js';
 
@@ -7,7 +8,7 @@ import { geminiGenerateJson } from '../config/gemini.js';
  *
  * Order of engines:
  *  1. Gemini 2.5 Flash multimodal (reads the image directly)
- *  2. Tesseract.js OCR -> Groq llama-3.3 text structuring
+ *  2. Tesseract.js OCR -> Groq text structuring (see config/models.js)
  *
  * SAFETY: if every engine fails, this returns an explicit failure record
  * (needs_manual_entry: true). It NEVER invents medications or diagnoses —
@@ -56,7 +57,7 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
     if (parsed && (parsed.raw_text_summary || parsed.medications)) {
       structuredData = normalize(parsed);
       rawText = parsed.raw_text_summary || '';
-      engine = 'gemini-2.5-flash';
+      engine = GEMINI_VISION_MODEL;
       console.log('✅ Gemini vision OCR extracted the document.');
     }
   }
@@ -77,7 +78,7 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
     if (rawText.trim().length >= 20 && groq) {
       try {
         const response = await groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
+          model: GROQ_TEXT_MODEL,
           temperature: 0.1,
           response_format: { type: 'json_object' },
           messages: [
@@ -92,7 +93,7 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
         const parsed = JSON.parse(response.choices[0].message.content);
         if (parsed) {
           structuredData = normalize(parsed);
-          engine = 'tesseract+llama-3.3-70b';
+          engine = `tesseract+${GROQ_TEXT_MODEL}`;
           console.log('✅ Groq structured the Tesseract OCR text.');
         }
       } catch (llmErr) {
@@ -115,7 +116,7 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
     raw_text: rawText,
     extracted_data: structuredData,
     ocr_engine: engine,
-    confidence: engine === 'gemini-2.5-flash' ? 0.9 : 0.7,
+    confidence: engine === GEMINI_VISION_MODEL ? 0.9 : 0.7,
     needs_manual_entry: false
   };
 };

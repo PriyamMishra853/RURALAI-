@@ -1,4 +1,5 @@
 import { groq } from '../config/groq.js';
+import { GROQ_TEXT_MODEL } from '../config/models.js';
 import { retrieveClinicalProtocols } from './ragEngine.js';
 import { calculateRiskLevel } from './riskEngine.js';
 import { assertRuleSourced, formatMedicationLine, selectMedications } from './formularyService.js';
@@ -172,7 +173,7 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
   } else {
     try {
       const chatCompletion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: GROQ_TEXT_MODEL,
         temperature: 0.1,
         response_format: { type: 'json_object' },
         messages: [
@@ -195,7 +196,7 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
           ...parsed,
           risk_level: finalRiskLevel,
           warnings: Array.from(new Set([...(parsed.warnings || []), ...riskWarnings])),
-          generated_by: 'groq-llama-3.3-70b'
+          generated_by: `groq:${GROQ_TEXT_MODEL}`
         };
       } else {
         degradedReason = 'LLM response did not match the required schema';

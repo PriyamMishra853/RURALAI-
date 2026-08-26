@@ -140,6 +140,69 @@ Supabase-hosted `clinical_protocols` tables, which the schema defines.
 
 ---
 
+## Batch 6 — Every pipeline exercised against live providers ✅
+
+`npm run check:pipelines` pushes real input through each pipeline and inspects
+the output — separate from `npm run check`, which only proves reachability.
+
+| Pipeline | Status |
+|---|---|
+| Triage rule engine | ✅ empty→MEDIUM, SpO₂ 0→HIGH + referral |
+| Formulary rules engine | ✅ HIGH→0 meds, LOW→1, all rule-sourced |
+| RAG protocol retrieval | ❌ 0 protocols — needs the database |
+| Assessment (Groq) | ✅ `groq:openai/gpt-oss-120b` |
+| OCR (Tesseract) | ✅ plumbing verified on a synthetic fixture |
+| Vision (Gemini) | ✅ correctly refused a featureless image, floored at MEDIUM |
+| Speech (Whisper) | ✅ silence correctly rejected |
+
+### Three real bugs this found
+
+**1. The assessment model was decommissioned. 🚨**
+`llama-3.3-70b-versatile` no longer exists at Groq — every call returned 404 and
+each service silently fell back to its non-AI path. The model name was hardcoded
+in three separate files, so nothing failed loudly. Now centralised in
+`config/models.js` (env-overridable), running `openai/gpt-oss-120b`, and
+`npm run check` verifies each configured model still exists at its provider.
+
+`ai.controller.js` also string-matched the dead model name to decide
+`model_provider`, so every assessment was being recorded as `RuleEngine`.
+
+Worth noting: the degraded-fails-safe rule from Batch 1 caught this in the
+wild. With the model dead the pipeline returned MEDIUM rather than LOW.
+
+**2. The speech service fabricated clinical data in three places. 🚨**
+`speechService.js` substituted a fixed Hindi sentence — *"patient has high
+fever, dry cough and body pain for 3 days"* — whenever transcription produced
+nothing, defaulted `extracted_symptoms` to fever + cough + body pain, and
+returned those same invented symptoms from its outer catch.
+
+"fever" plus "cough" is a MEDIUM-tier rule in `riskEngine.js`, so **a silent or
+failed recording could produce a fully triaged case describing a patient who
+does not exist.** Rewritten: nothing is invented, and an unusable recording
+returns `ok: false` with a reason the assistant sees.
+
+**3. Whisper hallucinates on silence.**
+One second of digital silence transcribed as `"www.pengali.com"`, then
+`"Thank you."` on a later run — with `no_speech_prob: 0`, i.e. fully confident
+in speech that does not exist. `no_speech_prob` is therefore unusable here. The
+reliable signal is structural: Whisper pads short audio to a 30-second window
+and labels the whole window when hallucinating, so a segment ending far past the
+reported duration is the artifact. Genuine one-second speech ends at about one
+second, so real short utterances survive.
+
+### Not bugs, checked and cleared
+
+- **OCR** reads `"FHRHCE THMOL SEE MiG"` from the test fixture. That is the
+  fixture's fault, not the pipeline's — it is a hand-drawn 5×7 bitmap font,
+  since sharp's native binary will not install on this machine. The pipeline
+  produces text and structured output correctly. Real accuracy still needs real
+  document samples (§J.3 #8).
+- **Vision** returned `analysis_possible=false, engine=none` for a featureless
+  image — it correctly declined to score it and floored at MEDIUM, which is the
+  intended fail-safe.
+
+---
+
 ## Known gaps
 
 | Gap | Detail |
@@ -148,7 +211,7 @@ Supabase-hosted `clinical_protocols` tables, which the schema defines.
 | **Helmet CSP disabled** | The default policy blocks the SPA's own bundle. Needs a real per-directive policy, not left off |
 | **Access control is app-layer only** | There are no RLS policies yet. Every check lives in `authorizeRoles`, so one missing guard is a breach. Plan §B.5 |
 | **Formulary is unsigned** | The mechanism is built and enforced, but every entry is `UNSIGNED_PLACEHOLDER`. **Blocked on a registered medical practitioner, not on code** — plan §J.5 #15 |
-| **Database has no schema** | 0 of 28 tables exist. Run `database/apply_all.sql` in the Supabase SQL Editor. Nothing clinical works until then |
+| **Database has no schema** 🚨 | 0 of 28 tables exist, and 0 auth users had existed. Run `database/apply_all.sql` in the Supabase SQL Editor, then `npm run seed:staff`. This blocks login, RAG retrieval, and every clinical route |
 | **Qdrant cluster dead** | The URL in the public README 404s. RAG falls back to Supabase protocol tables, which need seeding |
 | **Video still on ZegoCloud** | LiveKit credentials are configured and reachable, but the video path still runs on ZegoCloud plus the custom WebRTC signaling service. Plan §E.2 recommends LiveKit; migrating is a separate, unmade decision |
 | **LOW-tier dispensing policy undecided** | Plan §D.2 flags the conflict with the NMC Telemedicine Practice Guidelines 2020: may an assistant dispense before the doctor's daily review, or must approval come first? Still open |

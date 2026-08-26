@@ -1,4 +1,5 @@
 import { geminiGenerateJson } from '../config/gemini.js';
+import { GEMINI_VISION_MODEL } from '../config/models.js';
 
 /**
  * Computer Vision Assessment for Wounds and Clinical Photos.
@@ -69,7 +70,7 @@ export const analyzeInjuryImage = async (imageBuffer, mimeType = 'image/jpeg') =
         ...(Array.isArray(parsed.warnings) ? parsed.warnings : []),
         'This computer-vision observation is non-diagnostic. Final clinical judgement rests with the reviewing doctor.'
       ],
-      engine: 'gemini-2.5-flash'
+      engine: GEMINI_VISION_MODEL
     };
   }
 

@@ -13,6 +13,9 @@ export const transcribeSpeech = async (req, res) => {
     const file = req.file;
 
     const result = await transcribeAndExtractSymptoms(file ? file.buffer : null, language);
+    // ok:false means nothing usable was captured. It is returned as 200 with an
+    // explicit reason rather than an error, because the assistant needs to see
+    // why and retry — but the payload never carries a substitute transcript.
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ error: 'Speech transcription failed', details: error.message });
@@ -147,7 +150,7 @@ export const analyzePatientCase = async (req, res) => {
 
     const aiAssessmentRecord = {
       visit_id: visit_id,
-      model_provider: aiResult.generated_by === 'groq-llama-3.3-70b' ? 'Groq' : 'RuleEngine',
+      model_provider: String(aiResult.generated_by || '').startsWith('groq:') ? 'Groq' : 'RuleEngine',
       model_name: aiResult.generated_by || 'rule-engine-fallback',
       processing_status: 'completed',
       patient_summary: aiResult.patient_summary || 'Patient Assessment Summary',

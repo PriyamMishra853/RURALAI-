@@ -100,7 +100,7 @@ describe('degraded AI fails safe to MEDIUM', () => {
 
     expect(result.degraded).toBe(false);
     expect(result.risk_level).toBe('LOW');
-    expect(result.generated_by).toBe('groq-llama-3.3-70b');
+    expect(result.generated_by).toMatch(/^groq:/);
   });
 });
 

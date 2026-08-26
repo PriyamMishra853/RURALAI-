@@ -145,7 +145,12 @@ export default function PatientAssessmentVisitPage() {
           });
           if (res.data.transcript) {
             setSymptomsText(res.data.transcript);
-            setDetectedLanguage(res.data.detected_language || 'Hindi (Detected)');
+            setDetectedLanguage(res.data.detected_language || 'Detected');
+          } else if (res.data.reason) {
+            // Never leave the assistant guessing. The backend deliberately
+            // returns no transcript rather than a plausible substitute, so the
+            // symptom field stays untouched and the reason is shown instead.
+            setDetectedLanguage(res.data.reason);
           }
         } catch (err) {
           console.warn('Voice API fallback to SpeechRecognition:', err.message);
