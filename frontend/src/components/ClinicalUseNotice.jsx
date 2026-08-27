@@ -26,16 +26,16 @@ export default function ClinicalUseNotice({ variant = 'card', className = '' }) 
       aria-label="Clinical use notice"
       className={
         (isStrip
-          ? 'w-full border-b border-amber-300 bg-amber-50 px-4 lg:px-8 py-3'
-          : 'rounded-lg border border-amber-300 bg-amber-50 p-3') + ' ' + className
+          ? 'w-full border-b border-tier-moderate/40 bg-tier-moderateBg px-4 lg:px-8 py-3'
+          : 'rounded-field border border-tier-moderate/40 bg-tier-moderateBg p-3') + ' ' + className
       }
     >
       <div
         className={
-          (isStrip ? 'max-w-7xl mx-auto ' : '') + 'flex items-start gap-2.5 text-amber-900'
+          (isStrip ? 'max-w-7xl mx-auto ' : '') + 'flex items-start gap-2.5 text-tier-moderate'
         }
       >
-        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" aria-hidden="true" />
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-tier-moderate" aria-hidden="true" />
         <p className="text-xs leading-relaxed">
           <strong className="font-bold uppercase tracking-wide">Not for clinical use.</strong>{' '}
           This is a demonstration system. Its triage thresholds and medication list are drawn from

@@ -1,56 +1,198 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Noto+Serif:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-main: #f8fafc;
-  --bg-card: #ffffff;
-  --text-main: #0f172a;
-  --text-muted: #64748b;
-  --border-color: #e2e8f0;
-  --primary-accent: #2563eb;
-  --primary-hover: #1d4ed8;
+/**
+ * Theme tokens.
+ *
+ * Light and dark are one set of names with two sets of values, so a component
+ * never writes a hex code and can never be correct in one theme and broken in
+ * the other. Dark is a genuine dark palette — desaturated navy, not inverted
+ * grey — because inverted greys make the triage reds vibrate.
+ */
+
+@layer base {
+  :root {
+    /* Institutional navy — India government service blue */
+    --gov-50: 239 246 255;
+    --gov-100: 219 234 254;
+    --gov-200: 191 219 254;
+    --gov-300: 147 197 253;
+    --gov-400: 96 165 250;
+    --gov-500: 37 108 190;
+    --gov-600: 17 78 152;
+    --gov-700: 11 60 120;
+    --gov-800: 9 46 91;
+    --gov-900: 11 46 91;
+    --gov-950: 5 25 50;
+
+    --saffron-400: 251 176 64;
+    --saffron-500: 243 146 17;
+    --saffron-600: 214 118 8;
+
+    /* Surfaces */
+    --surface: 255 255 255;
+    --surface-raised: 255 255 255;
+    --surface-sunken: 246 248 251;
+    --surface-overlay: 255 255 255;
+
+    /* Text */
+    --ink: 15 32 55;
+    --ink-muted: 82 100 124;
+    --ink-subtle: 130 146 168;
+    --ink-inverse: 255 255 255;
+
+    /* Lines */
+    --line: 223 230 239;
+    --line-strong: 197 208 222;
+
+    /* Triage ramp — reserved meanings */
+    --tier-low: 21 128 61;
+    --tier-low-bg: 240 253 244;
+    --tier-moderate: 180 83 9;
+    --tier-moderate-bg: 255 251 235;
+    --tier-high: 194 65 12;
+    --tier-high-bg: 255 247 237;
+    --tier-emergency: 190 18 60;
+    --tier-emergency-bg: 255 241 242;
+
+    --shadow-card:    0 1px 2px rgb(15 32 55 / 0.06), 0 1px 3px rgb(15 32 55 / 0.04);
+    --shadow-raised:  0 4px 12px rgb(15 32 55 / 0.08), 0 2px 4px rgb(15 32 55 / 0.04);
+    --shadow-overlay: 0 20px 48px rgb(15 32 55 / 0.18);
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --gov-50: 11 25 43;
+    --gov-100: 16 36 60;
+    --gov-200: 23 52 85;
+    --gov-300: 35 76 122;
+    --gov-400: 74 132 200;
+    --gov-500: 106 163 226;
+    --gov-600: 138 187 240;
+    --gov-700: 176 211 248;
+    --gov-800: 208 230 252;
+    --gov-900: 232 243 255;
+    --gov-950: 246 250 255;
+
+    --saffron-400: 251 191 108;
+    --saffron-500: 247 168 62;
+    --saffron-600: 240 146 30;
+
+    --surface: 13 22 36;
+    --surface-raised: 19 31 49;
+    --surface-sunken: 9 16 27;
+    --surface-overlay: 24 38 58;
+
+    --ink: 228 236 246;
+    --ink-muted: 154 172 195;
+    --ink-subtle: 111 130 155;
+    --ink-inverse: 13 22 36;
+
+    --line: 36 52 74;
+    --line-strong: 54 74 100;
+
+    /* Re-tuned, not inverted: lifted lightness so red stays alarming on a dark
+       ground without the halation that pure red produces. */
+    --tier-low: 74 201 126;
+    --tier-low-bg: 15 46 33;
+    --tier-moderate: 247 187 74;
+    --tier-moderate-bg: 56 41 12;
+    --tier-high: 255 149 84;
+    --tier-high-bg: 62 32 14;
+    --tier-emergency: 255 106 133;
+    --tier-emergency-bg: 68 18 32;
+
+    --shadow-card:    0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-raised:  0 4px 14px rgb(0 0 0 / 0.45);
+    --shadow-overlay: 0 24px 56px rgb(0 0 0 / 0.6);
+
+    color-scheme: dark;
+  }
+
+  * { border-color: rgb(var(--line)); }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    @apply bg-surface-sunken text-ink font-sans antialiased;
+    /* Theme switches should not flash; colour is the only thing animated. */
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* Visible focus everywhere. A clinical tool gets used by keyboard far more
+     than a consumer app, and an invisible focus ring is an accessibility bug. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-gov-500 ring-offset-2;
+    --tw-ring-offset-color: rgb(var(--surface));
+  }
+
+  /* Respect the OS setting. Motion is decoration here, never information. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Number inputs: the spinners are a liability on a vitals form, where a
+     stray scroll can silently change a recorded pulse. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] { -moz-appearance: textfield; }
 }
 
-body {
-  background-color: var(--bg-main);
-  color: var(--text-main);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  min-height: 100vh;
-  margin: 0;
+@layer components {
+  /* The one place a raw surface + border + shadow combination is defined. */
+  .card {
+    @apply bg-surface-raised border border-line rounded-card shadow-card;
+  }
+
+  .field {
+    @apply w-full bg-surface border border-line rounded-field px-3 py-2 text-sm
+           text-ink placeholder:text-ink-subtle
+           focus:border-gov-500 focus:outline-none
+           disabled:bg-surface-sunken disabled:text-ink-subtle transition-colors;
+  }
+
+  .label {
+    @apply block text-xs font-semibold text-ink-muted mb-1.5;
+  }
+
+  /* Government services carry a tricolour rule under the masthead. */
+  .tricolour-rule {
+    background: linear-gradient(
+      to right,
+      rgb(var(--saffron-500)) 0 33.33%,
+      rgb(var(--surface-raised)) 33.33% 66.66%,
+      rgb(var(--tier-low)) 66.66% 100%
+    );
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-surface-sunken;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 animate-shimmer;
+    background: linear-gradient(90deg, transparent, rgb(var(--line) / 0.6), transparent);
+    transform: translateX(-100%);
+  }
 }
 
-/* Unified Design Tokens */
-.medical-card {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-}
+@layer utilities {
+  /* Wide content (tables, slot grids) scrolls inside its own box; the page
+     body must never scroll sideways on a phone. */
+  .scroll-x { @apply overflow-x-auto; -webkit-overflow-scrolling: touch; }
 
-.glass-panel, .glass-card {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }

@@ -1,9 +1,13 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { RealtimeProvider } from './context/RealtimeContext';
+import { ThemeProvider } from './context/ThemeContext';
 
-import SidebarLayout from './components/SidebarLayout';
-import CursorGradient from './components/CursorGradient';
+import AppShell from './components/AppShell';
+import RequireRole from './components/RequireRole';
+import ErrorBoundary from './components/ErrorBoundary';
+import { ROLES, ADMIN_ROLES } from './config/roles';
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -16,90 +20,78 @@ import DoctorQueueDashboard from './pages/DoctorQueueDashboard';
 import DoctorCaseViewPage from './pages/DoctorCaseViewPage';
 
 import AdminDashboard from './pages/AdminDashboard';
+import CallPage from './pages/CallPage';
 
-function ProtectedRoute({ children, allowedRoles }) {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-}
+/**
+ * Route table.
+ *
+ * The clinical routes previously listed 'ADMIN' alongside CLINIC_ASSISTANT and
+ * DOCTOR, which contradicted the spec's "Admin cannot edit patient data" — and
+ * contradicted the backend, which blocks every admin role from those endpoints.
+ * No admin role appears on a clinical route below.
+ */
+
+const ASSISTANT_ONLY = [ROLES.CLINIC_ASSISTANT];
+const DOCTOR_ONLY = [ROLES.DOCTOR];
+const OVERSIGHT = [...ADMIN_ROLES, ROLES.AUDITOR];
 
 export default function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
+      <RealtimeProvider>
       <div className="min-h-screen relative font-sans">
-        {/* Interactive Cursor-Following Radial Gradient */}
-        <CursorGradient />
 
-        <SidebarLayout>
+        <AppShell>
+          {/* A crash in one page must not blank the whole app. */}
+          <ErrorBoundary label="This page">
           <Routes>
-            {/* Public Routes */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
-            {/* No public /register. Staff accounts are created by an Admin
-                via the admin console — see docs/PHASE1_PRODUCTION_READINESS_PLAN.md §C.3. */}
+            {/*
+              There is deliberately no /register route. Doctor and clinic
+              assistant accounts are created by an administrator through the
+              admin console; the API has no registration endpoint to call.
+            */}
 
-            {/* Clinic Assistant Routes */}
-            <Route
-              path="/assistant/dashboard"
-              element={
-                <ProtectedRoute allowedRoles={['CLINIC_ASSISTANT', 'ADMIN']}>
-                  <AssistantDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/assistant/patients/new"
-              element={
-                <ProtectedRoute allowedRoles={['CLINIC_ASSISTANT', 'ADMIN']}>
-                  <PatientRegistrationPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/assistant/assessment/:id"
-              element={
-                <ProtectedRoute allowedRoles={['CLINIC_ASSISTANT', 'ADMIN']}>
-                  <PatientAssessmentVisitPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/assistant/dashboard" element={
+              <RequireRole roles={ASSISTANT_ONLY}><AssistantDashboard /></RequireRole>
+            } />
+            <Route path="/assistant/patients/new" element={
+              <RequireRole roles={ASSISTANT_ONLY}><PatientRegistrationPage /></RequireRole>
+            } />
+            <Route path="/assistant/assessment/:id" element={
+              <RequireRole roles={ASSISTANT_ONLY}><PatientAssessmentVisitPage /></RequireRole>
+            } />
 
-            {/* Doctor Routes */}
-            <Route
-              path="/doctor/queue"
-              element={
-                <ProtectedRoute allowedRoles={['DOCTOR', 'ADMIN']}>
-                  <DoctorQueueDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/doctor/cases/:id"
-              element={
-                <ProtectedRoute allowedRoles={['DOCTOR', 'ADMIN']}>
-                  <DoctorCaseViewPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/doctor/queue" element={
+              <RequireRole roles={DOCTOR_ONLY}><DoctorQueueDashboard /></RequireRole>
+            } />
+            <Route path="/doctor/cases/:id" element={
+              <RequireRole roles={DOCTOR_ONLY}><DoctorCaseViewPage /></RequireRole>
+            } />
 
-            {/* Admin Routes */}
-            <Route
-              path="/admin/dashboard"
-              element={
-                <ProtectedRoute allowedRoles={['ADMIN']}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
+            {/* The call screen is shared: both participants of a consultation
+                reach the same route, and the server decides who may join. */}
+            <Route path="/call/:id" element={
+              <RequireRole roles={[ROLES.DOCTOR, ROLES.CLINIC_ASSISTANT]}><CallPage /></RequireRole>
+            } />
 
-            {/* Fallback Catch-all */}
+            <Route path="/admin/dashboard" element={
+              <RequireRole roles={ADMIN_ROLES}><AdminDashboard /></RequireRole>
+            } />
+            {/* Auditors reach the log view but nothing that mutates. */}
+            <Route path="/admin/audit" element={
+              <RequireRole roles={OVERSIGHT}><AdminDashboard auditOnly /></RequireRole>
+            } />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </SidebarLayout>
+          </ErrorBoundary>
+        </AppShell>
       </div>
+      </RealtimeProvider>
     </AuthProvider>
+    </ThemeProvider>
   );
 }

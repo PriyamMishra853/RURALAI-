@@ -3,9 +3,11 @@ import { transcribeAndExtractSymptoms } from '../services/speechService.js';
 import { processMedicalDocument } from '../services/ocrService.js';
 import { analyzeInjuryImage } from '../services/visionService.js';
 import { calculateRiskLevel } from '../services/riskEngine.js';
+import { interpretLabReport } from '../services/labInterpretationService.js';
 import { assertRuleSourced, formatMedicationLine } from '../services/formularyService.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
+import { ageFromDob } from '../services/patientFields.js';
 
 export const transcribeSpeech = async (req, res) => {
   try {
@@ -45,6 +47,7 @@ export const analyzePatientCase = async (req, res) => {
       symptoms,
       symptom_duration,
       medical_history,
+      known_allergies,
       vitals: directVitals,
       verified_ocr_data,
       vision_observation
@@ -64,7 +67,7 @@ export const analyzePatientCase = async (req, res) => {
     try {
       const { data: vData } = await supabaseAdmin
         .from('visits')
-        .select('id, patient_id, chief_complaint, preferred_consultation_language, status')
+        .select('id, patient_id, chief_complaint, symptom_duration, medical_history, known_allergies, current_medications, status')
         .eq('id', visit_id)
         .single();
       
@@ -79,19 +82,26 @@ export const analyzePatientCase = async (req, res) => {
       chief_complaint: symptoms || visit.chief_complaint || 'Acute Symptoms Review',
       symptoms: symptoms || visit.symptoms || 'High fever, dry cough',
       symptom_duration: symptom_duration || visit.symptom_duration || '3 days',
-      medical_history: medical_history || visit.medical_history || 'No known chronic conditions',
-      allergies: visit.allergies || 'None',
+      medical_history: medical_history || visit.medical_history || 'None reported',
+      allergies: known_allergies || visit.known_allergies || 'None reported',
+      current_medications: visit.current_medications || 'None reported',
       ...visit
     };
 
     const targetPatientId = patient_id || visit.patient_id;
     if (targetPatientId) {
       try {
-        const { data: pData } = await supabaseAdmin.from('patients').select('*').eq('id', targetPatientId).single();
+        const { data: pData } = await supabaseAdmin
+          .from('patients')
+          .select('aadhaar_number, full_name, gender, date_of_birth, village_line1, address_district')
+          .eq('aadhaar_number', targetPatientId)
+          .maybeSingle();
         if (pData) {
           patient = { ...pData, ...patient };
-          patient.name = patient.full_name || patient.name;
-          patient.age = patient.age_years || patient.age;
+          patient.name = pData.full_name;
+          // Age is derived, never stored — the triage rules key on it.
+          patient.age = ageFromDob(pData.date_of_birth);
+          patient.village = pData.village_line1;
         }
       } catch (e) {}
     }
@@ -142,96 +152,69 @@ export const analyzePatientCase = async (req, res) => {
       imageObservations: imageObservations
     });
 
-    // HIGH / MEDIUM / LOW -> DB risk_level enum (high / medium / low)
-    const safeRiskEnum = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' }[aiResult.risk_level] || 'medium';
+    /*
+     * Persist the assessment.
+     *
+     * v2 collapsed ai_assessments / ai_risk_assessments / ai_recommendations
+     * into one table. The old code still wrote the v1 shape, so every insert
+     * failed on a missing column and the assessment was returned to the screen
+     * but never saved — the doctor's queue then had a case with no assessment
+     * attached to it.
+     */
 
-    // Attach stored image URLs to the raw output the doctor portal reads
+    // The rule engine speaks HIGH/MEDIUM/LOW; the database enum is
+    // low|moderate|high|emergency. 'medium' is NOT a valid value — writing it
+    // was a silent insert failure.
+    const RISK_TO_ENUM = { HIGH: 'high', MEDIUM: 'moderate', LOW: 'low', EMERGENCY: 'emergency' };
+    const safeRiskEnum = RISK_TO_ENUM[String(aiResult.risk_level).toUpperCase()] || 'moderate';
+
+    // An emergency referral is a distinct tier in the database even though the
+    // rule engine reports it as HIGH + immediateReferral.
+    const storedRisk = aiResult.immediate_referral ? 'emergency' : safeRiskEnum;
+
     aiResult.stored_images = storedImages;
 
-    const aiAssessmentRecord = {
-      visit_id: visit_id,
-      model_provider: String(aiResult.generated_by || '').startsWith('groq:') ? 'Groq' : 'RuleEngine',
-      model_name: aiResult.generated_by || 'rule-engine-fallback',
-      processing_status: 'completed',
-      patient_summary: aiResult.patient_summary || 'Patient Assessment Summary',
-      preliminary_assessment: aiResult.risk_reasoning || 'Preliminary clinical review',
-      identified_symptoms: aiResult.key_symptoms || [],
-      identified_risk_factors: aiResult.important_history || [],
-      red_flags: aiResult.warnings || [],
-      uncertainty_notes: (aiResult.missing_information || []).join('; ') || 'None noted',
-      ai_raw_output: aiResult,
-      completed_at: new Date().toISOString()
-    };
-
-    let savedAssessmentId = null;
-    const { data: saved, error: assessErr } = await supabaseAdmin
+    const { data: savedAssessment, error: assessErr } = await supabaseAdmin
       .from('ai_assessments')
-      .insert([aiAssessmentRecord])
+      .insert([{
+        visit_id,
+        risk_level: storedRisk,
+        patient_summary: aiResult.patient_summary || null,
+        first_aid_steps: aiResult.first_aid_steps || [],
+        protocol_matches: aiResult.protocol_matches || [],
+        warnings: aiResult.warnings || [],
+        missing_information: aiResult.missing_information || [],
+        recommended_next_action: aiResult.recommended_next_action || 'DOCTOR_REVIEW',
+        requires_doctor: aiResult.requires_doctor !== false,
+        generated_by: aiResult.generated_by || 'rule-engine-fallback'
+      }])
       .select()
       .single();
+
     if (assessErr) {
+      // Loud, not silent: an assessment the doctor cannot retrieve is worse
+      // than no assessment, because the queue still shows the case as assessed.
       console.error('ai_assessments insert FAILED:', assessErr.message);
-    } else {
-      savedAssessmentId = saved.id;
     }
 
-    if (savedAssessmentId) {
-      // Risk record
-      const { error: riskErr } = await supabaseAdmin.from('ai_risk_assessments').insert([{
-        ai_assessment_id: savedAssessmentId,
-        risk_level: safeRiskEnum,
-        reason: aiResult.risk_reasoning || 'Clinical protocol evaluation',
-        red_flags: aiResult.warnings || [],
-        recommended_action: aiResult.recommended_next_action || 'DOCTOR_REVIEW'
-      }]);
-      if (riskErr) console.warn('ai_risk_assessments insert failed:', riskErr.message);
-
-      // Individual recommendations for doctor approval workflow
-      const recRows = [
-        ...(aiResult.first_aid_steps || []).map((step, i) => ({
-          ai_assessment_id: savedAssessmentId,
-          recommendation_type: 'first_aid',
-          title: `First-aid step ${i + 1}`,
-          recommendation: step,
-          status: 'ai_suggested'
-        })),
-        // Medication rows are built from the structured formulary output, never
-        // from the rendered strings, so the originating rule travels with the
-        // record. assertRuleSourced throws rather than persisting an orphan —
-        // the database constraint in database/migrations/001 is the real
-        // guarantee, this is the early and loud failure.
-        ...assertRuleSourced(aiResult.medications || []).map((med) => ({
-          ai_assessment_id: savedAssessmentId,
-          recommendation_type: 'medicine',
-          title: `${med.drug} [${med.rule_source_id}]`,
-          recommendation: formatMedicationLine(med),
-          safety_warning:
-            med.signature_status === 'SIGNED'
-              ? 'Subject to doctor approval. Not a prescription.'
-              : 'UNSIGNED FORMULARY ENTRY — not reviewed by a registered practitioner. Not for clinical use.',
-          status: 'ai_suggested'
-        }))
+    // Medication suggestions are validated even though they are not persisted
+    // as separate rows in v2 — assertRuleSourced throws on any entry that is
+    // not traceable to a formulary rule, and that check must not be skipped
+    // just because the storage shape changed.
+    try {
+      assertRuleSourced(aiResult.medications || []);
+    } catch (medErr) {
+      console.error('Formulary rule-source check failed:', medErr.message);
+      aiResult.medications = [];
+      aiResult.warnings = [
+        ...(aiResult.warnings || []),
+        'Medication suggestions were withheld: they could not be traced to a signed formulary rule.'
       ];
-      if (aiResult.immediate_referral) {
-        recRows.push({
-          ai_assessment_id: savedAssessmentId,
-          recommendation_type: 'referral',
-          title: 'Emergency hospital referral',
-          recommendation: 'Life-threatening red flags detected. Arrange emergency ambulance transfer to the district hospital.',
-          safety_warning: 'Time-critical. Alert the on-call doctor immediately.',
-          status: 'ai_suggested'
-        });
-      }
-      if (recRows.length > 0) {
-        const { error: recErr } = await supabaseAdmin.from('ai_recommendations').insert(recRows);
-        if (recErr) console.warn('ai_recommendations insert failed:', recErr.message);
-      }
     }
 
     const { error: visitErr } = await supabaseAdmin.from('visits').update({
       status: 'awaiting_doctor',
-      risk_level: safeRiskEnum,
-      risk_reason: aiResult.risk_reasoning || 'AI protocol triage'
+      risk_level: storedRisk
     }).eq('id', visit_id);
     if (visitErr) console.warn('visits risk update failed:', visitErr.message);
 
@@ -240,13 +223,13 @@ export const analyzePatientCase = async (req, res) => {
       actorRole: req.user?.role,
       action: 'AI_ASSESSMENT_GENERATED',
       entityType: 'AI_ASSESSMENTS',
-      entityId: savedAssessmentId,
+      entityId: savedAssessment?.id || null,
       metadata: { visit_id, risk_level: aiResult.risk_level }
     });
 
     return res.json({
-      assessment_id: savedAssessmentId,
-      persisted: Boolean(savedAssessmentId),
+      assessment_id: savedAssessment?.id || null,
+      persisted: Boolean(savedAssessment?.id),
       visit_id,
       ...aiResult
     });
@@ -315,5 +298,54 @@ export const analyzeImageAI = async (req, res) => {
   } catch (error) {
     console.error('Injury image analysis error:', error.message);
     return res.status(500).json({ error: 'Injury image analysis failed', details: error.message });
+  }
+};
+
+/**
+ * POST /api/ai/interpret-report
+ *
+ * Second-step interpretation of an already-transcribed lab report. The OCR
+ * pipeline only transcribes what is printed; this reasons about what the
+ * transcribed values mean together, so an assistant reviewing a report sees
+ * more than a table of numbers with no read on what they suggest.
+ */
+export const interpretReport = async (req, res) => {
+  try {
+    const { document_id, visit_id, lab_data } = req.body || {};
+    if (!lab_data || typeof lab_data !== 'object') {
+      return res.status(400).json({ error: 'lab_data (the extracted panels) is required.' });
+    }
+
+    let context = {};
+    if (visit_id) {
+      const { data: visit } = await supabaseAdmin
+        .from('visits')
+        .select('chief_complaint, patient_id')
+        .eq('id', visit_id)
+        .maybeSingle();
+      if (visit) {
+        context.chief_complaint = visit.chief_complaint;
+        const { data: patient } = await supabaseAdmin
+          .from('patients').select('date_of_birth, gender')
+          .eq('aadhaar_number', visit.patient_id).maybeSingle();
+        if (patient) {
+          context.age = ageFromDob(patient.date_of_birth);
+          context.gender = patient.gender;
+        }
+      }
+    }
+
+    const interpretation = await interpretLabReport(lab_data, context);
+
+    await logAuditEvent({
+      actorId: req.user.id, actorRole: req.user.role,
+      action: 'LAB_REPORT_INTERPRETED', entityType: 'PATIENT_DOCUMENTS',
+      entityId: document_id, metadata: { engine: interpretation.engine }, ip: req.ip
+    });
+
+    return res.json(interpretation);
+  } catch (error) {
+    console.error('Lab interpretation error:', error.message);
+    return res.status(500).json({ error: 'Lab report interpretation failed.' });
   }
 };

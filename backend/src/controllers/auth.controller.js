@@ -2,104 +2,163 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/env.js';
 import { supabase, supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
+import { ROLE_DB_TO_API, HOME_ROUTE } from '../config/roles.js';
 
-const ROLE_DB_TO_API = {
-  clinic_assistant: 'CLINIC_ASSISTANT',
-  doctor: 'DOCTOR',
-  admin: 'ADMIN'
-};
+/**
+ * There is no registration endpoint anywhere in this file, and no route file
+ * exposes one. Per spec §3.8 doctors and clinic assistants are
+ * government-assigned roles: accounts exist only because an administrator
+ * created them through POST /api/admin/users.
+ */
+
 const issueToken = (profile) =>
   jwt.sign(
     {
-      id: profile.id,
+      sub: profile.id,
+      authUserId: profile.auth_user_id,
       email: profile.email,
-      name: profile.full_name,
-      role: ROLE_DB_TO_API[profile.role] || 'CLINIC_ASSISTANT'
+      // Role is carried for convenience only. Every request re-reads it from
+      // staff_profiles in auth.middleware — a token claim is never trusted for
+      // authorisation, so an old token cannot preserve a revoked role.
+      role: ROLE_DB_TO_API[profile.role]
     },
     config.jwtSecret,
-    { expiresIn: '24h' }
+    { expiresIn: '12h' }
   );
 
-const publicUser = (profile) => ({
+const publicUser = (profile, region) => ({
   id: profile.id,
   email: profile.email,
   name: profile.full_name,
-  role: ROLE_DB_TO_API[profile.role] || 'CLINIC_ASSISTANT',
-  phone: profile.phone
+  role: ROLE_DB_TO_API[profile.role],
+  phone: profile.phone,
+  state: region.state || null,
+  district: region.district || null,
+  stateId: profile.state_id,
+  districtId: profile.district_id,
+  home: HOME_ROUTE[ROLE_DB_TO_API[profile.role]] || '/'
 });
 
 /**
  * POST /api/auth/login  { email, password }
- * Password is verified against Supabase Auth. The role always comes from the
- * staff_profiles table — it can never be chosen by the client.
+ *
+ * The password is verified by Supabase Auth. The role and region always come
+ * from staff_profiles and can never be chosen by the client.
  */
 export const login = async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  const cleanEmail = String(email).toLowerCase().trim();
+
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' });
-    }
-
-    const cleanEmail = email.toLowerCase().trim();
-
-    // 1. Verify the password with Supabase Auth
     const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password
     });
 
-    if (authErr || !authData?.user) {
-      return res.status(401).json({ error: 'Invalid email or password.' });
-    }
+    // One message for every failure mode below, so the response cannot be used
+    // to tell "no such account" from "wrong password" from "suspended".
+    const reject = () => res.status(401).json({ error: 'Invalid email or password.' });
 
-    // 2. Load the staff profile (source of truth for role)
-    const { data: profile, error: profErr } = await supabaseAdmin
+    if (authErr || !authData?.user) return reject();
+
+    const { data: profile } = await supabaseAdmin
       .from('staff_profiles')
-      .select('*')
-      .eq('email', cleanEmail)
+      .select('id, auth_user_id, full_name, email, phone, role, status, state_id, district_id')
+      .eq('auth_user_id', authData.user.id)
       .maybeSingle();
 
-    if (profErr || !profile) {
-      return res.status(403).json({
-        error: 'No staff profile is linked to this account. Ask an administrator to register you.'
+    if (!profile) {
+      // An Auth user with no staff profile is not staff. Signing them in with
+      // a default role is exactly the hole that the removed register route had.
+      await logAuditEvent({
+        action: 'LOGIN_DENIED_NO_PROFILE',
+        entityType: 'AUTH',
+        metadata: { email: cleanEmail },
+        ip: req.ip
       });
+      return reject();
     }
-
     if (profile.status !== 'active') {
-      return res.status(403).json({ error: `This account is ${profile.status}. Contact an administrator.` });
+      await logAuditEvent({
+        actorId: profile.id,
+        actorRole: profile.role,
+        action: 'LOGIN_DENIED_INACTIVE',
+        entityType: 'AUTH',
+        metadata: { status: profile.status },
+        ip: req.ip
+      });
+      return reject();
     }
 
-    const token = issueToken(profile);
+    // Resolve region names for the UI header.
+    const region = {};
+    if (profile.state_id) {
+      const { data: s } = await supabaseAdmin.from('states').select('name').eq('id', profile.state_id).maybeSingle();
+      region.state = s?.name;
+    }
+    if (profile.district_id) {
+      const { data: d } = await supabaseAdmin.from('districts').select('name').eq('id', profile.district_id).maybeSingle();
+      region.district = d?.name;
+    }
 
     await logAuditEvent({
       actorId: profile.id,
-      actorRole: ROLE_DB_TO_API[profile.role],
-      action: 'USER_LOGIN',
-      entityType: 'STAFF_PROFILES',
+      actorRole: profile.role,
+      action: 'LOGIN_SUCCESS',
+      entityType: 'AUTH',
       entityId: profile.id,
-      metadata: { email: profile.email }
+      ip: req.ip
     });
 
-    return res.json({ token, user: publicUser(profile) });
+    return res.json({
+      token: issueToken(profile),
+      user: publicUser(profile, region)
+    });
   } catch (error) {
     console.error('Login error:', error.message);
-    return res.status(500).json({ error: 'Server error during authentication', details: error.message });
+    return res.status(500).json({ error: 'Sign-in could not be completed. Try again.' });
   }
+};
+
+/** GET /api/auth/me — re-reads the profile, so a revoked role takes effect immediately. */
+export const getMe = async (req, res) => {
+  const { data: profile } = await supabaseAdmin
+    .from('staff_profiles')
+    .select('id, auth_user_id, full_name, email, phone, role, status, state_id, district_id')
+    .eq('id', req.user.id)
+    .maybeSingle();
+
+  if (!profile || profile.status !== 'active') {
+    return res.status(403).json({ error: 'This account is no longer active.' });
+  }
+
+  const region = {};
+  if (profile.state_id) {
+    const { data: s } = await supabaseAdmin.from('states').select('name').eq('id', profile.state_id).maybeSingle();
+    region.state = s?.name;
+  }
+  if (profile.district_id) {
+    const { data: d } = await supabaseAdmin.from('districts').select('name').eq('id', profile.district_id).maybeSingle();
+    region.district = d?.name;
+  }
+
+  return res.json({ user: publicUser(profile, region) });
 };
 
 export const logout = async (req, res) => {
-  if (req.user) {
-    await logAuditEvent({
-      actorId: req.user.id,
-      actorRole: req.user.role,
-      action: 'USER_LOGOUT',
-      entityType: 'STAFF_PROFILES',
-      entityId: req.user.id
-    });
-  }
-  return res.json({ message: 'Successfully logged out' });
-};
-
-export const getMe = async (req, res) => {
-  return res.json({ user: req.user });
+  await logAuditEvent({
+    actorId: req.user.id,
+    action: 'LOGOUT',
+    entityType: 'AUTH',
+    entityId: req.user.id,
+    ip: req.ip
+  });
+  // The JWT stays valid until it expires — there is no server-side revocation
+  // list yet. Short expiry (12h) limits the window; a token deny-list is the
+  // real fix and is not built.
+  return res.json({ success: true });
 };

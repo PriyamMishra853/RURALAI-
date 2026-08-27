@@ -1,4 +1,5 @@
-import { groq } from '../config/groq.js';
+import { groq, groqChat } from '../config/groq.js';
+import { getDiseaseCandidates } from './aiInferenceClient.js';
 import { GROQ_TEXT_MODEL } from '../config/models.js';
 import { retrieveClinicalProtocols } from './ragEngine.js';
 import { calculateRiskLevel } from './riskEngine.js';
@@ -63,6 +64,33 @@ export const runFullPatientAssessment = async (patientContext) => {
     }
   }
 
+  // ---- 1b. Statistical disease candidates (pipeline 1) ----
+  //
+  // A ranked candidate list from the Bernoulli NB model trained on 244,938
+  // labelled symptom vectors. It is given to the LLM as evidence to reason
+  // over, NOT as an answer: the model may re-rank and reject candidates, but
+  // it may not introduce a disease outside this list. That bound is what keeps
+  // the final output traceable back to the training data instead of to the
+  // language model's imagination.
+  //
+  // Unavailable service => empty list => the prompt simply says so. It must
+  // never be confused with "no disease found".
+  let diseaseCandidates = null;
+  try {
+    diseaseCandidates = await getDiseaseCandidates({
+      text: combinedSymptoms,
+      topK: 5
+    });
+  } catch (err) {
+    console.warn('Disease candidate lookup failed:', err.message);
+  }
+
+  const candidateBlock = diseaseCandidates?.ok
+    ? diseaseCandidates.candidates
+        .map((c) => `- ${c.disease} (model confidence ${(c.confidence * 100).toFixed(1)}%)`)
+        .join(String.fromCharCode(10))
+    : null;
+
   // ---- 2. Retrieve approved clinical protocols ----
   const retrievedProtocols = await retrieveClinicalProtocols(
     `${combinedSymptoms} ${ocrDiagnosisNotes.join(' ')} ${imageObservations.map((o) => o.cautious_summary || '').join(' ')}`,
@@ -74,6 +102,12 @@ export const runFullPatientAssessment = async (patientContext) => {
 PATIENT DEMOGRAPHICS:
 - Name: ${patient.name || 'Not recorded'} | Age: ${patient.age ?? 'Not recorded'} | Gender: ${patient.gender || 'Not recorded'}
 - Village: ${patient.village || 'Not recorded'} | Preferred language: ${patient.preferred_language || 'Hindi'}
+
+STATISTICAL DISEASE CANDIDATES (Bernoulli NB over 244,938 labelled symptom vectors):
+${candidateBlock || '- None. The recorded symptoms did not match the clinical vocabulary, or the model was unavailable. Do NOT treat this as evidence of good health.'}
+${diseaseCandidates?.matched_symptoms?.length
+  ? `Symptoms the model recognised: ${diseaseCandidates.matched_symptoms.map((m) => m.symptom).join(', ')}`
+  : ''}
 
 PRESENTING SYMPTOMS (reported by clinic assistant):
 - Chief complaint: ${combinedSymptoms || 'Not recorded'}
@@ -172,7 +206,7 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
     degradedReason = 'No LLM provider is configured';
   } else {
     try {
-      const chatCompletion = await groq.chat.completions.create({
+      const chatCompletion = await groqChat({
         model: GROQ_TEXT_MODEL,
         temperature: 0.1,
         response_format: { type: 'json_object' },
@@ -220,6 +254,29 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
   finalAssessment.risk_level = finalRiskLevel;
   finalAssessment.warnings = Array.from(new Set([...(finalAssessment.warnings || []), ...riskWarnings]));
   finalAssessment.requires_doctor = riskResult.requiresDoctor || finalRiskLevel !== 'LOW';
+  // Statistical evidence, kept SEPARATE from the model's prose.
+  //
+  // The system prompt forbids stating a definitive diagnosis, so the LLM uses
+  // these candidates to reason but never names them in the summary — which is
+  // correct, and also means a doctor could not see what the trained model
+  // actually contributed. Attaching them here preserves the product's core
+  // separation: this block is AI assistance, clearly labelled, and the doctor
+  // still makes the decision.
+  finalAssessment.disease_candidates = diseaseCandidates?.ok
+    ? {
+        source: 'bernoulli_nb over 244,938 labelled symptom vectors',
+        top5_accuracy: diseaseCandidates.model_top5_accuracy,
+        recognised_symptoms: (diseaseCandidates.matched_symptoms || []).map((m) => m.symptom),
+        candidates: diseaseCandidates.candidates,
+        note: 'Ranked candidates from a statistical model. Not a diagnosis.'
+      }
+    : {
+        source: 'unavailable',
+        candidates: [],
+        note: diseaseCandidates?.reason
+          || 'The disease model was unreachable. Absence of candidates is not evidence of good health.'
+      };
+
   finalAssessment.recommended_next_action =
     finalRiskLevel === 'HIGH'
       ? riskResult.immediateReferral

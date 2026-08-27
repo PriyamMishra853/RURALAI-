@@ -10,14 +10,16 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "db:init": "node src/scripts/initDb.js",
+    "inspect": "node src/scripts/inspectState.js",
+    "db:apply": "node src/scripts/applyV2.js",
+    "seed": "node src/scripts/seedV2.js",
+    "seed:root": "node src/scripts/seedRootAdmin.js",
     "rag:seed": "node src/scripts/seedQdrant.js",
+    "check": "node src/scripts/checkServices.js",
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
-    "check": "node src/scripts/checkServices.js",
-    "seed:staff": "node src/scripts/seedStaffAccounts.js",
-    "check:pipelines": "node src/scripts/checkPipelines.js",
-    "check:flow": "node src/scripts/checkClinicalFlow.js"
+    "check:ai": "node src/scripts/checkAiPipelines.js",
+    "seed:schedules": "node src/scripts/seedSchedules.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",

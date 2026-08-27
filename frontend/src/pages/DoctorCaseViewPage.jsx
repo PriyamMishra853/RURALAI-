@@ -1,377 +1,529 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Stethoscope, Video, CheckCircle2, ArrowLeft, AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  Stethoscope, Video, CheckCircle2, ArrowLeft, AlertCircle, RefreshCw,
+  Lock, Plus, Trash2, Loader2, Bot, ClipboardCheck, Thermometer, Activity
+} from 'lucide-react';
 import api from '../services/api';
-import AIDoctorVisualSeparation from '../components/AIDoctorVisualSeparation';
-import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
-import { useAuth } from '../context/AuthContext';
-import { supabase } from '../config/supabase';
-import DemoBadge from '../components/DemoBadge';
+import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
+import RiskBadge from '../components/RiskBadge';
+import { maskAadhaar } from '../config/patientFields';
+
+/**
+ * Doctor case file and review.
+ *
+ * The decision values here are the exact enum the API accepts. They used to be
+ * `PRESCRIBE` / `PROTOCOL` / `REFER` while the server expected
+ * `prescribe` / `treat_locally` / `refer_hospital`, and the payload never sent
+ * a `decision` field at all — so every review failed with "decision must be one
+ * of: ..." regardless of what the doctor chose.
+ */
+
+const DECISIONS = [
+  { value: 'prescribe', label: 'Issue prescription', hint: 'Sign a prescription for this patient', needsMeds: true },
+  { value: 'treat_locally', label: 'Treat locally', hint: 'First-aid protocol care, no prescription' },
+  { value: 'follow_up', label: 'Follow up', hint: 'Review again after a set number of days', needsDays: true },
+  { value: 'refer_hospital', label: 'Refer to hospital', hint: 'Escalate to a higher centre', needsHospital: true },
+  { value: 'no_action_needed', label: 'No action needed', hint: 'Close the case with no intervention' }
+];
+
+const emptyMed = () => ({ name: '', strength: '', frequency: '', duration: '', instructions: '' });
 
 export default function DoctorCaseViewPage() {
   const { id: visitId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [visit, setVisit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
 
-  // Doctor decision form
+  const [decision, setDecision] = useState('prescribe');
   const [diagnosis, setDiagnosis] = useState('');
-  const [doctorNotes, setDoctorNotes] = useState('');
-  const [decision, setDecision] = useState('PRESCRIBE');
-  const [referralHospital, setReferralHospital] = useState('District Hospital');
-  const [showVideoCall, setShowVideoCall] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [agreedWithAi, setAgreedWithAi] = useState(true);
+  const [referralHospital, setReferralHospital] = useState('');
+  const [followUpDays, setFollowUpDays] = useState('3');
+  const [meds, setMeds] = useState([emptyMed()]);
+
   const [submitting, setSubmitting] = useState(false);
-  const [rxMeds, setRxMeds] = useState([]);
+  const [submitError, setSubmitError] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
 
-  useEffect(() => {
-    fetchCase();
-
-    const channel = supabase
-      .channel(`public:case_${visitId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_assessments', filter: `visit_id=eq.${visitId}` }, fetchCase)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'patient_images', filter: `visit_id=eq.${visitId}` }, fetchCase)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'patient_documents', filter: `visit_id=eq.${visitId}` }, fetchCase)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'visit_vitals', filter: `visit_id=eq.${visitId}` }, fetchCase)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [visitId]);
-
-  const fetchCase = async () => {
+  const fetchCase = useCallback(async () => {
     try {
       const res = await api.get(`/doctor/cases/${visitId}`);
       setVisit(res.data);
       setFetchError(null);
     } catch (err) {
-      console.error('Error loading case file:', err);
-      setFetchError(err.response?.data?.error || err.message || 'Database fetch error');
+      setFetchError(err.response?.data?.error || err.message || 'Could not load the case file.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [visitId]);
 
-  const handleMedChange = (index, field, val) => {
-    const updated = [...rxMeds];
-    updated[index][field] = val;
-    setRxMeds(updated);
-  };
+  useEffect(() => { fetchCase(); }, [fetchCase]);
 
-  const addMed = () => {
-    setRxMeds([...rxMeds, { name: '', strength: '', frequency: '', duration: '' }]);
-  };
+  const patient = visit?.patients || {};
+  const vitals = Array.isArray(visit?.visit_vitals) ? visit.visit_vitals[0] : visit?.visit_vitals;
+  const assessment = Array.isArray(visit?.ai_assessments) ? visit.ai_assessments[0] : visit?.ai_assessments;
+  const symptoms = visit?.visit_symptoms || [];
+  const documents = visit?.patient_documents || [];
 
-  const removeMed = (index) => {
-    setRxMeds(rxMeds.filter((_, i) => i !== index));
-  };
+  /**
+   * A case from a previous day is history, not work. The queue already hides
+   * these, but the case file is reachable by direct URL — and the server
+   * rejects the review too, so this is presentation, not the control.
+   */
+  const todayIso = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  const isPast = Boolean(visit?.visit_date && visit.visit_date < todayIso);
+  const alreadyReviewed = ['completed', 'referred'].includes(visit?.status);
+  const readOnly = isPast || alreadyReviewed;
 
-  const handleSubmitReview = async (e) => {
+  const active = useMemo(() => DECISIONS.find((d) => d.value === decision), [decision]);
+
+  const setMed = (i, field, value) =>
+    setMeds((prev) => prev.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
+
+  const submit = async (e) => {
     e.preventDefault();
+    setSubmitError(null);
+
+    if (!diagnosis.trim()) {
+      setSubmitError('Enter a diagnosis before saving.');
+      return;
+    }
+    const cleanMeds = meds.filter((m) => m.name.trim());
+    if (active?.needsMeds && !cleanMeds.length) {
+      setSubmitError('Add at least one medicine, or choose a different decision.');
+      return;
+    }
+    if (active?.needsHospital && !referralHospital.trim()) {
+      setSubmitError('Name the hospital you are referring to.');
+      return;
+    }
+
     setSubmitting(true);
-
     try {
-      const prescriptions = decision === 'PRESCRIBE'
-        ? rxMeds.filter((m) => m.name.trim() !== '').map((m) => ({
-            name: m.name,
-            strength: m.strength,
-            dosage: m.strength,
-            frequency: m.frequency,
-            instructions: m.duration ? `Duration: ${m.duration}` : undefined
-          }))
-        : [];
-
       await api.post(`/doctor/cases/${visitId}/review`, {
-        visit_id: visitId,
-        doctor_diagnosis: diagnosis,
-        doctor_notes: doctorNotes,
-        prescriptions,
-        referral_needed: decision === 'REFER',
-        referral_hospital: decision === 'REFER' ? referralHospital : undefined
+        decision,
+        diagnosis: diagnosis.trim(),
+        clinical_notes: notes.trim() || undefined,
+        agreed_with_ai: agreedWithAi,
+        prescriptions: cleanMeds,
+        referral_hospital: active?.needsHospital ? referralHospital.trim() : undefined,
+        follow_up_days: active?.needsDays ? Number(followUpDays) : undefined
       });
-
-      alert('Review saved: your diagnosis, notes and prescription are now on the patient record.');
-      navigate('/doctor/queue');
+      setSaved(true);
+      setTimeout(() => navigate('/doctor/queue'), 1200);
     } catch (err) {
-      console.error('Review submission error:', err);
-      alert('Failed to save the review: ' + (err.response?.data?.error || err.message));
+      setSubmitError(err.response?.data?.error || 'The review could not be saved.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (loading && !fetchError) {
+  // ---- states -------------------------------------------------------------
+  if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
-        <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" /> Loading the patient case file...
+      <div className="py-20 text-center text-xs text-ink-muted flex items-center justify-center gap-2">
+        <RefreshCw className="w-4 h-4 text-gov-600 animate-spin" /> Loading the case file…
       </div>
     );
   }
 
   if (fetchError) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center space-y-4">
-        <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 font-semibold max-w-lg mx-auto flex items-center gap-2 justify-center">
-          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-          <span>Could not load the case file: {fetchError}</span>
+      <div className="py-20 text-center space-y-4">
+        <div className="p-4 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-xs text-tier-emergency max-w-lg mx-auto flex items-center gap-2 justify-center">
+          <AlertCircle className="w-4 h-4 shrink-0" /> {fetchError}
         </div>
-        <button
-          onClick={() => { setLoading(true); fetchCase(); }}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-colors inline-flex items-center gap-1.5"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Try Again
-        </button>
+        <div className="flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setLoading(true); fetchCase(); }}
+            className="px-4 py-2 rounded-field bg-gov-600 text-white font-semibold text-xs hover:bg-gov-700 inline-flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Try again
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/doctor/queue')}
+            className="px-4 py-2 rounded-field border border-line-strong text-ink-muted font-semibold text-xs hover:bg-surface-sunken"
+          >
+            Back to queue
+          </button>
+        </div>
       </div>
     );
   }
 
-  // ---- Map the live database shape ----
-  const patient = visit?.patients || {};
-  const vitalsRow = Array.isArray(visit?.visit_vitals) ? visit.visit_vitals[0] : visit?.visit_vitals;
-  const assessment = Array.isArray(visit?.ai_assessments) ? visit.ai_assessments[0] : null;
-  const rawOutput = assessment?.ai_raw_output || {};
-  const documents = visit?.patient_documents || [];
-
-  // Merge stored photo files with the vision observations carried in the assessment
-  const visionObs = rawOutput.image_observations || [];
-  const images = (visit?.patient_images || []).map((img, i) => ({
-    ...img,
-    ...(visionObs[i] || {}),
-    image_url: img.image_url || visionObs[i]?.image_url || null
-  }));
-  // Vision observations that have no stored file row (e.g. inline data URLs)
-  const extraObs = visionObs.slice((visit?.patient_images || []).length);
-  const allImages = [...images, ...extraObs];
-
-  const aiAssessment = assessment
-    ? {
-        ...rawOutput,
-        risk_level: (visit?.risk_level || rawOutput.risk_level || 'medium').toUpperCase(),
-        patient_summary: assessment.patient_summary || rawOutput.patient_summary,
-        processing_status: assessment.processing_status
-      }
-    : null;
-
-  const tempF = vitalsRow?.temperature_celsius != null
-    ? ((vitalsRow.temperature_celsius * 9) / 5 + 32).toFixed(1)
-    : null;
-
-  const pName = patient.full_name || patient.name || 'Patient';
-  const pCode = patient.patient_code || '';
-
   return (
-    <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
+    <div className="space-y-5">
 
-      {/* Header */}
-      <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/doctor/queue')} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors" aria-label="Back to queue">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Stethoscope className="w-5 h-5 text-blue-600" /> Case File: {pName} <DemoBadge patient={patient} />
-            </h1>
-            <p className="text-xs text-slate-500">Visit <code className="font-mono text-blue-600 font-bold">{visit?.visit_code || visitId}</code> — live-synced with the database</p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setShowVideoCall(true)}
-          className="w-full md:w-auto px-4 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
-        >
-          <Video className="w-4 h-4" /> Start Video Consultation
-        </button>
-      </div>
-
-      {/* Patient & vitals banner */}
-      <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-6 text-xs">
-        <div>
-          <span className="text-slate-500 block text-[11px]">Patient</span>
-          <div className="font-bold text-slate-900 text-sm mt-0.5">
-            {pName} <DemoBadge patient={patient} />
-          </div>
-          {pCode && <div className="font-mono text-blue-600 font-semibold">{pCode}</div>}
-        </div>
-
-        <div>
-          <span className="text-slate-500 block text-[11px]">Age / Gender / Village</span>
-          <div className="font-bold text-slate-900 mt-0.5">
-            {patient.age_years ?? patient.age ?? '—'} yrs / {patient.gender || '—'}
-          </div>
-          <div className="text-slate-600 font-medium">{patient.village || '—'}</div>
-        </div>
-
-        <div>
-          <span className="text-slate-500 block text-[11px]">Recorded Vitals</span>
-          <div className="font-bold text-slate-900 mt-0.5">
-            BP: {vitalsRow?.systolic_bp != null ? `${vitalsRow.systolic_bp}/${vitalsRow.diastolic_bp ?? '—'} mmHg` : 'Not recorded'}
-          </div>
-          <div className="text-slate-600">
-            Temp: {tempF ? `${tempF}°F` : '—'} | SpO2: {vitalsRow?.oxygen_saturation != null ? `${vitalsRow.oxygen_saturation}%` : '—'} | Pulse: {vitalsRow?.pulse_bpm ?? '—'}
-          </div>
-        </div>
-
-        <div>
-          <span className="text-slate-500 block text-[11px]">Chief Complaint</span>
-          <div className="font-bold text-slate-900 mt-0.5">{visit?.chief_complaint || 'Not recorded'}</div>
-        </div>
-      </div>
-
-      {/* Split: AI assistance vs doctor decision */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-        <div className="lg:col-span-7">
-          <AIDoctorVisualSeparation
-            aiAssessment={aiAssessment}
-            doctorReview={null}
-            prescription={null}
-            documents={documents}
-            images={allImages}
-          />
-        </div>
-
-        {/* Doctor decision form */}
-        <div className="lg:col-span-5 bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-5 h-fit sticky top-6">
-          <div className="pb-3 border-b border-slate-200">
-            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <Stethoscope className="w-4 h-4 text-emerald-600" /> Doctor Decision &amp; Prescription
-            </h3>
-            <p className="text-xs text-slate-500">Recorded under your name: <strong>{user?.name || 'Doctor'}</strong></p>
-          </div>
-
-          <form onSubmit={handleSubmitReview} className="space-y-4 text-xs">
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Decision</label>
-              <select
-                value={decision}
-                onChange={(e) => setDecision(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:border-blue-500 outline-none font-semibold cursor-pointer"
-              >
-                <option value="PRESCRIBE">Issue prescription &amp; treatment plan</option>
-                <option value="PROTOCOL">Continue first-aid protocol care (no prescription)</option>
-                <option value="REFER">Refer to hospital</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Diagnosis</label>
-              <input
-                value={diagnosis}
-                onChange={(e) => setDiagnosis(e.target.value)}
-                required
-                placeholder="e.g. Acute viral febrile illness"
-                className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Clinical notes &amp; instructions for the assistant</label>
-              <textarea
-                rows={4}
-                value={doctorNotes}
-                onChange={(e) => setDoctorNotes(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg p-3 text-slate-900 focus:border-blue-500 outline-none leading-relaxed"
-                placeholder="Treatment advice, monitoring instructions, follow-up plan..."
-                required
-              />
-            </div>
-
-            {decision === 'REFER' && (
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Referral destination</label>
-                <input
-                  value={referralHospital}
-                  onChange={(e) => setReferralHospital(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:border-blue-500 outline-none"
-                />
-              </div>
-            )}
-
-            {decision === 'PRESCRIBE' && (
-              <div className="space-y-2 pt-2 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900">Prescription medicines</span>
-                  <button type="button" onClick={addMed} className="text-blue-600 hover:text-blue-800 text-[11px] font-semibold">
-                    + Add Medicine
-                  </button>
-                </div>
-
-                {rxMeds.length === 0 && (
-                  <p className="text-[11px] text-slate-500">No medicines added yet. Select "Add Medicine" to build the prescription.</p>
-                )}
-
-                {rxMeds.map((med, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        placeholder="Medicine name"
-                        value={med.name}
-                        onChange={(e) => handleMedChange(idx, 'name', e.target.value)}
-                        className="bg-white border border-slate-300 rounded p-1.5 text-slate-900 outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Strength (e.g. 500 mg)"
-                        value={med.strength}
-                        onChange={(e) => handleMedChange(idx, 'strength', e.target.value)}
-                        className="bg-white border border-slate-300 rounded p-1.5 text-slate-900 outline-none"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        placeholder="Frequency (e.g. twice daily)"
-                        value={med.frequency}
-                        onChange={(e) => handleMedChange(idx, 'frequency', e.target.value)}
-                        className="bg-white border border-slate-300 rounded p-1.5 text-slate-900 outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Duration (e.g. 3 days)"
-                        value={med.duration}
-                        onChange={(e) => handleMedChange(idx, 'duration', e.target.value)}
-                        className="bg-white border border-slate-300 rounded p-1.5 text-slate-900 outline-none"
-                      />
-                    </div>
-                    <button type="button" onClick={() => removeMed(idx)} className="text-red-600 hover:text-red-800 text-[11px] font-semibold">
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
+      {/* ---- Header ---- */}
+      <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5 sm:p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
             <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs shadow-sm transition-colors flex items-center justify-center gap-2"
+              type="button"
+              onClick={() => navigate('/doctor/queue')}
+              aria-label="Back to queue"
+              className="p-2 rounded-field bg-surface-sunken hover:bg-surface-sunken text-ink-muted shrink-0"
             >
-              <CheckCircle2 className="w-4 h-4" /> {submitting ? 'Saving decision...' : 'Save Diagnosis, Notes & Prescription'}
+              <ArrowLeft className="w-4 h-4" />
             </button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold text-ink truncate">
+                  {patient.full_name || 'Patient'}
+                </h1>
+                <RiskBadge level={visit?.risk_level} />
+              </div>
+              <p className="text-xs text-ink-muted truncate">
+                {patient.age_display || '—'} · {patient.gender || '—'} ·{' '}
+                <span className="font-mono">{maskAadhaar(patient.aadhaar_number)}</span> ·{' '}
+                <code className="font-mono text-gov-600">{visit?.visit_code}</code>
+              </p>
+            </div>
+          </div>
 
-          </form>
+          <button
+            type="button"
+            onClick={() => setShowSchedule(true)}
+            disabled={readOnly}
+            className="w-full lg:w-auto px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-2"
+          >
+            <Video className="w-4 h-4" /> Video consultation
+          </button>
         </div>
-
       </div>
 
-      {/* Video call modal */}
-      {showVideoCall && (
-        <WebRTCVideoCallModal
-          roomId={`room_${visitId.replace(/-/g, '_')}`}
-          userName={user?.name || 'Doctor'}
-          userId={user?.id || `doc_${Date.now()}`}
-          role="DOCTOR"
-          peerName={pName}
-          onClose={() => setShowVideoCall(false)}
-        />
+      {readOnly && (
+        <div className="p-3 rounded-field bg-surface-sunken border border-line-strong text-xs text-ink-muted flex items-start gap-2">
+          <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            {alreadyReviewed
+              ? <><strong>Already reviewed.</strong> This case has been closed and cannot be reviewed again.</>
+              : <><strong>Read-only.</strong> This case is from a previous day. Ask an administrator to reassign it if it still needs review.</>}
+          </span>
+        </div>
       )}
 
+      {/* ---- Clinical summary ---- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
+          <span className="text-[11px] text-ink-muted font-medium flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5" /> Chief complaint
+          </span>
+          <p className="text-sm font-semibold text-ink mt-1 leading-snug">
+            {visit?.chief_complaint || 'Not recorded'}
+          </p>
+          {visit?.symptom_duration && (
+            <p className="text-[11px] text-ink-muted mt-0.5">for {visit.symptom_duration}</p>
+          )}
+        </div>
+
+        <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
+          <span className="text-[11px] text-ink-muted font-medium flex items-center gap-1.5">
+            <Thermometer className="w-3.5 h-3.5" /> Vitals
+          </span>
+          {vitals ? (
+            <div className="text-xs text-ink mt-1 space-y-0.5">
+              <p>BP {vitals.blood_pressure_systolic ?? '—'}/{vitals.blood_pressure_diastolic ?? '—'} mmHg</p>
+              <p>{vitals.temperature_f ?? '—'}°F · SpO₂ {vitals.spo2_percent ?? '—'}%</p>
+              <p>Pulse {vitals.pulse_bpm ?? '—'} · RR {vitals.respiratory_rate ?? '—'}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-ink-subtle mt-1">Not recorded</p>
+          )}
+        </div>
+
+        <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
+          <span className="text-[11px] text-ink-muted font-medium">History &amp; allergies</span>
+          <p className="text-xs text-ink mt-1">{visit?.medical_history || 'None reported'}</p>
+          <p className="text-xs text-tier-emergency mt-1">{visit?.known_allergies || 'No known allergies'}</p>
+        </div>
+
+        <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
+          <span className="text-[11px] text-ink-muted font-medium">Attachments</span>
+          <p className="text-sm font-semibold text-ink mt-1">{documents.length} document(s)</p>
+          <p className="text-[11px] text-ink-muted">{symptoms.length} symptom note(s)</p>
+        </div>
+      </div>
+
+      {/* ---- AI assistance vs doctor decision ---- */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+
+        {/* AI side */}
+        <div className="xl:col-span-7 space-y-4">
+          <div className="bg-surface-raised rounded-card border border-line shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-gov-50 border-b border-gov-200 flex items-center gap-2">
+              <Bot className="w-4 h-4 text-gov-600" />
+              <h2 className="text-sm font-bold text-blue-900">AI assistance</h2>
+              <span className="ml-auto text-[10px] font-semibold text-gov-700 bg-surface-raised px-2 py-0.5 rounded border border-gov-200">
+                Not a diagnosis
+              </span>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {assessment ? (
+                <>
+                  <div>
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">Prepared summary</h3>
+                    <p className="text-xs text-ink leading-relaxed">{assessment.patient_summary}</p>
+                  </div>
+
+                  {Array.isArray(assessment.first_aid_steps) && assessment.first_aid_steps.length > 0 && (
+                    <div>
+                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">Protocol first-aid steps</h3>
+                      <ul className="text-xs text-ink-muted space-y-1">
+                        {assessment.first_aid_steps.map((s, i) => <li key={i}>• {s}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(assessment.warnings) && assessment.warnings.length > 0 && (
+                    <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30">
+                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-tier-moderate mb-1">Warnings</h3>
+                      <ul className="text-xs text-tier-moderate space-y-1">
+                        {assessment.warnings.map((w, i) => <li key={i}>• {w}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
+                    {assessment.recommended_next_action && (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded bg-gov-50 text-gov-700 border border-gov-200">
+                        {assessment.recommended_next_action.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-ink-subtle font-mono">{assessment.generated_by}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  No AI assessment was generated for this visit. Review the recorded data directly.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {symptoms.length > 0 && (
+            <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">Recorded symptoms</h3>
+              <ul className="text-xs text-ink-muted space-y-1">
+                {symptoms.map((s, i) => (
+                  <li key={i}>• {s.description} <span className="text-ink-subtle">({s.source})</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Doctor side */}
+        <div className="xl:col-span-5">
+          <form
+            onSubmit={submit}
+            className="bg-surface-raised rounded-card border border-line shadow-sm overflow-hidden xl:sticky xl:top-6"
+          >
+            <div className="px-5 py-3 bg-tier-lowBg border-b border-emerald-100 flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-tier-low" />
+              <h2 className="text-sm font-bold text-tier-low">Your decision</h2>
+              <span className="ml-auto text-[10px] font-semibold text-tier-low bg-surface-raised px-2 py-0.5 rounded border border-tier-low/30">
+                Final authority
+              </span>
+            </div>
+
+            <fieldset disabled={readOnly || saved} className="p-5 space-y-4 disabled:opacity-60">
+              <div>
+                <label className="block text-xs font-semibold text-ink-muted mb-1.5">Decision</label>
+                <div className="space-y-1.5">
+                  {DECISIONS.map((d) => (
+                    <label
+                      key={d.value}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-field border cursor-pointer transition-colors ${
+                        decision === d.value ? 'border-tier-low bg-tier-lowBg' : 'border-line hover:border-tier-low/40'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="decision"
+                        value={d.value}
+                        checked={decision === d.value}
+                        onChange={(e) => setDecision(e.target.value)}
+                        className="mt-0.5 accent-[rgb(var(--tier-low))]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-ink">{d.label}</span>
+                        <span className="block text-[11px] text-ink-muted">{d.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="diagnosis" className="block text-xs font-semibold text-ink-muted mb-1">
+                  Diagnosis <span className="text-tier-emergency">*</span>
+                </label>
+                <input
+                  id="diagnosis"
+                  value={diagnosis}
+                  onChange={(e) => setDiagnosis(e.target.value)}
+                  placeholder="e.g. Acute viral febrile illness"
+                  className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="notes" className="block text-xs font-semibold text-ink-muted mb-1">Clinical notes</label>
+                <textarea
+                  id="notes"
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Advice, observations, anything the assistant should act on"
+                  className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
+                />
+              </div>
+
+              {active?.needsHospital && (
+                <div>
+                  <label htmlFor="hospital" className="block text-xs font-semibold text-ink-muted mb-1">
+                    Referring to <span className="text-tier-emergency">*</span>
+                  </label>
+                  <input
+                    id="hospital"
+                    value={referralHospital}
+                    onChange={(e) => setReferralHospital(e.target.value)}
+                    placeholder="e.g. District Hospital, Agra"
+                    className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
+                  />
+                </div>
+              )}
+
+              {active?.needsDays && (
+                <div>
+                  <label htmlFor="followup" className="block text-xs font-semibold text-ink-muted mb-1">Follow up in (days)</label>
+                  <input
+                    id="followup"
+                    type="number"
+                    min="1"
+                    max="90"
+                    value={followUpDays}
+                    onChange={(e) => setFollowUpDays(e.target.value)}
+                    className="w-24 bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
+                  />
+                </div>
+              )}
+
+              {active?.needsMeds && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-ink-muted">Prescription</label>
+                    <button
+                      type="button"
+                      onClick={() => setMeds((p) => [...p, emptyMed()])}
+                      className="text-[11px] font-semibold text-tier-low hover:underline flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" /> Add medicine
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {meds.map((m, i) => (
+                      <div key={i} className="p-2.5 rounded-field bg-surface-sunken border border-line space-y-2">
+                        <div className="flex gap-2">
+                          <input
+                            value={m.name}
+                            onChange={(e) => setMed(i, 'name', e.target.value)}
+                            placeholder="Medicine name"
+                            className="flex-1 bg-surface-raised border border-line-strong rounded px-2 py-1.5 text-xs outline-none focus:border-tier-low"
+                          />
+                          {meds.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setMeds((p) => p.filter((_, idx) => idx !== i))}
+                              aria-label={`Remove medicine ${i + 1}`}
+                              className="p-1.5 rounded text-tier-emergency hover:bg-tier-emergencyBg shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            value={m.strength}
+                            onChange={(e) => setMed(i, 'strength', e.target.value)}
+                            placeholder="500 mg"
+                            className="bg-surface-raised border border-line-strong rounded px-2 py-1.5 text-[11px] outline-none focus:border-tier-low"
+                          />
+                          <input
+                            value={m.frequency}
+                            onChange={(e) => setMed(i, 'frequency', e.target.value)}
+                            placeholder="1-0-1"
+                            className="bg-surface-raised border border-line-strong rounded px-2 py-1.5 text-[11px] outline-none focus:border-tier-low"
+                          />
+                          <input
+                            value={m.duration}
+                            onChange={(e) => setMed(i, 'duration', e.target.value)}
+                            placeholder="5 days"
+                            className="bg-surface-raised border border-line-strong rounded px-2 py-1.5 text-[11px] outline-none focus:border-tier-low"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {assessment && (
+                <label className="flex items-center gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={agreedWithAi}
+                    onChange={(e) => setAgreedWithAi(e.target.checked)}
+                    className="accent-[rgb(var(--tier-low))]"
+                  />
+                  My decision agrees with the AI assessment
+                </label>
+              )}
+            </fieldset>
+
+            <div className="px-5 pb-5 space-y-3">
+              {submitError && (
+                <div role="alert" className="p-2.5 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-[11px] text-tier-emergency flex items-start gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {submitError}
+                </div>
+              )}
+              {saved && (
+                <div className="p-2.5 rounded-field bg-tier-lowBg border border-tier-low/30 text-[11px] text-tier-low flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Review saved. Returning to your queue…
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={readOnly || submitting || saved}
+                className="w-full py-3 rounded-field bg-tier-low hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-2"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {readOnly ? 'Read-only' : submitting ? 'Saving…' : 'Save review'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {showSchedule && (
+        <ScheduleConsultationModal
+          visitId={visitId}
+          patientName={patient.full_name}
+          onClose={() => setShowSchedule(false)}
+          onBooked={() => fetchCase()}
+        />
+      )}
     </div>
   );
 }

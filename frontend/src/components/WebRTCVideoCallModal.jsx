@@ -30,8 +30,20 @@ function buildIceConfig() {
   return { iceServers };
 }
 
-function buildSignalUrl(roomId, role, userId) {
-  const params = `roomId=${encodeURIComponent(roomId)}&role=${encodeURIComponent(role)}&userId=${encodeURIComponent(userId)}`;
+/**
+ * Build the signaling URL.
+ *
+ * The socket now requires a bearer token and checks that the caller is a
+ * recorded participant of that consultation — role and userId are read from
+ * the verified token server-side, so passing them here would be ignored.
+ *
+ * The browser WebSocket API cannot set an Authorization header, so the token
+ * travels as a query parameter. It is short-lived and the app does not log
+ * this URL; that is the accepted trade.
+ */
+function buildSignalUrl(roomId) {
+  const token = localStorage.getItem('vvc_token') || '';
+  const params = `roomId=${encodeURIComponent(roomId)}&token=${encodeURIComponent(token)}`;
   const override = import.meta.env.VITE_SIGNAL_URL; // e.g. wss://api.example.com/signal
   if (override) return `${override}?${params}`;
 
@@ -66,13 +78,13 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
     reconnectAttemptsRef.current = 0;
 
     function connectSignaling() {
-      const wsUrl = buildSignalUrl(roomId, role, userId);
+      const wsUrl = buildSignalUrl(roomId);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         if (!isMounted) return;
-        console.log(`🔌 Connected to Signaling Server on ${wsUrl}`);
+        console.log('Connected to the signaling server.');
         reconnectAttemptsRef.current = 0;
         setSignalState('CONNECTED');
         ws.send(JSON.stringify({ type: 'join-room', roomId, role, userId }));
@@ -364,42 +376,42 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-surface-sunken/90 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-surface-sunken border border-line rounded-xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         
         {/* Header Bar */}
-        <div className="bg-slate-950 px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+        <div className="bg-surface-sunken px-5 py-3 border-b border-line flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center font-bold text-xs">
               <Video className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <h3 className="text-sm font-bold text-ink flex items-center gap-2">
                 Teleconsultation Room <span className="font-mono text-xs text-blue-400">({roomId})</span>
               </h3>
-              <p className="text-[11px] text-slate-400">User: <strong className="text-slate-200">{userName}</strong> ({role})</p>
+              <p className="text-[11px] text-slate-400">User: <strong className="text-ink">{userName}</strong> ({role})</p>
             </div>
           </div>
 
           {/* Connection Status Indicators */}
           <div className="flex items-center gap-3 text-xs">
-            <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded border border-slate-700">
-              <Wifi className={`w-3.5 h-3.5 ${signalState === 'CONNECTED' ? 'text-emerald-400' : 'text-amber-400 animate-pulse'}`} />
-              <span className="text-[11px] text-slate-300">Signal: <strong className="text-slate-100">{signalState}</strong></span>
+            <div className="flex items-center gap-1.5 bg-surface-sunken/80 px-2.5 py-1 rounded border border-line">
+              <Wifi className={`w-3.5 h-3.5 ${signalState === 'CONNECTED' ? 'text-tier-low' : 'text-tier-moderate animate-pulse'}`} />
+              <span className="text-[11px] text-slate-300">Signal: <strong className="text-ink">{signalState}</strong></span>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded border border-slate-700">
-              <ShieldCheck className={`w-3.5 h-3.5 ${peerConnState === 'CONNECTED' ? 'text-emerald-400' : 'text-amber-400'}`} />
-              <span className="text-[11px] text-slate-300">Media: <strong className="text-slate-100">{peerConnState}</strong></span>
+            <div className="flex items-center gap-1.5 bg-surface-sunken/80 px-2.5 py-1 rounded border border-line">
+              <ShieldCheck className={`w-3.5 h-3.5 ${peerConnState === 'CONNECTED' ? 'text-tier-low' : 'text-tier-moderate'}`} />
+              <span className="text-[11px] text-slate-300">Media: <strong className="text-ink">{peerConnState}</strong></span>
             </div>
           </div>
         </div>
 
         {/* Video Display Grid */}
-        <div className="relative flex-1 bg-slate-950 p-4 grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[360px]">
+        <div className="relative flex-1 bg-surface-sunken p-4 grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[360px]">
           
           {/* Local Participant Video */}
-          <div className="relative rounded-lg overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center">
+          <div className="relative rounded-lg overflow-hidden bg-surface-sunken border border-line flex items-center justify-center">
             <video
               ref={localVideoRef}
               autoPlay
@@ -413,13 +425,13 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
                 <span>Camera Turned Off</span>
               </div>
             )}
-            <div className="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur px-2.5 py-1 rounded text-[11px] font-semibold text-slate-200 border border-slate-700">
+            <div className="absolute bottom-3 left-3 bg-surface-sunken/80 backdrop-blur px-2.5 py-1 rounded text-[11px] font-semibold text-ink border border-line">
               You ({userName}) {isAudioMuted && '🎤 Muted'}
             </div>
           </div>
 
           {/* Remote Participant Video */}
-          <div className="relative rounded-lg overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center">
+          <div className="relative rounded-lg overflow-hidden bg-surface-sunken border border-line flex items-center justify-center">
             <video
               ref={remoteVideoRef}
               autoPlay
@@ -427,23 +439,23 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
               className="w-full h-full object-cover"
             />
             {peerConnState !== 'CONNECTED' && (
-              <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
+              <div className="absolute inset-0 bg-surface-sunken/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3">
                 {callEndedReason ? (
                   <>
                     <AlertTriangle className="w-10 h-10 text-amber-500" />
-                    <div className="text-sm font-bold text-slate-100">{callEndedReason}</div>
+                    <div className="text-sm font-bold text-ink">{callEndedReason}</div>
                     <p className="text-xs text-slate-400">The video stream has ended.</p>
                   </>
                 ) : (
                   <>
                     <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
-                    <div className="text-sm font-bold text-slate-100">Waiting for {peerName} to join...</div>
-                    <p className="text-xs text-slate-400">Share Room ID <code className="bg-slate-800 px-1.5 py-0.5 rounded text-blue-300">{roomId}</code> with doctor or patient.</p>
+                    <div className="text-sm font-bold text-ink">Waiting for {peerName} to join...</div>
+                    <p className="text-xs text-slate-400">Share Room ID <code className="bg-surface-sunken px-1.5 py-0.5 rounded text-blue-300">{roomId}</code> with doctor or patient.</p>
                   </>
                 )}
               </div>
             )}
-            <div className="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur px-2.5 py-1 rounded text-[11px] font-semibold text-slate-200 border border-slate-700">
+            <div className="absolute bottom-3 left-3 bg-surface-sunken/80 backdrop-blur px-2.5 py-1 rounded text-[11px] font-semibold text-ink border border-line">
               {peerName}
             </div>
           </div>
@@ -451,10 +463,10 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
         </div>
 
         {/* Control Toolbar */}
-        <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex items-center justify-center gap-4">
+        <div className="bg-surface-sunken px-6 py-4 border-t border-line flex items-center justify-center gap-4">
           <button
             onClick={toggleAudio}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAudioMuted ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAudioMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-surface-sunken hover:bg-slate-700 text-ink'}`}
             title={isAudioMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isAudioMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -462,7 +474,7 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
 
           <button
             onClick={toggleVideo}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isVideoMuted ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}`}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isVideoMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-surface-sunken hover:bg-slate-700 text-ink'}`}
             title={isVideoMuted ? 'Turn Camera On' : 'Turn Camera Off'}
           >
             {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
@@ -470,7 +482,7 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
 
           <button
             onClick={handleEndCall}
-            className="px-6 h-12 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition-colors"
+            className="px-6 h-12 rounded-full bg-tier-emergency hover:opacity-90 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition-colors"
           >
             <PhoneOff className="w-5 h-5" /> END CONSULTATION
           </button>

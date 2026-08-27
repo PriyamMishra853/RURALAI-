@@ -60,15 +60,18 @@ await check('Supabase — REST / schema', true, async () => {
   // against a table that does not exist returns no error, so the head form
   // reports a completely empty database as healthy. That false pass cost an
   // hour; do not "simplify" this back.
-  const tables = ['staff_profiles', 'patients', 'visits', 'ai_assessments', 'ai_recommendations'];
+  const tables = ['states', 'districts', 'staff_profiles', 'patients', 'visits', 'ai_assessments', 'consultations'];
   const missing = [];
   for (const table of tables) {
-    const { error } = await db.from(table).select('id').limit(1);
+    // `select('*')`, not `select('id')`: patients is keyed on aadhaar_number
+    // and has no id column, so naming a column made a healthy table look
+    // missing with error 42703 (undefined column).
+    const { error } = await db.from(table).select('*').limit(1);
     if (error) missing.push(`${table} (${error.code || error.message?.slice(0, 40)})`);
   }
   if (missing.length) {
     throw new Error(
-      `${missing.length}/${tables.length} tables missing — run database/schema.sql. First: ${missing[0]}`
+      `${missing.length}/${tables.length} tables missing — run \`npm run db:apply -- --confirm\`. First: ${missing[0]}`
     );
   }
   return `${tables.length} core tables present`;
@@ -104,23 +107,31 @@ await check('Qdrant — protocol corpus', false, async () => {
 
 await check('Signaling — WebRTC /signal', true, async () => {
   // Video is peer-to-peer WebRTC signalled over this app's own WebSocket.
-  // If /signal does not accept a connection, no call can be set up at all.
-  const { WebSocketServer, WebSocket } = await import('ws');
-  void WebSocketServer;
+  //
+  // An unauthenticated connection MUST be refused: the socket admits a caller
+  // into a live consultation, so anyone who could open it without a token
+  // could join a doctor's call. A 401 here is the pass condition, not a
+  // failure — this check asserts the door is locked, and that the server is
+  // up enough to lock it.
+  const { WebSocket } = await import('ws');
   const port = config.port || 5000;
   return await new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/signal`);
-    const timer = setTimeout(() => { ws.terminate(); reject(new Error('no response within 5s — is the server running?')); }, 5000);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/signal?roomId=healthcheck`);
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('no response within 5s — is the server running?'));
+    }, 5000);
+
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'ping', roomId: 'healthcheck' }));
-    });
-    ws.on('message', (raw) => {
       clearTimeout(timer);
-      const msg = JSON.parse(raw.toString());
       ws.close();
-      resolve(msg.type === 'pong' ? 'ping/pong OK' : `unexpected reply: ${msg.type}`);
+      reject(new Error('SECURITY: /signal accepted a connection with no token'));
     });
-    ws.on('error', (e) => { clearTimeout(timer); reject(new Error(e.message)); });
+    ws.on('error', (e) => {
+      clearTimeout(timer);
+      if (/401/.test(e.message)) resolve('reachable; rejects unauthenticated sockets (401)');
+      else reject(new Error(e.message));
+    });
   });
 });
 

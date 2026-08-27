@@ -1,421 +1,615 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
+import { getVideoProvider, VideoProviderError } from '../services/video/index.js';
+import { notify, consultationParties, EVENTS } from '../services/notificationService.js';
+import { relayToCall } from '../services/realtimeHub.js';
+import { ROLES } from '../config/roles.js';
+import {
+  buildDateStrip, buildSlots, doctorsFreeAt, doctorsForDay,
+  insideJoinWindow, minutesUntilJoinable,
+  CONSULTATION_MINUTES, istDateString, istNow
+} from '../services/schedulingService.js';
 
 /**
- * Teleconsultation lifecycle controller.
+ * Consultation state machine — spec §3.
  *
- * Persistence model (live schema):
- *  - appointments   : the scheduled slot (appointment_code, doctor, risk, reason)
- *  - consultations  : the video-call session (status: waiting|active|completed|cancelled,
- *                     meeting_room_id, started_at, ended_at)
- * Rich display fields (patient name/code, doctor name, risk) are joined from
- * visits/patients at read time. A small in-memory overlay carries transient
- * call state (e.g. incoming-call ring) that has no schema column.
+ *   SCHEDULED -> ACTIVE -> COMPLETED,  plus CANCELLED and MISSED.
+ *
+ * Every transition happens here, server-side. The frontend requests a
+ * transition and renders whatever this returns; it never decides one. Each
+ * guard is re-evaluated at the moment of action rather than trusted from
+ * whatever the UI last rendered (§preamble).
  */
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const asUuid = (v) => (typeof v === 'string' && UUID_RE.test(v) ? v : null);
+const FIELDS = `
+  id, visit_id, patient_id, doctor_id, assistant_id,
+  consultation_type, status,
+  scheduled_start_time, scheduled_end_time, actual_start_time, actual_end_time,
+  meeting_provider, meeting_room_id, meeting_url,
+  cancelled_by, cancellation_reason, created_at,
+  visits ( id, visit_code, risk_level, chief_complaint ),
+  patients ( aadhaar_number, full_name, gender, date_of_birth, village_line1, phone ),
+  doctor:doctor_id ( id, full_name ),
+  assistant:assistant_id ( id, full_name )
+`;
 
-// Transient overlay: consultationId -> { ringing, scheduled_time, doctor_name, ... }
-const CALL_OVERLAY = new Map();
+/** A doctor may only ever see their own rows; an assistant only theirs (§7). */
+const scopeToCaller = (q, user) =>
+  user.role === ROLES.DOCTOR ? q.eq('doctor_id', user.id) : q.eq('assistant_id', user.id);
 
-async function getDefaultDoctor() {
-  const { data } = await supabaseAdmin
-    .from('doctor_profiles')
-    .select('staff_id, specialization, staff_profiles(full_name)')
-    .limit(1)
+/** Postgres unique-violation — our partial indexes on one-ACTIVE-per-doctor/patient. */
+const isUniqueViolation = (error) => error?.code === '23505';
+
+// ---------------------------------------------------------------------------
+// Scheduling surface (§2)
+// ---------------------------------------------------------------------------
+
+/** GET /api/consultations/availability/dates — the 7-day strip (§2.1). */
+export const getDateStrip = async (req, res) => {
+  const strip = await buildDateStrip(req.user.districtId);
+  return res.json({ dates: strip, today: istDateString() });
+};
+
+/** GET /api/consultations/availability/slots?date=YYYY-MM-DD (§2.3). */
+export const getSlots = async (req, res) => {
+  const date = req.query.date || istDateString();
+
+  // A past date has no slots, and saying so is clearer than returning [].
+  if (date < istDateString()) {
+    return res.status(400).json({ error: 'That date is in the past.' });
+  }
+
+  const { doctors, slots } = await buildSlots(req.user.districtId, date);
+  return res.json({ date, doctors, slots, server_time: new Date().toISOString() });
+};
+
+/** GET /api/consultations/availability/doctors?at=ISO — doctors free at one instant (§2.5). */
+export const getDoctorsAt = async (req, res) => {
+  const { at } = req.query;
+  if (!at) return res.status(400).json({ error: 'at (ISO timestamp) is required.' });
+
+  const free = await doctorsFreeAt(req.user.districtId, at);
+  const all = await doctorsForDay(req.user.districtId, istDateString(new Date(at)));
+  const freeIds = new Set(free.map((d) => d.id));
+
+  return res.json({
+    at,
+    doctors: all
+      .filter((d) => d.working)
+      .map((d) => ({
+        ...d,
+        available: freeIds.has(d.id),
+        label: freeIds.has(d.id) ? 'Available' : 'Currently in consultation'
+      }))
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Booking (§2.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/consultations  { visit_id, doctor_id, scheduled_start_time }
+ *
+ * §2.4 re-runs the whole availability check here, at booking time. The slot
+ * list the assistant is looking at may be seconds stale, and "it was free when
+ * the page rendered" is not a fact about now.
+ */
+export const createConsultation = async (req, res) => {
+  const { visit_id, doctor_id, scheduled_start_time } = req.body || {};
+  if (!visit_id || !doctor_id || !scheduled_start_time) {
+    return res.status(400).json({ error: 'visit_id, doctor_id and scheduled_start_time are required.' });
+  }
+
+  const start = new Date(scheduled_start_time);
+  if (Number.isNaN(start.getTime())) {
+    return res.status(400).json({ error: 'scheduled_start_time is not a valid timestamp.' });
+  }
+  if (start.getTime() < Date.now() - 60000) {
+    return res.status(400).json({ error: 'That time is in the past. Choose an upcoming slot.' });
+  }
+  const end = new Date(start.getTime() + CONSULTATION_MINUTES * 60000);
+
+  // The visit must belong to this clinic.
+  const { data: visit } = await supabaseAdmin
+    .from('visits')
+    .select('id, patient_id, district_id')
+    .eq('id', visit_id)
+    .eq('district_id', req.user.districtId)
     .maybeSingle();
-  return data
-    ? { id: data.staff_id, name: data.staff_profiles?.full_name || 'Doctor', specialization: data.specialization }
-    : null;
-}
+  if (!visit) return res.status(404).json({ error: 'No such visit at this clinic.' });
 
-async function getDoctorById(doctorId) {
-  if (!asUuid(doctorId)) return null;
-  const { data } = await supabaseAdmin
-    .from('doctor_profiles')
-    .select('staff_id, specialization, staff_profiles(full_name)')
-    .eq('staff_id', doctorId)
-    .maybeSingle();
-  return data
-    ? { id: data.staff_id, name: data.staff_profiles?.full_name || 'Doctor', specialization: data.specialization }
-    : null;
-}
+  // 1 + 2. Re-check the doctor is working then, and still free then.
+  const free = await doctorsFreeAt(req.user.districtId, start.toISOString());
+  if (!free.some((d) => d.id === doctor_id)) {
+    return res.status(409).json({
+      error: 'This slot is no longer available. Please select another time.',
+      refresh: true
+    });
+  }
 
-async function createConsultationRecord({ visitId, appointmentId = null, roomId }) {
-  const { data, error } = await supabaseAdmin
+  // 3. And has no ACTIVE consultation right now (§3.4).
+  const { data: activeNow } = await supabaseAdmin
+    .from('consultations').select('id').eq('doctor_id', doctor_id).eq('status', 'ACTIVE').maybeSingle();
+  if (activeNow) {
+    return res.status(409).json({
+      error: 'This slot is no longer available. Please select another time.',
+      refresh: true
+    });
+  }
+
+  // 4. Insert. The partial unique indexes are the final backstop if two
+  //    requests reached this line together.
+  const { data: consultation, error } = await supabaseAdmin
     .from('consultations')
     .insert([{
-      visit_id: asUuid(visitId),
-      appointment_id: appointmentId,
-      consultation_type: 'video',
-      status: 'waiting',
-      meeting_room_id: roomId
+      visit_id,
+      patient_id: visit.patient_id,
+      doctor_id,
+      assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : null,
+      consultation_type: 'SCHEDULED',
+      status: 'SCHEDULED',
+      scheduled_start_time: start.toISOString(),
+      scheduled_end_time: end.toISOString()
     }])
-    .select()
+    .select(FIELDS)
     .single();
+
   if (error) {
-    console.error('consultations insert FAILED:', error.message);
-    return null;
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ error: 'This slot is no longer available. Please select another time.', refresh: true });
+    }
+    console.error('consultation insert failed:', error.message);
+    return res.status(500).json({ error: 'The consultation could not be booked.' });
   }
-  return data;
+
+  // §3.5 — the room is created ONCE, now, and reused by every later join.
+  await attachMeeting(consultation);
+
+  await supabaseAdmin.from('visits').update({ status: 'consultation_scheduled' }).eq('id', visit_id);
+
+  await notify({
+    consultationId: consultation.id,
+    recipients: consultationParties(consultation),
+    event: EVENTS.SCHEDULED,
+    payload: {
+      doctor_name: consultation.doctor?.full_name,
+      patient_name: consultation.patients?.full_name,
+      scheduled_time: consultation.scheduled_start_time,
+      status: 'SCHEDULED',
+      join_url: `/call/${consultation.id}`
+    }
+  });
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'CONSULTATION_SCHEDULED', entityType: 'CONSULTATIONS',
+    entityId: consultation.id, metadata: { doctor_id, scheduled_start_time: start.toISOString() }, ip: req.ip
+  });
+
+  return res.status(201).json(await reload(consultation.id));
+};
+
+/**
+ * POST /api/consultations/instant  { visit_id }  — spec §2.6.
+ *
+ * Skips SCHEDULED entirely: inserts straight to ACTIVE, guarded by the
+ * one-active-per-doctor index. If two assistants grab the same doctor at once,
+ * exactly one insert wins and the loser moves to the next candidate.
+ */
+export const createInstantConsultation = async (req, res) => {
+  const { visit_id } = req.body || {};
+  if (!visit_id) return res.status(400).json({ error: 'visit_id is required.' });
+
+  const { data: visit } = await supabaseAdmin
+    .from('visits')
+    .select('id, patient_id, district_id')
+    .eq('id', visit_id)
+    .eq('district_id', req.user.districtId)
+    .maybeSingle();
+  if (!visit) return res.status(404).json({ error: 'No such visit at this clinic.' });
+
+  const now = new Date();
+  const candidates = await doctorsFreeAt(req.user.districtId, now.toISOString(), { requireWorkingNow: true });
+
+  if (!candidates.length) {
+    return res.status(404).json({
+      error: 'No doctors are available right now.',
+      fallback: 'schedule'
+    });
+  }
+
+  const end = new Date(now.getTime() + CONSULTATION_MINUTES * 60000);
+
+  for (const candidate of candidates) {
+    const { data: consultation, error } = await supabaseAdmin
+      .from('consultations')
+      .insert([{
+        visit_id,
+        patient_id: visit.patient_id,
+        doctor_id: candidate.id,
+        assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : null,
+        consultation_type: 'INSTANT',
+        status: 'ACTIVE',
+        scheduled_start_time: now.toISOString(),
+        scheduled_end_time: end.toISOString(),
+        actual_start_time: now.toISOString()
+      }])
+      .select(FIELDS)
+      .single();
+
+    if (error) {
+      // Someone else reserved this doctor between the check and the insert.
+      // That is expected under load — try the next candidate.
+      if (isUniqueViolation(error)) continue;
+      console.error('instant consultation insert failed:', error.message);
+      return res.status(500).json({ error: 'The consultation could not be started.' });
+    }
+
+    try {
+      await attachMeeting(consultation);
+    } catch (err) {
+      // §4.3 — provider failed. Roll the reservation back rather than leaving
+      // an ACTIVE row with no room, which would block this doctor entirely.
+      await supabaseAdmin.from('consultations')
+        .update({ status: 'CANCELLED', cancellation_reason: 'Video session could not be created.' })
+        .eq('id', consultation.id);
+      return res.status(503).json({ error: 'Unable to start the video session, please retry.', retryable: true });
+    }
+
+    await supabaseAdmin.from('visits').update({ status: 'in_consultation' }).eq('id', visit_id);
+
+    await notify({
+      consultationId: consultation.id,
+      recipients: consultationParties(consultation),
+      event: EVENTS.STARTED,
+      payload: {
+        doctor_name: consultation.doctor?.full_name,
+        patient_name: consultation.patients?.full_name,
+        scheduled_time: now.toISOString(),
+        status: 'ACTIVE',
+        instant: true,
+        join_url: `/call/${consultation.id}`
+      }
+    });
+
+    await logAuditEvent({
+      actorId: req.user.id, actorRole: req.user.role,
+      action: 'CONSULTATION_INSTANT_STARTED', entityType: 'CONSULTATIONS',
+      entityId: consultation.id, metadata: { doctor_id: candidate.id }, ip: req.ip
+    });
+
+    return res.status(201).json({ ...(await reload(consultation.id)), doctor_name: candidate.name });
+  }
+
+  // Every candidate was taken while we worked through the list.
+  return res.status(409).json({ error: 'The available doctors were just taken. Try again or schedule instead.', refresh: true });
+};
+
+// ---------------------------------------------------------------------------
+// Join / End / Cancel (§3.6, §3.7)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/consultations/:id/join — spec §3.6.
+ *
+ * Steps run in the spec's order. Status is checked before the window so an
+ * already-completed consultation reports that plainly rather than "outside the
+ * joining window", which would be misleading.
+ */
+export const joinConsultation = async (req, res) => {
+  const { data: consultation } = await scopeToCaller(
+    supabaseAdmin.from('consultations').select(FIELDS).eq('id', req.params.id),
+    req.user
+  ).maybeSingle();
+
+  if (!consultation) {
+    return res.status(404).json({ error: 'You are not a participant of that consultation.' });
+  }
+
+  // 3. Terminal states first.
+  if (consultation.status === 'COMPLETED') {
+    return res.status(409).json({ error: 'This consultation has already been completed.' });
+  }
+  if (consultation.status === 'CANCELLED') {
+    return res.status(409).json({ error: 'This consultation was cancelled.' });
+  }
+  if (consultation.status === 'MISSED') {
+    return res.status(409).json({ error: 'This consultation was missed and can no longer be joined.' });
+  }
+
+  // 4. Tolerance window.
+  if (!insideJoinWindow(consultation)) {
+    const mins = minutesUntilJoinable(consultation);
+    return res.status(409).json({
+      error: 'This consultation is outside the allowed joining window.',
+      minutes_until_joinable: mins
+    });
+  }
+
+  const isReconnect = consultation.status === 'ACTIVE';
+
+  // 5. Neither party may be in a DIFFERENT active consultation (§3.3).
+  if (!isReconnect) {
+    const { data: clash } = await supabaseAdmin
+      .from('consultations')
+      .select('id')
+      .eq('status', 'ACTIVE')
+      .or(`doctor_id.eq.${consultation.doctor_id},patient_id.eq.${consultation.patient_id}`)
+      .neq('id', consultation.id)
+      .maybeSingle();
+    if (clash) return res.status(409).json({ error: 'You already have an active consultation.' });
+  }
+
+  // 6. Transition, guarded by the unique index.
+  if (!isReconnect) {
+    const { error: upErr } = await supabaseAdmin
+      .from('consultations')
+      .update({
+        status: 'ACTIVE',
+        actual_start_time: consultation.actual_start_time || new Date().toISOString()
+      })
+      .eq('id', consultation.id)
+      .eq('status', 'SCHEDULED');   // compare-and-set: loses cleanly to a race
+
+    if (upErr) {
+      if (isUniqueViolation(upErr)) {
+        return res.status(409).json({ error: 'You already have an active consultation.' });
+      }
+      return res.status(500).json({ error: 'The consultation could not be started.' });
+    }
+  }
+
+  // 7. Credentials for the SAME room. §3.8: a reconnect must not create a new one.
+  let credentials;
+  try {
+    const provider = await getVideoProvider();
+    credentials = await provider.joinMeeting(
+      consultation.id,
+      req.user.id,
+      req.user.role === ROLES.DOCTOR ? 'doctor' : 'assistant',
+      { roomId: consultation.meeting_room_id }
+    );
+  } catch (err) {
+    // §4.3 — do NOT leave the row transitioned on provider failure.
+    if (!isReconnect) {
+      await supabaseAdmin.from('consultations')
+        .update({ status: 'SCHEDULED', actual_start_time: consultation.actual_start_time })
+        .eq('id', consultation.id);
+    }
+    console.error('video join failed:', err instanceof VideoProviderError ? err.cause?.message : err.message);
+
+    await notify({
+      consultationId: consultation.id,
+      recipients: consultationParties(consultation),
+      event: EVENTS.FAILED,
+      payload: { message: 'The video session could not be started. The other party can retry.' }
+    });
+
+    return res.status(503).json({ error: 'Unable to start the video session, please retry.', retryable: true });
+  }
+
+  // 9. Tell the other side — but only on a genuine start, not on a reconnect.
+  if (!isReconnect) {
+    await notify({
+      consultationId: consultation.id,
+      recipients: consultationParties(consultation),
+      event: EVENTS.STARTED,
+      payload: {
+        doctor_name: consultation.doctor?.full_name,
+        patient_name: consultation.patients?.full_name,
+        started_by: req.user.name,
+        status: 'ACTIVE',
+        join_url: `/call/${consultation.id}`
+      }
+    });
+  }
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: isReconnect ? 'CONSULTATION_RECONNECTED' : 'CONSULTATION_JOINED',
+    entityType: 'CONSULTATIONS', entityId: consultation.id, ip: req.ip
+  });
+
+  return res.json({
+    consultation: await reload(consultation.id),
+    credentials,
+    reconnect: isReconnect
+  });
+};
+
+/** POST /api/consultations/:id/end — spec §3.7. */
+export const endConsultation = async (req, res) => {
+  const { data: consultation } = await scopeToCaller(
+    supabaseAdmin.from('consultations').select(FIELDS).eq('id', req.params.id),
+    req.user
+  ).maybeSingle();
+
+  if (!consultation) return res.status(404).json({ error: 'You are not a participant of that consultation.' });
+  if (consultation.status === 'COMPLETED') return res.json({ consultation, already: true });
+
+  const endedAt = new Date();
+  const startedAt = consultation.actual_start_time ? new Date(consultation.actual_start_time) : null;
+  const durationSeconds = startedAt ? Math.round((endedAt - startedAt) / 1000) : null;
+
+  await supabaseAdmin
+    .from('consultations')
+    .update({ status: 'COMPLETED', actual_end_time: endedAt.toISOString() })
+    .eq('id', consultation.id);
+
+  try {
+    const provider = await getVideoProvider();
+    await provider.endMeeting(consultation.id);
+  } catch (err) {
+    // Teardown failure must not block the state transition — the call is over
+    // either way, and a leaked room is an ops problem, not a clinical one.
+    console.warn('video teardown failed:', err.message);
+  }
+
+  // Drop anyone still holding the signalling room open.
+  relayToCall(consultation.id, null, { type: 'call:ended' });
+
+  await supabaseAdmin.from('visits').update({ status: 'awaiting_doctor' }).eq('id', consultation.visit_id);
+
+  await notify({
+    consultationId: consultation.id,
+    recipients: consultationParties(consultation),
+    event: EVENTS.COMPLETED,
+    payload: {
+      doctor_name: consultation.doctor?.full_name,
+      patient_name: consultation.patients?.full_name,
+      duration_seconds: durationSeconds,
+      status: 'COMPLETED'
+    }
+  });
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'CONSULTATION_COMPLETED', entityType: 'CONSULTATIONS',
+    entityId: consultation.id, metadata: { duration_seconds: durationSeconds }, ip: req.ip
+  });
+
+  return res.json({ consultation: await reload(consultation.id), duration_seconds: durationSeconds });
+};
+
+/** POST /api/consultations/:id/cancel — only while SCHEDULED (§6.2). */
+export const cancelConsultation = async (req, res) => {
+  const { reason } = req.body || {};
+
+  const { data: consultation } = await scopeToCaller(
+    supabaseAdmin.from('consultations').select(FIELDS).eq('id', req.params.id),
+    req.user
+  ).maybeSingle();
+
+  if (!consultation) return res.status(404).json({ error: 'You are not a participant of that consultation.' });
+  if (consultation.status !== 'SCHEDULED') {
+    return res.status(409).json({ error: `A consultation that is ${consultation.status.toLowerCase()} cannot be cancelled.` });
+  }
+
+  await supabaseAdmin
+    .from('consultations')
+    .update({
+      status: 'CANCELLED',
+      cancelled_by: req.user.id,
+      cancellation_reason: reason || null
+    })
+    .eq('id', consultation.id);
+
+  try {
+    const provider = await getVideoProvider();
+    await provider.endMeeting(consultation.id);
+  } catch { /* room may never have been created */ }
+
+  await notify({
+    consultationId: consultation.id,
+    recipients: consultationParties(consultation),
+    event: EVENTS.CANCELLED,
+    payload: {
+      doctor_name: consultation.doctor?.full_name,
+      patient_name: consultation.patients?.full_name,
+      cancelled_by: req.user.name,
+      reason: reason || null,
+      status: 'CANCELLED'
+    }
+  });
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'CONSULTATION_CANCELLED', entityType: 'CONSULTATIONS',
+    entityId: consultation.id, metadata: { reason }, ip: req.ip
+  });
+
+  return res.json({ consultation: await reload(consultation.id) });
+};
+
+// ---------------------------------------------------------------------------
+// Listing (§6.1)
+// ---------------------------------------------------------------------------
+
+/** GET /api/consultations?scope=today|upcoming|all */
+export const getConsultations = async (req, res) => {
+  const { scope = 'all', status } = req.query;
+
+  let q = supabaseAdmin.from('consultations').select(FIELDS).order('scheduled_start_time', { ascending: true }).limit(200);
+  q = scopeToCaller(q, req.user);
+  if (status) q = q.eq('status', status);
+
+  if (scope === 'today') {
+    const today = istDateString();
+    const start = new Date(`${today}T00:00:00Z`).getTime() - 5.5 * 3600000;
+    q = q.gte('scheduled_start_time', new Date(start).toISOString())
+         .lt('scheduled_start_time', new Date(start + 86400000).toISOString());
+  } else if (scope === 'upcoming') {
+    q = q.gte('scheduled_start_time', new Date().toISOString()).in('status', ['SCHEDULED', 'ACTIVE']);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('consultations query failed:', error.message);
+    return res.status(500).json({ error: 'Could not load consultations.' });
+  }
+
+  return res.json({
+    consultations: (data || []).map(decorate),
+    server_time: new Date().toISOString()
+  });
+};
+
+/** GET /api/consultations/:id */
+export const getConsultation = async (req, res) => {
+  const { data } = await scopeToCaller(
+    supabaseAdmin.from('consultations').select(FIELDS).eq('id', req.params.id),
+    req.user
+  ).maybeSingle();
+
+  if (!data) return res.status(404).json({ error: 'You are not a participant of that consultation.' });
+  return res.json(decorate(data));
+};
+
+// ---------------------------------------------------------------------------
+
+/** Create the room once and store its id — §3.5. */
+async function attachMeeting(consultation) {
+  const provider = await getVideoProvider();
+  const { roomId, meetingUrl } = await provider.createMeeting(consultation.id);
+  await supabaseAdmin
+    .from('consultations')
+    .update({ meeting_provider: provider.name, meeting_room_id: roomId, meeting_url: meetingUrl })
+    .eq('id', consultation.id);
+  consultation.meeting_room_id = roomId;
+  consultation.meeting_url = meetingUrl;
+}
+
+async function reload(id) {
+  const { data } = await supabaseAdmin.from('consultations').select(FIELDS).eq('id', id).maybeSingle();
+  return data ? decorate(data) : null;
 }
 
 /**
- * POST /api/consultations/push-case
- * Sends the completed AI case file to the doctor queue and opens a waiting
- * video room. The AI summary itself is already persisted in ai_assessments.
+ * Attach the derived state the Join button renders from (§6.2).
+ *
+ * Computed here rather than in the browser so the button can never disagree
+ * with what the join endpoint will actually allow.
  */
-export const pushToDoctor = async (req, res) => {
-  try {
-    const { patient_id, patient_name, patient_code, visit_id, doctor_id, doctor_name, ai_assessment } = req.body;
+function decorate(c) {
+  const now = new Date();
+  const joinable = insideJoinWindow(c, now);
+  const minutes = minutesUntilJoinable(c, now);
 
-    if (!patient_id || !visit_id) {
-      return res.status(400).json({ error: 'patient_id and visit_id are required' });
-    }
+  let action = 'DISABLED';
+  let label = c.status;
+  if (c.status === 'ACTIVE') { action = 'REJOIN'; label = 'Join Active Consultation'; }
+  else if (c.status === 'SCHEDULED' && joinable) { action = 'JOIN'; label = 'Join Consultation'; }
+  else if (c.status === 'SCHEDULED') { action = 'WAIT'; label = `Join available in ${minutes} min`; }
+  else if (c.status === 'COMPLETED') label = 'Completed';
+  else if (c.status === 'CANCELLED') label = 'Cancelled';
+  else if (c.status === 'MISSED') label = 'Missed';
 
-    const cleanCode = (patient_code || 'PAT').replace(/[^a-zA-Z0-9]/g, '_');
-    const roomId = `room_${cleanCode}_${Date.now()}`;
-
-    const selectedDoctor = await getDoctorById(doctor_id);
-    const consultation = await createConsultationRecord({ visitId: visit_id, roomId });
-
-    // Ensure the visit is flagged for the doctor queue
-    const { error: visitErr } = await supabaseAdmin
-      .from('visits')
-      .update({ status: 'awaiting_doctor' })
-      .eq('id', visit_id);
-    if (visitErr) console.warn('visits status update failed:', visitErr.message);
-
-    if (consultation) {
-      CALL_OVERLAY.set(consultation.id, {
-        patient_name: patient_name || 'Patient',
-        patient_code: patient_code || 'PAT-RECORD',
-        doctor_id: selectedDoctor?.id || null,
-        doctor_name: selectedDoctor?.name || doctor_name || 'On-call Doctor',
-        doctor_specialization: selectedDoctor?.specialization || '',
-        risk_level: (ai_assessment?.risk_level || 'MEDIUM').toUpperCase(),
-        reason: ai_assessment?.patient_summary?.slice(0, 200) || 'AI case assessment review',
-        ringing: false
-      });
-    }
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'CASE_PUSHED_TO_DOCTOR',
-      entityType: 'CONSULTATIONS',
-      entityId: consultation?.id,
-      metadata: { patient_id, visit_id, risk_level: ai_assessment?.risk_level }
-    });
-
-    return res.status(201).json({
-      message: 'Case file sent to the doctor queue.',
-      consultation: consultation
-        ? { ...consultation, ...CALL_OVERLAY.get(consultation.id) }
-        : { visit_id, room_id: roomId, persisted: false },
-      room_id: roomId,
-      persisted: Boolean(consultation)
-    });
-  } catch (error) {
-    console.error('Error pushing case to doctor:', error.message);
-    return res.status(500).json({ error: 'Failed to push case to doctor', details: error.message });
-  }
-};
-
-/**
- * POST /api/consultations/ring  — request an immediate emergency video call.
- */
-export const ringCall = async (req, res) => {
-  try {
-    const { patient_id, patient_name, patient_code, visit_id, doctor_id, risk_level, reason, room_id } = req.body;
-
-    const roomId = room_id || `room_${(patient_code || 'PAT').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-    const selectedDoctor = await getDoctorById(doctor_id);
-    const consultation = await createConsultationRecord({ visitId: visit_id, roomId });
-
-    if (consultation) {
-      CALL_OVERLAY.set(consultation.id, {
-        patient_name: patient_name || 'Patient',
-        patient_code: patient_code || 'PAT-RECORD',
-        doctor_id: selectedDoctor?.id || null,
-        doctor_name: selectedDoctor?.name || 'On-call Doctor',
-        doctor_specialization: selectedDoctor?.specialization || '',
-        risk_level: (risk_level || 'HIGH').toUpperCase(),
-        reason: reason || 'Emergency teleconsultation request',
-        ringing: true
-      });
-    }
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'EMERGENCY_CALL_REQUESTED',
-      entityType: 'CONSULTATIONS',
-      entityId: consultation?.id,
-      metadata: { patient_id, visit_id, risk_level }
-    });
-
-    return res.status(201).json({
-      message: 'Emergency video-call request sent to the doctor.',
-      consultation: consultation ? { ...consultation, ...CALL_OVERLAY.get(consultation.id) } : { room_id: roomId },
-      room_id: roomId
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to request emergency call', details: error.message });
-  }
-};
-
-/**
- * POST /api/consultations/schedule — book an appointment + waiting video room.
- */
-export const scheduleConsultation = async (req, res) => {
-  try {
-    const {
-      patient_id,
-      patient_name,
-      patient_code,
-      visit_id,
-      doctor_id,
-      doctor_name,
-      scheduled_time,
-      risk_level = 'MEDIUM',
-      reason = 'Teleconsultation review'
-    } = req.body;
-
-    if (!patient_id) {
-      return res.status(400).json({ error: 'patient_id is required' });
-    }
-
-    const roomId = `room_${(patient_code || 'PAT').replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-    const selectedDoctor = (await getDoctorById(doctor_id)) || (await getDefaultDoctor());
-    const doctorId = selectedDoctor?.id || null;
-    const when = scheduled_time || new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    // 1. Appointment (the scheduled slot)
-    let appointment = null;
-    if (asUuid(patient_id) && asUuid(visit_id) && doctorId) {
-      const riskEnum = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' }[String(risk_level).toUpperCase()] || 'medium';
-      const { data, error } = await supabaseAdmin
-        .from('appointments')
-        .insert([{
-          appointment_code: `APT-${Date.now()}`,
-          patient_id,
-          visit_id,
-          doctor_id: doctorId,
-          risk_level: riskEnum,
-          status: 'scheduled',
-          reason: `${reason} | Scheduled for: ${when}`,
-          booked_by: asUuid(req.user?.id)
-        }])
-        .select()
-        .single();
-      if (error) console.warn('appointments insert failed:', error.message);
-      else appointment = data;
-    }
-
-    // 2. Consultation (the video room, waiting until joined)
-    const consultation = await createConsultationRecord({
-      visitId: visit_id,
-      appointmentId: appointment?.id || null,
-      roomId
-    });
-
-    if (asUuid(visit_id)) {
-      await supabaseAdmin.from('visits').update({ status: 'consultation_scheduled' }).eq('id', visit_id);
-    }
-
-    if (consultation) {
-      CALL_OVERLAY.set(consultation.id, {
-        patient_name: patient_name || 'Patient',
-        patient_code: patient_code || 'PAT-RECORD',
-        doctor_id: doctorId,
-        doctor_name: selectedDoctor?.name || doctor_name || 'On-call Doctor',
-        doctor_specialization: selectedDoctor?.specialization || '',
-        risk_level: String(risk_level).toUpperCase(),
-        scheduled_time: when,
-        reason,
-        ringing: false
-      });
-    }
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'CONSULTATION_SCHEDULED',
-      entityType: 'CONSULTATIONS',
-      entityId: consultation?.id,
-      metadata: { patient_id, visit_id, scheduled_time: when, risk_level }
-    });
-
-    return res.status(201).json({
-      message: 'Video consultation scheduled.',
-      consultation: consultation
-        ? { ...consultation, ...CALL_OVERLAY.get(consultation.id), appointment_id: appointment?.id }
-        : { room_id: roomId, persisted: false },
-      room_id: roomId,
-      persisted: Boolean(consultation)
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to schedule consultation', details: error.message });
-  }
-};
-
-/**
- * GET /api/consultations — active + waiting consultations with joined context.
- */
-export const getConsultations = async (req, res) => {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('consultations')
-      .select('*, visits(id, visit_code, risk_level, chief_complaint, patients(id, full_name, patient_code, village)), appointments(id, doctor_id, reason, doctor_profiles(specialization, staff_profiles(full_name)))')
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error) {
-      console.warn('consultations fetch failed:', error.message);
-      return res.json([]);
-    }
-
-    let enriched = (data || []).map((c) => {
-      const overlay = CALL_OVERLAY.get(c.id) || {};
-      const apt = c.appointments || null;
-      const doctorId = overlay.doctor_id || apt?.doctor_id || null;
-      return {
-        ...c,
-        appointments: undefined,
-        room_id: c.meeting_room_id,
-        patient_name: overlay.patient_name || c.visits?.patients?.full_name || 'Patient',
-        patient_code: overlay.patient_code || c.visits?.patients?.patient_code || '',
-        village: c.visits?.patients?.village || '',
-        risk_level: overlay.risk_level || (c.visits?.risk_level || 'medium').toUpperCase(),
-        reason: overlay.reason || apt?.reason?.split(' | Scheduled for:')[0] || c.visits?.chief_complaint || '',
-        doctor_id: doctorId,
-        doctor_name: overlay.doctor_name || apt?.doctor_profiles?.staff_profiles?.full_name || 'On-call Doctor',
-        doctor_specialization: overlay.doctor_specialization || apt?.doctor_profiles?.specialization || '',
-        scheduled_time: overlay.scheduled_time || c.created_at,
-        ringing: Boolean(overlay.ringing) && c.status === 'waiting'
-      };
-    });
-
-    // Doctors see only their own calls (plus unassigned on-call requests);
-    // assistants and admins see everything.
-    if (req.user?.role === 'DOCTOR') {
-      enriched = enriched.filter((c) => !c.doctor_id || c.doctor_id === req.user.id);
-    }
-
-    return res.json(enriched);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch consultations', details: error.message });
-  }
-};
-
-export const declineConsultation = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { error } = await supabaseAdmin.from('consultations').update({ status: 'cancelled' }).eq('id', asUuid(id));
-    if (error) console.warn('consultation decline update failed:', error.message);
-    const overlay = CALL_OVERLAY.get(id);
-    if (overlay) overlay.ringing = false;
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'CONSULTATION_DECLINED',
-      entityType: 'CONSULTATIONS',
-      entityId: id
-    });
-
-    return res.json({ message: 'Consultation declined.', status: 'cancelled' });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-};
-
-/**
- * POST /api/consultations/:id/join — explicit user action to enter the room.
- */
-export const joinConsultation = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    let consult = null;
-    if (asUuid(id)) {
-      const { data } = await supabaseAdmin.from('consultations').select('*').eq('id', id).maybeSingle();
-      consult = data;
-    }
-    if (!consult) {
-      // Allow joining by room id as well
-      const { data } = await supabaseAdmin.from('consultations').select('*').eq('meeting_room_id', id).maybeSingle();
-      consult = data;
-    }
-
-    if (consult?.status === 'completed') {
-      return res.status(400).json({ error: 'This consultation has already ended.', status: 'completed' });
-    }
-
-    const roomId = consult?.meeting_room_id || `room_${id.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-    if (consult) {
-      const { error } = await supabaseAdmin
-        .from('consultations')
-        .update({ status: 'active', started_at: consult.started_at || new Date().toISOString() })
-        .eq('id', consult.id);
-      if (error) console.warn('consultation join update failed:', error.message);
-      const overlay = CALL_OVERLAY.get(consult.id);
-      if (overlay) overlay.ringing = false;
-    }
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'CONSULTATION_JOINED',
-      entityType: 'CONSULTATIONS',
-      entityId: consult?.id || id
-    });
-
-    return res.json({
-      message: 'Joining video consultation room.',
-      consultation_id: consult?.id || id,
-      room_id: roomId,
-      status: 'active',
-      user_id: req.user?.id || `user_${Date.now()}`,
-      user_name: req.user?.name || (req.user?.role === 'DOCTOR' ? 'Doctor' : 'Clinic Assistant')
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to join video consultation', details: error.message });
-  }
-};
-
-export const createConsultation = async (req, res) => scheduleConsultation(req, res);
-export const startConsultation = async (req, res) => joinConsultation(req, res);
-
-export const endConsultation = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const target = asUuid(id);
-    if (target) {
-      const { error } = await supabaseAdmin
-        .from('consultations')
-        .update({ status: 'completed', ended_at: new Date().toISOString() })
-        .eq('id', target);
-      if (error) console.warn('consultation end update failed:', error.message);
-    }
-    CALL_OVERLAY.delete(id);
-
-    await logAuditEvent({
-      actorId: req.user?.id,
-      actorRole: req.user?.role,
-      action: 'CONSULTATION_ENDED',
-      entityType: 'CONSULTATIONS',
-      entityId: id
-    });
-
-    return res.json({ message: 'Consultation completed.', status: 'completed' });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to end consultation', details: error.message });
-  }
-};
+  return {
+    ...c,
+    join_action: action,
+    join_label: label,
+    minutes_until_joinable: minutes,
+    can_cancel: c.status === 'SCHEDULED'
+  };
+}

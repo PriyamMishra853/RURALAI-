@@ -1,4 +1,4 @@
-import { groq } from '../config/groq.js';
+import { groq, groqChat, groqTranscribe } from '../config/groq.js';
 import { GROQ_SPEECH_MODEL, GROQ_TEXT_MODEL } from '../config/models.js';
 
 /**
@@ -127,7 +127,7 @@ export const transcribeAndExtractSymptoms = async (audioBuffer, requestedLanguag
   // ---- 1. Transcribe ----
   try {
     const fileObj = new File([audioBuffer], 'speech.webm', { type: 'audio/webm' });
-    const transcription = await groq.audio.transcriptions.create({
+    const transcription = await groqTranscribe({
       file: fileObj,
       model: GROQ_SPEECH_MODEL,
       // No leading prompt naming symptoms or languages: priming Whisper with
@@ -161,7 +161,7 @@ export const transcribeAndExtractSymptoms = async (audioBuffer, requestedLanguag
   // words that were actually said; it may never add a symptom.
   let extractedSymptoms = [];
   try {
-    const response = await groq.chat.completions.create({
+    const response = await groqChat({
       model: GROQ_TEXT_MODEL,
       temperature: 0,
       response_format: { type: 'json_object' },

@@ -20,8 +20,28 @@ export const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'openai/gpt-oss-12
 /** Multilingual speech-to-text for symptom capture. */
 export const GROQ_SPEECH_MODEL = process.env.GROQ_SPEECH_MODEL || 'whisper-large-v3-turbo';
 
-/** Wound photography and document vision. */
-export const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+/**
+ * Wound photography and document vision.
+ *
+ * gemini-2.5-flash was decommissioned for new API keys: it still APPEARS in
+ * the /models listing, but generateContent returns 404 "no longer available to
+ * new users". That combination made the health check pass while every wound
+ * photo and every prescription silently fell back to the non-vision path.
+ * The listing is therefore not sufficient evidence — see verifyModelsAvailable.
+ */
+export const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || 'gemini-3.6-flash';
+
+/**
+ * Fallback chain, tried in order.
+ *
+ * Gemini free-tier quota is PER MODEL, so a key can be exhausted on
+ * gemini-3.6-flash (429) while gemini-3.5-flash still answers normally. Without
+ * a chain, one exhausted model silently disables every wound photo and every
+ * prescription read — which is exactly what happened once already.
+ */
+export const GEMINI_VISION_FALLBACKS = (
+  process.env.GEMINI_VISION_FALLBACKS || 'gemini-3.6-flash,gemini-3.5-flash,gemini-3.1-flash-lite'
+).split(',').map((m) => m.trim()).filter(Boolean);
 
 /**
  * Confirm every configured model still exists at its provider.
@@ -48,16 +68,36 @@ export const verifyModelsAvailable = async () => {
 
   const geminiKey = process.env.GEMINI_API_KEY;
   if (geminiKey) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`);
-    const ids = res.ok
-      ? ((await res.json()).models || []).map((m) => m.name.replace(/^models\//, ''))
-      : [];
-    checks.push({
-      model: GEMINI_VISION_MODEL,
-      provider: 'Gemini',
-      available: ids.includes(GEMINI_VISION_MODEL),
-      detail: ids.includes(GEMINI_VISION_MODEL) ? '' : 'not offered'
-    });
+    // A real generateContent call with an image, not a /models listing.
+    // Listing a model proves nothing: gemini-2.5-flash was listed for months
+    // after generateContent started returning 404 for new keys.
+    const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    let available = false;
+    let detail = '';
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [
+              { text: 'Reply with JSON {"ok":true}' },
+              { inline_data: { mime_type: 'image/png', data: pixel } }
+            ] }],
+            generationConfig: { temperature: 0, response_mime_type: 'application/json', maxOutputTokens: 512 }
+          })
+        }
+      );
+      available = res.ok;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        detail = `generateContent ${res.status}: ${(body.error?.message || '').slice(0, 110)}`;
+      }
+    } catch (e) {
+      detail = e.message;
+    }
+    checks.push({ model: GEMINI_VISION_MODEL, provider: 'Gemini', available, detail });
   }
 
   return checks;

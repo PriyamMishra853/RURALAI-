@@ -1,325 +1,258 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
+import { AADHAAR_RE, digitsOnly, withAge } from '../services/patientFields.js';
 
-let MEMORY_VISITS = [];
+/**
+ * Clinical visits.
+ *
+ * Two things changed from v1 beyond the schema:
+ *   - the in-memory MEMORY_VISITS cache is gone. It grew without bound, held
+ *     patient data in process memory, and was merged into responses in a way
+ *     that bypassed the query filters.
+ *   - every read and write is constrained to the caller's district.
+ */
 
-// Helper to generate unique Visit Code
-const generateVisitCode = () => {
-  const randomNum = Math.floor(1000 + Math.random() * 9000);
-  return `VIS-2026-${randomNum}`;
+const RISK_TIERS = ['low', 'moderate', 'high', 'emergency'];
+const DURATION_UNITS = ['days', 'months', 'years'];
+
+/**
+ * Render a duration into the phrase the AI prompt expects.
+ * The orchestrator reads `symptom_duration` as free text; the split
+ * value/unit is kept so it can be reasoned about rather than parsed back.
+ */
+const formatDuration = (value, unit) => {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isInteger(n) || n < 1 || !DURATION_UNITS.includes(unit)) return null;
+  const singular = { days: 'day', months: 'month', years: 'year' }[unit];
+  return `${n} ${n === 1 ? singular : unit}`;
 };
 
-// Strict Vitals Validation Middleware / Function
+let visitSeq = Date.now() % 100000;
+const generateVisitCode = () => `VIS-${new Date().getFullYear()}-${String(++visitSeq).padStart(6, '0')}`;
+
+/**
+ * Range-check vitals before they reach the risk engine.
+ *
+ * A transposed digit produces a physiologically impossible value, and the
+ * triage rules would treat it as a genuine red flag. Rejecting it here is the
+ * difference between "re-enter the pulse" and a false emergency referral.
+ */
 export const validateVitalsRanges = (vitals) => {
   const errors = [];
   if (!vitals) return { isValid: true, errors: [], cleanVitals: {} };
 
-  const {
-    temperature,
-    temperature_celsius,
-    blood_pressure_systolic,
-    systolic_bp,
-    blood_pressure_diastolic,
-    diastolic_bp,
-    pulse,
-    pulse_bpm,
-    spo2,
-    oxygen_saturation,
-    respiratory_rate,
-    weight,
-    weight_kg,
-    height,
-    height_cm
-  } = vitals;
-
-  // Temperature Validation: 95.0 °F to 107.0 °F (or 25°C to 50°C)
-  let tempVal = temperature !== undefined && temperature !== null && temperature !== '' ? parseFloat(temperature) : null;
-  if (tempVal !== null && !isNaN(tempVal)) {
-    if (tempVal < 95.0 || tempVal > 107.0) {
-      errors.push(`Temperature ${tempVal}°F is out of clinical range (95.0°F - 107.0°F).`);
+  const num = (...candidates) => {
+    for (const v of candidates) {
+      if (v !== undefined && v !== null && v !== '') {
+        const parsed = Number(v);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
     }
-  }
-
-  // Systolic BP: 50 to 300 mmHg
-  let sysBP = (systolic_bp !== undefined && systolic_bp !== null && systolic_bp !== '') ? parseInt(systolic_bp) : ((blood_pressure_systolic !== undefined && blood_pressure_systolic !== null && blood_pressure_systolic !== '') ? parseInt(blood_pressure_systolic) : null);
-  if (sysBP !== null && !isNaN(sysBP)) {
-    if (sysBP < 50 || sysBP > 300) {
-      errors.push(`Systolic BP ${sysBP} mmHg is out of clinical range (50 - 300 mmHg).`);
-    }
-  }
-
-  // Diastolic BP: 20 to 200 mmHg
-  let diaBP = (diastolic_bp !== undefined && diastolic_bp !== null && diastolic_bp !== '') ? parseInt(diastolic_bp) : ((blood_pressure_diastolic !== undefined && blood_pressure_diastolic !== null && blood_pressure_diastolic !== '') ? parseInt(blood_pressure_diastolic) : null);
-  if (diaBP !== null && !isNaN(diaBP)) {
-    if (diaBP < 20 || diaBP > 200) {
-      errors.push(`Diastolic BP ${diaBP} mmHg is out of clinical range (20 - 200 mmHg).`);
-    }
-  }
-
-  // Pulse: 20 to 250 bpm
-  let pulseVal = (pulse_bpm !== undefined && pulse_bpm !== null && pulse_bpm !== '') ? parseInt(pulse_bpm) : ((pulse !== undefined && pulse !== null && pulse !== '') ? parseInt(pulse) : null);
-  if (pulseVal !== null && !isNaN(pulseVal)) {
-    if (pulseVal < 20 || pulseVal > 250) {
-      errors.push(`Pulse Rate ${pulseVal} bpm is out of clinical range (20 - 250 bpm).`);
-    }
-  }
-
-  // Oxygen Saturation (SpO2): 50 to 100 %
-  let o2Val = (oxygen_saturation !== undefined && oxygen_saturation !== null && oxygen_saturation !== '') ? parseInt(oxygen_saturation) : ((spo2 !== undefined && spo2 !== null && spo2 !== '') ? parseInt(spo2) : null);
-  if (o2Val !== null && !isNaN(o2Val)) {
-    if (o2Val < 50 || o2Val > 100) {
-      errors.push(`Oxygen Saturation (SpO2) ${o2Val}% is out of clinical range (50% - 100%).`);
-    }
-  }
-
-  // Respiratory Rate: 5 to 80 /min
-  let respVal = (respiratory_rate !== undefined && respiratory_rate !== null && respiratory_rate !== '') ? parseInt(respiratory_rate) : null;
-  if (respVal !== null && !isNaN(respVal)) {
-    if (respVal < 5 || respVal > 80) {
-      errors.push(`Respiratory Rate ${respVal}/min is out of clinical range (5 - 80 /min).`);
-    }
-  }
-
-  // Weight: 0.5 to 500 kg
-  let wtVal = (weight_kg !== undefined && weight_kg !== null && weight_kg !== '') ? parseFloat(weight_kg) : ((weight !== undefined && weight !== null && weight !== '') ? parseFloat(weight) : null);
-  if (wtVal !== null && !isNaN(wtVal)) {
-    if (wtVal < 0.5 || wtVal > 500) {
-      errors.push(`Weight ${wtVal} kg is out of range (0.5 - 500 kg).`);
-    }
-  }
-
-  // Height: 20 to 250 cm
-  let htVal = (height_cm !== undefined && height_cm !== null && height_cm !== '') ? parseFloat(height_cm) : ((height !== undefined && height !== null && height !== '') ? parseFloat(height) : null);
-  if (htVal !== null && !isNaN(htVal)) {
-    if (htVal < 20 || htVal > 250) {
-      errors.push(`Height ${htVal} cm is out of range (20 - 250 cm).`);
-    }
-  }
-
-  // Convert °F to °C for Postgres NUMERIC schema storage
-  const tempCelsius = tempVal !== null ? parseFloat(((tempVal - 32) * (5 / 9)).toFixed(1)) : (temperature_celsius ? parseFloat(temperature_celsius) : null);
-
-  const cleanVitals = {
-    temperature_celsius: tempCelsius,
-    temperature_fahrenheit: tempVal,
-    systolic_bp: sysBP,
-    diastolic_bp: diaBP,
-    pulse_bpm: pulseVal,
-    oxygen_saturation: o2Val,
-    respiratory_rate: respVal,
-    weight_kg: wtVal,
-    height_cm: htVal
+    return null;
   };
+
+  const check = (value, lo, hi, label, unit) => {
+    if (value !== null && (value < lo || value > hi)) {
+      errors.push(`${label} ${value}${unit} is outside the plausible range (${lo}-${hi}${unit}).`);
+    }
+    return value;
+  };
+
+  const temperature = check(num(vitals.temperature, vitals.temperature_f), 95, 107, 'Temperature', '°F');
+  const systolic    = check(num(vitals.systolic_bp, vitals.blood_pressure_systolic), 50, 300, 'Systolic BP', ' mmHg');
+  const diastolic   = check(num(vitals.diastolic_bp, vitals.blood_pressure_diastolic), 20, 200, 'Diastolic BP', ' mmHg');
+  const pulse       = check(num(vitals.pulse_bpm, vitals.pulse), 20, 250, 'Pulse', ' bpm');
+  const spo2        = check(num(vitals.spo2_percent, vitals.spo2, vitals.oxygen_saturation), 50, 100, 'SpO2', '%');
+  const respiratory = check(num(vitals.respiratory_rate), 5, 80, 'Respiratory rate', '/min');
+  const glucose     = check(num(vitals.blood_glucose_mgdl), 20, 800, 'Blood glucose', ' mg/dL');
+
+  if (systolic !== null && diastolic !== null && diastolic >= systolic) {
+    errors.push(`Diastolic BP (${diastolic}) must be lower than systolic (${systolic}). Check the reading.`);
+  }
 
   return {
     isValid: errors.length === 0,
     errors,
-    cleanVitals
+    cleanVitals: {
+      temperature_f: temperature,
+      blood_pressure_systolic: systolic,
+      blood_pressure_diastolic: diastolic,
+      pulse_bpm: pulse,
+      spo2_percent: spo2,
+      respiratory_rate: respiratory,
+      blood_glucose_mgdl: glucose
+    }
   };
 };
 
+/** POST /api/visits — open a visit for a patient in the caller's district. */
 export const createVisit = async (req, res) => {
-  try {
-    const {
-      patient_id,
-      chief_complaint,
-      symptoms,
-      symptom_duration,
-      medical_history,
-      allergies,
-      current_medications,
-      preferred_language = 'Hindi',
-      vitals
-    } = req.body;
+  const {
+    aadhaar_number, chief_complaint,
+    symptom_duration_value, symptom_duration_unit, symptom_duration,
+    medical_history, known_allergies,
+    current_medications, vitals, symptoms, assigned_doctor_id
+  } = req.body || {};
 
-    if (!patient_id) {
-      return res.status(400).json({ error: 'patient_id is required.' });
-    }
-
-    // Validate vitals strict upper / lower limits
-    const { isValid, errors, cleanVitals } = validateVitalsRanges(vitals);
-    if (!isValid) {
-      return res.status(400).json({
-        error: 'Clinical Vitals out of safe limits',
-        details: errors
-      });
-    }
-
-    const visit_code = generateVisitCode();
-    const chiefComplaintText = chief_complaint || symptoms || 'Acute Symptoms Review';
-
-    const visitRecord = {
-      visit_code,
-      patient_id,
-      status: 'open',
-      chief_complaint: chiefComplaintText,
-      preferred_consultation_language: preferred_language
-    };
-
-    const { data: newVisit, error: visitErr } = await supabaseAdmin
-      .from('visits')
-      .insert([visitRecord])
-      .select()
-      .single();
-
-    if (visitErr || !newVisit) {
-      console.error('visits insert FAILED:', visitErr?.message);
-      return res.status(500).json({ error: 'Visit could not be saved to the database.', details: visitErr?.message });
-    }
-
-    // Vitals
-    const { error: vitalsErr } = await supabaseAdmin.from('visit_vitals').insert([{
-      visit_id: newVisit.id,
-      temperature_celsius: cleanVitals.temperature_celsius,
-      systolic_bp: cleanVitals.systolic_bp,
-      diastolic_bp: cleanVitals.diastolic_bp,
-      pulse_bpm: cleanVitals.pulse_bpm,
-      oxygen_saturation: cleanVitals.oxygen_saturation,
-      respiratory_rate: cleanVitals.respiratory_rate,
-      weight_kg: cleanVitals.weight_kg,
-      height_cm: cleanVitals.height_cm
-    }]);
-    if (vitalsErr) console.warn('visit_vitals insert failed:', vitalsErr.message);
-
-    // Symptoms with duration
-    if (symptoms || chief_complaint) {
-      const symptomNames = (symptoms || chief_complaint).split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-      if (symptomNames.length > 0) {
-        const { error: symErr } = await supabaseAdmin.from('visit_symptoms').insert(
-          symptomNames.map((name) => ({
-            visit_id: newVisit.id,
-            symptom_name: name.slice(0, 255),
-            description: symptom_duration ? `Duration: ${symptom_duration}` : null
-          }))
-        );
-        if (symErr) console.warn('visit_symptoms insert failed:', symErr.message);
-      }
-    }
-
-    // Medical history, allergies, current medications -> patient longitudinal record
-    if (medical_history && medical_history.trim()) {
-      const { error: histErr } = await supabaseAdmin.from('patient_medical_history').insert(
-        medical_history.split(/[,;]/).map((c) => c.trim()).filter(Boolean).map((condition) => ({
-          patient_id,
-          condition_name: condition.slice(0, 255),
-          notes: `Reported during visit ${visit_code}`
-        }))
-      );
-      if (histErr) console.warn('patient_medical_history insert failed:', histErr.message);
-    }
-    if (allergies && allergies.trim() && !/^(none|no known)/i.test(allergies.trim())) {
-      const { error: allErr } = await supabaseAdmin.from('patient_allergies').insert(
-        allergies.split(/[,;]/).map((a) => a.trim()).filter(Boolean).map((allergen) => ({
-          patient_id,
-          allergen: allergen.slice(0, 255),
-          notes: `Reported during visit ${visit_code}`
-        }))
-      );
-      if (allErr) console.warn('patient_allergies insert failed:', allErr.message);
-    }
-    if (current_medications && current_medications.trim() && !/^none/i.test(current_medications.trim())) {
-      const { error: medErr } = await supabaseAdmin.from('patient_medications').insert(
-        current_medications.split(/[,;]/).map((m) => m.trim()).filter(Boolean).map((medicine) => ({
-          patient_id,
-          medicine_name: medicine.slice(0, 255),
-          is_current: true,
-          source: 'assistant_reported'
-        }))
-      );
-      if (medErr) console.warn('patient_medications insert failed:', medErr.message);
-    }
-
-    newVisit.vitals = cleanVitals;
-    newVisit.symptoms = symptoms || chiefComplaintText;
-    newVisit.symptom_duration = symptom_duration || null;
-    newVisit.medical_history = medical_history || null;
-    newVisit.allergies = allergies || null;
-    newVisit.current_medications = current_medications || null;
-
-    MEMORY_VISITS.unshift(newVisit);
-    console.log(`✅ Visit persisted: ${newVisit.id} (${visit_code}) for patient ${patient_id}`);
-
-    logAuditEvent({
-      actorId: req.user?.id || 'assistant_001',
-      actorRole: req.user?.role || 'CLINIC_ASSISTANT',
-      action: 'VISIT_CREATED',
-      entityType: 'VISITS',
-      entityId: newVisit.id,
-      metadata: { patient_id, status: newVisit.status }
-    });
-
-    return res.status(201).json(newVisit);
-  } catch (error) {
-    console.error('Error creating visit:', error.message);
-    return res.status(500).json({ error: 'Failed to create visit record', details: error.message });
+  // The patient is identified by Aadhaar, in the body rather than the URL.
+  const aadhaar = digitsOnly(aadhaar_number);
+  if (!AADHAAR_RE.test(aadhaar)) {
+    return res.status(400).json({ error: 'A 12-digit Aadhaar number is required to open a visit.' });
   }
+
+  const { data: patient } = await supabaseAdmin
+    .from('patients')
+    .select('aadhaar_number, full_name')
+    .eq('aadhaar_number', aadhaar)
+    .eq('clinic_district_id', req.user.districtId)
+    .maybeSingle();
+
+  if (!patient) return res.status(404).json({ error: 'No such patient in your district.' });
+
+  const { isValid, errors, cleanVitals } = validateVitalsRanges(vitals);
+  if (!isValid) return res.status(400).json({ error: 'Vitals failed validation.', details: errors });
+
+  // A named doctor must be an active doctor in this district.
+  let doctorId = null;
+  if (assigned_doctor_id) {
+    const { data: doc } = await supabaseAdmin
+      .from('staff_profiles').select('id')
+      .eq('id', assigned_doctor_id).eq('role', 'doctor').eq('status', 'active')
+      .eq('district_id', req.user.districtId).maybeSingle();
+    if (!doc) return res.status(404).json({ error: 'That doctor is not available in your district.' });
+    doctorId = doc.id;
+  }
+
+  const { data: visit, error } = await supabaseAdmin
+    .from('visits')
+    .insert([{
+      visit_code: generateVisitCode(),
+      patient_id: patient.aadhaar_number,
+      assistant_id: req.user.id,
+      assigned_doctor_id: doctorId,
+      assigned_at: doctorId ? new Date().toISOString() : null,
+      district_id: req.user.districtId,
+      chief_complaint: chief_complaint || null,
+      symptom_duration: formatDuration(symptom_duration_value, symptom_duration_unit)
+        || symptom_duration || null,
+      symptom_duration_value: Number.parseInt(symptom_duration_value, 10) || null,
+      symptom_duration_unit: DURATION_UNITS.includes(symptom_duration_unit) ? symptom_duration_unit : null,
+      medical_history: medical_history || null,
+      known_allergies: known_allergies || null,
+      current_medications: current_medications || null,
+      status: 'in_progress',
+      is_demo: false
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('visit insert failed:', error.message);
+    return res.status(500).json({ error: 'The visit could not be created.' });
+  }
+
+  if (Object.values(cleanVitals).some((v) => v !== null)) {
+    await supabaseAdmin.from('visit_vitals').insert([{ ...cleanVitals, visit_id: visit.id, recorded_by: req.user.id }]);
+  }
+  if (Array.isArray(symptoms) && symptoms.length) {
+    await supabaseAdmin.from('visit_symptoms').insert(
+      symptoms.filter(Boolean).map((s) => ({
+        visit_id: visit.id,
+        description: typeof s === 'string' ? s : s.description,
+        source: typeof s === 'object' && s.source ? s.source : 'typed'
+      }))
+    );
+  }
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'VISIT_CREATED', entityType: 'VISITS', entityId: visit.id,
+    metadata: { visit_code: visit.visit_code }, ip: req.ip
+  });
+
+  return res.status(201).json(visit);
 };
 
-export const updateVisit = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates = req.body;
-
-    let visit = MEMORY_VISITS.find(v => v.id === id);
-    if (visit) {
-      Object.assign(visit, updates);
-    }
-
-    try {
-      await supabaseAdmin.from('visits').update(updates).eq('id', id);
-    } catch (e) {}
-
-    return res.json({ message: 'Visit updated successfully', visit });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to update visit', details: error.message });
-  }
-};
-
-export const getVisits = async (req, res) => {
-  try {
-    let dbVisits = [];
-    try {
-      const { data } = await supabaseAdmin
-        .from('visits')
-        .select('*, patients(*), visit_vitals(*), ai_assessments(*)')
-        .order('created_at', { ascending: false });
-      if (data && data.length > 0) dbVisits = data;
-    } catch (e) {}
-
-    const combinedMap = new Map();
-    MEMORY_VISITS.forEach(v => combinedMap.set(v.id, v));
-    dbVisits.forEach(v => combinedMap.set(v.id, v));
-
-    return res.json(Array.from(combinedMap.values()));
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch visits', details: error.message });
-  }
-};
-
+/** GET /api/visits/:id — district-scoped for assistants, assignment-scoped for doctors. */
 export const getVisitById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    let visit = null;
+  let q = supabaseAdmin
+    .from('visits')
+    .select(`
+      *,
+      patients ( aadhaar_number, full_name, gender, date_of_birth, village_line1, village_line2, address_district, phone ),
+      visit_vitals ( * ),
+      visit_symptoms ( description, source, created_at ),
+      ai_assessments ( * )
+    `)
+    .eq('id', req.params.id);
 
-    try {
-      const { data } = await supabaseAdmin
-        .from('visits')
-        .select('*, patients(*), visit_vitals(*), ai_assessments(*)')
-        .eq('id', id)
-        .single();
-      if (data) visit = data;
-    } catch (e) {}
+  q = req.user.role === 'DOCTOR'
+    ? q.eq('assigned_doctor_id', req.user.id)
+    : q.eq('district_id', req.user.districtId);
 
-    if (!visit) {
-      visit = MEMORY_VISITS.find(v => v.id === id);
-    }
+  const { data, error } = await q.maybeSingle();
+  if (error) return res.status(500).json({ error: 'Could not load the visit.' });
+  if (!data) return res.status(404).json({ error: 'No such visit available to you.' });
+  return res.json({ ...data, patients: withAge(data.patients) });
+};
 
-    if (!visit) {
-      return res.status(404).json({ error: 'Visit not found' });
-    }
+/** PATCH /api/visits/:id — status, risk tier, or doctor assignment. */
+export const updateVisit = async (req, res) => {
+  const {
+    status, risk_level, assigned_doctor_id, chief_complaint,
+    symptom_duration_value, symptom_duration_unit,
+    medical_history, known_allergies, current_medications
+  } = req.body || {};
 
-    return res.json(visit);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch visit details', details: error.message });
+  let q = supabaseAdmin.from('visits').select('id, district_id').eq('id', req.params.id);
+  q = req.user.role === 'DOCTOR'
+    ? q.eq('assigned_doctor_id', req.user.id)
+    : q.eq('district_id', req.user.districtId);
+
+  const { data: existing } = await q.maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'No such visit available to you.' });
+
+  const patch = {};
+  if (chief_complaint !== undefined) patch.chief_complaint = chief_complaint;
+  if (medical_history !== undefined) patch.medical_history = medical_history;
+  if (known_allergies !== undefined) patch.known_allergies = known_allergies;
+  if (current_medications !== undefined) patch.current_medications = current_medications;
+  if (symptom_duration_value !== undefined || symptom_duration_unit !== undefined) {
+    const text = formatDuration(symptom_duration_value, symptom_duration_unit);
+    if (!text) return res.status(400).json({ error: 'Provide a positive number and a unit of days, months or years.' });
+    patch.symptom_duration = text;
+    patch.symptom_duration_value = Number.parseInt(symptom_duration_value, 10);
+    patch.symptom_duration_unit = symptom_duration_unit;
   }
+  if (status !== undefined) patch.status = status;
+  if (risk_level !== undefined) {
+    if (!RISK_TIERS.includes(risk_level)) {
+      return res.status(400).json({ error: `risk_level must be one of: ${RISK_TIERS.join(', ')}` });
+    }
+    patch.risk_level = risk_level;
+  }
+  if (assigned_doctor_id !== undefined) {
+    const { data: doc } = await supabaseAdmin
+      .from('staff_profiles').select('id')
+      .eq('id', assigned_doctor_id).eq('role', 'doctor').eq('status', 'active')
+      .eq('district_id', existing.district_id).maybeSingle();
+    if (!doc) return res.status(404).json({ error: 'That doctor is not available in this district.' });
+    patch.assigned_doctor_id = assigned_doctor_id;
+    patch.assigned_at = new Date().toISOString();
+  }
+
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update.' });
+
+  const { data, error } = await supabaseAdmin
+    .from('visits').update(patch).eq('id', req.params.id).select().single();
+
+  if (error) return res.status(500).json({ error: 'The visit could not be updated.' });
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'VISIT_UPDATED', entityType: 'VISITS', entityId: req.params.id,
+    metadata: patch, ip: req.ip
+  });
+
+  return res.json(data);
 };

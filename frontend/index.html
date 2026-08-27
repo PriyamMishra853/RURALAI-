@@ -3,15 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Virtual Village Clinic — AI-Assisted Rural Healthcare</title>
-    <meta name="description" content="AI-assisted Virtual Village Clinic platform for rural healthcare. Enabling clinic assistants to digitize patient records, run preliminary AI risk assessments, and connect patients with remote doctors." />
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0B3C78" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0D1624" media="(prefers-color-scheme: dark)" />
+
+    <title>Rural Health Grid — AI-Assisted Village Clinic Network</title>
+    <meta
+      name="description"
+      content="A public-health telemedicine network for village sub-centres. Trained clinic assistants capture the case; AI prepares it against approved MoHFW protocols; a registered doctor makes every clinical decision."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <script>
+      /**
+       * Apply the saved theme before first paint.
+       *
+       * Without this the page renders light, then React swaps to dark a frame
+       * later — a white flash straight into someone's eyes at night, which is
+       * exactly when dark mode matters.
+       */
+      (function () {
+        try {
+          var saved = localStorage.getItem('vvc_theme') || 'system';
+          var dark = saved === 'dark' ||
+            (saved === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        } catch (e) {
+          /* storage blocked; light default is fine */
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 antialiased font-sans min-h-screen selection:bg-cyan-500 selection:text-slate-950">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

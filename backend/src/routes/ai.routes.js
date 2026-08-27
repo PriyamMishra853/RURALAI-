@@ -5,7 +5,8 @@ import {
   analyzeDocumentAI,
   analyzePatientCase,
   getRiskAssessment,
-  analyzeImageAI
+  analyzeImageAI,
+  interpretReport
 } from '../controllers/ai.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
@@ -33,5 +34,6 @@ router.post('/transcribe', upload.single('audio'), transcribeSpeech);
 router.post('/analyze-document', upload.single('file'), analyzeDocumentAI);
 router.post('/risk-assessment', getRiskAssessment);
 router.post('/analyze-image', upload.single('image'), analyzeImageAI);
+router.post('/interpret-report', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), interpretReport);
 
 export default router;

@@ -1,38 +1,44 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadDocument, runOCR, verifyDocumentExtraction } from '../controllers/document.controller.js';
+import { uploadDocument, verifyDocumentExtraction, listDocuments } from '../controllers/document.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
+import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
+import { ROLES } from '../config/roles.js';
 
-// Cap upload size: memoryStorage buffers the whole file in heap, so an
-// unbounded upload is a trivial denial-of-service.
+// memoryStorage buffers the whole file in heap, so the ceiling matters.
+// 15 MB x 10 covers a phone photo of every page of a long lab report.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 10 }
+  limits: { fileSize: 15 * 1024 * 1024, files: 10 }
 });
+
 const router = Router();
 
 router.use(authenticateUser);
-// Admins have no clinical access — plan §C.2. Fails closed for any route
-// added below, including one that forgets its own role list.
 router.use(denyAdminClinicalAccess);
 
-// Flexible multer middleware that accepts any field name ('document', 'file', etc.)
-const flexibleUpload = (req, res, next) => {
+/**
+ * Accept any field name and any count, so one handler serves the file-manager
+ * picker (multiple) and the camera capture (one shot at a time) without the
+ * client having to pick a different endpoint.
+ */
+const anyFiles = (req, res, next) =>
   upload.any()(req, res, (err) => {
     if (err) {
-      console.error('Multer upload error:', err.message);
-      return res.status(400).json({ error: 'File upload parse error', details: err.message });
+      return res.status(400).json({
+        error: err.code === 'LIMIT_FILE_SIZE'
+          ? 'A file is larger than 15 MB. Photograph the page again at a lower resolution.'
+          : `Upload could not be read: ${err.message}`
+      });
     }
-    if (req.files && req.files.length > 0) {
-      req.file = req.files[0];
-    }
-    next();
+    return next();
   });
-};
 
-router.post('/upload', authorizeRoles('CLINIC_ASSISTANT'), flexibleUpload, uploadDocument);
-router.post('/:id/ocr', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), runOCR);
-router.post('/:id/verify', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), verifyDocumentExtraction);
+router.get('/', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), listDocuments);
+
+// Every upload spends money at an external model provider.
+router.post('/upload', authorizeRoles(ROLES.CLINIC_ASSISTANT), aiRateLimiter, anyFiles, uploadDocument);
+router.post('/:id/verify', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), verifyDocumentExtraction);
 
 export default router;

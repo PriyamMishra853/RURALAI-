@@ -1,0 +1,22 @@
+{
+  "model": "bernoulli_nb",
+  "trained_at": "2026-08-27T11:08:40Z",
+  "rows_total": 246945,
+  "rows_used": 244938,
+  "diseases_total": 773,
+  "diseases_kept": 582,
+  "min_samples_per_disease": 30,
+  "symptom_count": 377,
+  "metrics": {
+    "bernoulli_nb": {
+      "top1": 0.8537,
+      "top3": 0.9525,
+      "top5": 0.9743
+    },
+    "centroid_baseline": {
+      "top1": 0.8445,
+      "top5": 0.9784
+    }
+  },
+  "selected": "centroid"
+}

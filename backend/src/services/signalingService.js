@@ -1,243 +1,225 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import jwt from 'jsonwebtoken';
 import url from 'url';
+import { config } from '../config/env.js';
+import { supabaseAdmin } from '../config/supabase.js';
+import { ROLE_DB_TO_API } from '../config/roles.js';
 
 /**
- * Production-Grade Raw WebRTC WebSocket Signaling Server (Node.js 'ws')
- * Relays SDP offers, SDP answers, ICE candidates, and room lifecycle events.
+ * WebRTC signaling.
+ *
+ * v1 took roomId, role and userId straight from the query string and trusted
+ * all three, with no token anywhere in the file. Anyone who learned a room id
+ * could join a live consultation as "the doctor" — and because rooms cap at
+ * two, their presence also locked the real doctor out.
+ *
+ * Now: the socket must present a valid token, the profile must be active, and
+ * the caller must be a recorded participant of that specific consultation.
+ * Identity comes from the verified token; the query string supplies only the
+ * room being requested.
  */
 
-// Map of roomId -> Map<WebSocket, { role: string, userId: string, isAlive: boolean }>
+// roomId -> Map<WebSocket, { staffId, role, name }>
 const ROOMS = new Map();
+
+const closeSocket = (socket, code, reason) => {
+  try {
+    socket.write(`HTTP/1.1 ${code} ${reason}\r\nConnection: close\r\n\r\n`);
+  } catch { /* socket already gone */ }
+  socket.destroy();
+};
+
+/**
+ * Resolve a token to an active staff profile. Mirrors auth.middleware: a token
+ * proves identity, the profile row decides role — and a missing profile is a
+ * refusal, never a default role.
+ */
+const authenticateToken = async (token) => {
+  if (!token) return null;
+
+  let authUserId = null;
+  let email = null;
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret);
+    authUserId = decoded.authUserId;
+    email = decoded.email;
+  } catch {
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) return null;
+    authUserId = data.user.id;
+    email = data.user.email;
+  }
+
+  let q = supabaseAdmin.from('staff_profiles').select('id, full_name, role, status');
+  q = authUserId ? q.eq('auth_user_id', authUserId) : q.eq('email', String(email).toLowerCase());
+  const { data: profile } = await q.maybeSingle();
+
+  if (!profile || profile.status !== 'active') return null;
+  return { staffId: profile.id, name: profile.full_name, role: ROLE_DB_TO_API[profile.role] };
+};
+
+/** Is this staff member a participant of this consultation room? */
+const isParticipant = async (roomId, staffId) => {
+  const { data } = await supabaseAdmin
+    .from('consultations')
+    .select('id, doctor_id, assistant_id, status')
+    .eq('meeting_room_id', roomId)
+    .maybeSingle();
+
+  if (!data) return false;
+  if (data.status === 'completed' || data.status === 'cancelled') return false;
+  return data.doctor_id === staffId || data.assistant_id === staffId;
+};
 
 export const setupSignalingServer = (httpServer) => {
   const wss = new WebSocketServer({ noServer: true });
 
-  httpServer.on('upgrade', (request, socket, head) => {
-    const pathname = url.parse(request.url).pathname;
+  httpServer.on('upgrade', async (request, socket, head) => {
+    const parsed = url.parse(request.url, true);
+    if (parsed.pathname !== '/signal' && parsed.pathname !== '/signal/') return;
 
-    if (pathname === '/signal' || pathname === '/signal/') {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
+    // Reject cross-origin upgrades. Browsers do not apply CORS to WebSockets,
+    // so this check is the only thing standing in for it.
+    const origin = request.headers.origin;
+    if (origin && !config.allowedOrigins.includes(origin)) {
+      return closeSocket(socket, 403, 'Forbidden');
     }
+
+    // The browser WebSocket API cannot set an Authorization header, so the
+    // token arrives as a query parameter. It is a short-lived bearer token and
+    // this URL is not logged by the app; that is the accepted trade.
+    const token = parsed.query.token;
+    const roomId = parsed.query.roomId;
+
+    if (!token || !roomId) return closeSocket(socket, 401, 'Unauthorized');
+
+    let identity;
+    try {
+      identity = await authenticateToken(token);
+    } catch {
+      return closeSocket(socket, 500, 'Internal Server Error');
+    }
+    if (!identity) return closeSocket(socket, 401, 'Unauthorized');
+
+    if (!(await isParticipant(roomId, identity.staffId))) {
+      console.warn(`Signaling: ${identity.staffId} denied for room ${roomId} (not a participant)`);
+      return closeSocket(socket, 403, 'Forbidden');
+    }
+
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      ws.staffId = identity.staffId;
+      ws.role = identity.role;
+      ws.displayName = identity.name;
+      ws.roomId = roomId;
+      wss.emit('connection', ws, request);
+    });
   });
 
-  wss.on('connection', (ws, req) => {
-    const parsedUrl = url.parse(req.url, true);
-    const queryParams = parsedUrl.query || {};
-
+  wss.on('connection', (ws) => {
     ws.isAlive = true;
-    ws.roomId = queryParams.roomId || null;
-    ws.role = queryParams.role || 'UNKNOWN';
-    ws.userId = queryParams.userId || `user_${Date.now()}`;
+    console.log(`Signaling: ${ws.displayName} (${ws.role}) joined room ${ws.roomId}`);
 
-    console.log(`🔌 New WebSocket Connection Established: User ${ws.userId} (${ws.role})`);
+    joinRoom(ws);
 
-    ws.on('pong', () => {
-      ws.isAlive = true;
-    });
+    ws.on('pong', () => { ws.isAlive = true; });
 
-    ws.on('message', (messageRaw) => {
+    ws.on('message', (raw) => {
+      let data;
       try {
-        const data = JSON.parse(messageRaw.toString());
-        handleSignalingMessage(ws, data);
-      } catch (err) {
-        console.error('Invalid Signaling JSON Message:', err.message);
+        data = JSON.parse(raw.toString());
+      } catch {
+        return;
       }
+      handleMessage(ws, data);
     });
 
-    ws.on('close', () => {
-      handleSocketDisconnect(ws);
-    });
-
-    ws.on('error', (err) => {
-      console.error(`WebSocket Error [${ws.userId}]:`, err.message);
-      handleSocketDisconnect(ws);
-    });
+    ws.on('close', () => leaveRoom(ws, 'DISCONNECTED'));
+    ws.on('error', () => leaveRoom(ws, 'ERROR'));
   });
 
-  // Heartbeat ping interval every 20 seconds
   const pingInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
-      if (ws.isAlive === false) {
-        console.log(`⚠️ Terminating Dead WebSocket Connection: User ${ws.userId}`);
-        return ws.terminate();
-      }
+      if (ws.isAlive === false) return ws.terminate();
       ws.isAlive = false;
       ws.ping();
     });
   }, 20000);
 
-  wss.on('close', () => {
-    clearInterval(pingInterval);
-  });
+  wss.on('close', () => clearInterval(pingInterval));
 
-  console.log('📡 WebRTC Raw WebSocket Signaling Server mounted on /signal');
+  console.log('WebRTC signaling mounted on /signal (token + participant check required)');
   return wss;
 };
 
-function handleSignalingMessage(ws, data) {
-  const { type, roomId, sdp, candidate, role, userId } = data;
-  const targetRoomId = roomId || ws.roomId;
+function joinRoom(ws) {
+  if (!ROOMS.has(ws.roomId)) ROOMS.set(ws.roomId, new Map());
+  const room = ROOMS.get(ws.roomId);
 
-  if (!targetRoomId) {
-    safeSend(ws, { type: 'error', message: 'roomId is required' });
-    return;
+  // A reconnecting participant replaces their own stale socket.
+  for (const [peer] of room.entries()) {
+    if (peer !== ws && peer.staffId === ws.staffId) {
+      room.delete(peer);
+      try { peer.close(4000, 'Replaced by reconnection'); } catch { /* already closed */ }
+    }
   }
 
-  ws.roomId = targetRoomId;
-  if (role) ws.role = role;
-  if (userId) ws.userId = userId;
+  if (room.size >= 2) {
+    // Membership was verified at upgrade, so this is a genuine third party
+    // rather than the impersonation case v1 allowed.
+    safeSend(ws, { type: 'error', message: 'This consultation already has two participants.' });
+    return ws.close(4003, 'Room full');
+  }
 
-  switch (type) {
-    case 'join-room': {
-      if (!ROOMS.has(targetRoomId)) {
-        ROOMS.set(targetRoomId, new Map());
-      }
+  room.set(ws, { staffId: ws.staffId, role: ws.role, name: ws.displayName });
 
-      const room = ROOMS.get(targetRoomId);
-
-      // A reconnecting user replaces their previous (stale) socket instead of
-      // being rejected with "room full".
-      for (const [peerWs] of room.entries()) {
-        if (peerWs !== ws && peerWs.userId === ws.userId) {
-          room.delete(peerWs);
-          try { peerWs.close(4000, 'Replaced by reconnection'); } catch {}
-        }
-      }
-
-      // Max 2 participants per room (Doctor + Patient/Clinic Assistant)
-      if (room.size >= 2 && !room.has(ws)) {
-        safeSend(ws, {
-          type: 'error',
-          message: 'Room is full (Maximum 2 participants allowed per call).'
-        });
-        return;
-      }
-
-      room.set(ws, { role: ws.role, userId: ws.userId });
-      console.log(`👤 Peer Joined Room [${targetRoomId}]: User ${ws.userId} (${ws.role}). Room Size: ${room.size}`);
-
-      // Notify both peers once the room is complete. Exactly ONE side may
-      // create the SDP offer — the newly joined (second) peer is elected
+  if (room.size === 2) {
+    for (const [peer, info] of room.entries()) {
+      if (peer === ws) continue;
+      // Exactly one side creates the offer; the newly joined peer is elected
       // initiator, which prevents offer glare.
-      if (room.size === 2) {
-        for (const [peerWs, peerInfo] of room.entries()) {
-          if (peerWs !== ws) {
-            safeSend(peerWs, {
-              type: 'peer-joined',
-              role: ws.role,
-              userId: ws.userId,
-              initiator: false
-            });
-
-            safeSend(ws, {
-              type: 'peer-joined',
-              role: peerInfo.role,
-              userId: peerInfo.userId,
-              initiator: true
-            });
-          }
-        }
-      } else {
-        safeSend(ws, {
-          type: 'joined-waiting',
-          message: 'Joined room. Waiting for other participant...'
-        });
-      }
-      break;
+      safeSend(peer, { type: 'peer-joined', role: ws.role, name: ws.displayName, initiator: false });
+      safeSend(ws,   { type: 'peer-joined', role: info.role, name: info.name, initiator: true });
     }
+  } else {
+    safeSend(ws, { type: 'joined-waiting', message: 'Waiting for the other participant.' });
+  }
+}
 
-    case 'offer': {
-      relayToPeer(targetRoomId, ws, {
-        type: 'offer',
-        roomId: targetRoomId,
-        sdp
-      });
-      break;
-    }
-
-    case 'answer': {
-      relayToPeer(targetRoomId, ws, {
-        type: 'answer',
-        roomId: targetRoomId,
-        sdp
-      });
-      break;
-    }
-
-    case 'ice-candidate': {
-      relayToPeer(targetRoomId, ws, {
-        type: 'ice-candidate',
-        roomId: targetRoomId,
-        candidate
-      });
-      break;
-    }
-
-    case 'leave-room': {
-      console.log(`👋 Peer Left Room [${targetRoomId}]: User ${ws.userId}`);
-      relayToPeer(targetRoomId, ws, {
-        type: 'peer-left',
-        reason: 'LEFT',
-        userId: ws.userId
-      });
-      removeSocketFromRoom(targetRoomId, ws);
-      break;
-    }
-
-    case 'ping': {
-      safeSend(ws, { type: 'pong' });
-      break;
-    }
-
+function handleMessage(ws, data) {
+  switch (data.type) {
+    // roomId is never read from the message body — it is fixed at upgrade, so
+    // a connected socket cannot hop into another room by sending a new id.
+    case 'offer':
+      return relay(ws, { type: 'offer', sdp: data.sdp });
+    case 'answer':
+      return relay(ws, { type: 'answer', sdp: data.sdp });
+    case 'ice-candidate':
+      return relay(ws, { type: 'ice-candidate', candidate: data.candidate });
+    case 'leave-room':
+      relay(ws, { type: 'peer-left', reason: 'LEFT' });
+      return leaveRoom(ws, 'LEFT');
+    case 'ping':
+      return safeSend(ws, { type: 'pong' });
     default:
-      console.warn(`Unknown message type: ${type}`);
+      return undefined;
   }
 }
 
 function safeSend(ws, payload) {
   if (ws.readyState !== WebSocket.OPEN) return;
-  try {
-    ws.send(JSON.stringify(payload));
-  } catch (err) {
-    console.error(`Failed to send to user ${ws.userId}:`, err.message);
-  }
+  try { ws.send(JSON.stringify(payload)); } catch { /* peer vanished mid-send */ }
 }
 
-function relayToPeer(roomId, senderWs, payload) {
-  const room = ROOMS.get(roomId);
+function relay(sender, payload) {
+  const room = ROOMS.get(sender.roomId);
   if (!room) return;
-
-  for (const [peerWs] of room.entries()) {
-    if (peerWs !== senderWs) {
-      safeSend(peerWs, payload);
-    }
-  }
+  for (const [peer] of room.entries()) if (peer !== sender) safeSend(peer, payload);
 }
 
-function handleSocketDisconnect(ws) {
-  const roomId = ws.roomId;
-  if (!roomId || !ROOMS.has(roomId)) return;
-
-  console.log(`🔌 Socket Disconnected: User ${ws.userId} from Room ${roomId}`);
-  
-  relayToPeer(roomId, ws, {
-    type: 'peer-left',
-    reason: 'DISCONNECTED',
-    userId: ws.userId
-  });
-
-  removeSocketFromRoom(roomId, ws);
-}
-
-function removeSocketFromRoom(roomId, ws) {
-  const room = ROOMS.get(roomId);
-  if (room) {
-    room.delete(ws);
-    if (room.size === 0) {
-      ROOMS.delete(roomId);
-      console.log(`🗑️ Room Empty & Cleaned Up: ${roomId}`);
-    }
-  }
+function leaveRoom(ws, reason) {
+  const room = ROOMS.get(ws.roomId);
+  if (!room) return;
+  relay(ws, { type: 'peer-left', reason });
+  room.delete(ws);
+  if (room.size === 0) ROOMS.delete(ws.roomId);
 }

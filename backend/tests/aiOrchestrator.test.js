@@ -30,7 +30,16 @@ const CONTEXT = {
  */
 const loadOrchestrator = async (groqStub) => {
   jest.resetModules();
-  jest.unstable_mockModule('../src/config/groq.js', () => ({ groq: groqStub }));
+  // The module now exposes `groqChat` (pooled across four keys) alongside the
+  // `groq` truthiness guard. The stub provides both from one fake client, so
+  // these tests still assert behaviour rather than plumbing.
+  jest.unstable_mockModule('../src/config/groq.js', () => ({
+    groq: groqStub,
+    groqChat: groqStub
+      ? (params) => groqStub.chat.completions.create(params)
+      : () => Promise.reject(new Error('No Groq API key is configured.')),
+    groqTranscribe: () => Promise.reject(new Error('not used in these tests'))
+  }));
   jest.unstable_mockModule('../src/services/ragEngine.js', () => ({
     retrieveClinicalProtocols: jest.fn().mockResolvedValue([])
   }));

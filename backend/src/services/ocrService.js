@@ -1,100 +1,237 @@
 import { createWorker } from 'tesseract.js';
 import { GEMINI_VISION_MODEL, GROQ_TEXT_MODEL } from '../config/models.js';
-import { groq } from '../config/groq.js';
-import { geminiGenerateJson } from '../config/gemini.js';
+import { groq, groqChat } from '../config/groq.js';
+import { geminiGenerateJson, isSupportedInlineType } from '../config/gemini.js';
 
 /**
- * Medical Document OCR & Information Extraction Pipeline
+ * Medical document OCR and extraction.
+ *
+ * Handles two kinds of document, because they carry different information and
+ * a single generic schema read neither well:
+ *
+ *   prescription — medicines, strengths, frequencies, durations, and the
+ *                  clinical context around them (diagnosis, advice).
+ *   lab_report   — test names with values, units and reference ranges, plus
+ *                  the abnormal flags a doctor scans for first.
  *
  * Order of engines:
- *  1. Gemini 2.5 Flash multimodal (reads the image directly)
- *  2. Tesseract.js OCR -> Groq text structuring (see config/models.js)
+ *   1. Gemini multimodal — reads images AND PDFs natively, so a multi-page
+ *      report goes up as one request and the model keeps cross-page context.
+ *   2. Tesseract.js -> Groq text structuring, for anything Gemini declines.
  *
  * SAFETY: if every engine fails, this returns an explicit failure record
- * (needs_manual_entry: true). It NEVER invents medications or diagnoses —
- * fabricated clinical data in a medical record is dangerous and illegal.
+ * (needs_manual_entry: true). It NEVER invents medications, test values or
+ * diagnoses — fabricated clinical data in a medical record is dangerous.
  */
 
-const EXTRACTION_SCHEMA = `{
-  "document_type": "prescription" | "lab_report" | "medical_report" | "discharge_summary" | "other",
+const PRESCRIPTION_SCHEMA = `{
+  "document_type": "prescription",
   "date": "YYYY-MM-DD or Unknown",
   "doctor_name": "Doctor name exactly as written, or Unknown",
+  "clinic_name": "Clinic or hospital name, or Unknown",
   "patient_name": "Patient name exactly as written, or Unknown",
+  "patient_age": "Age as written, or Unknown",
   "medications": [
-    { "name": "Medication name", "strength": "500 mg", "frequency": "Twice daily", "duration": "5 days", "instructions": "After meals" }
+    {
+      "name": "Medication name exactly as written",
+      "strength": "e.g. 500 mg",
+      "form": "tablet | capsule | syrup | injection | drops | ointment | Unknown",
+      "frequency": "e.g. Twice daily, 1-0-1",
+      "duration": "e.g. 5 days",
+      "instructions": "e.g. After meals",
+      "purpose": "Why it appears to have been prescribed, ONLY if the document says so, else Unknown"
+    }
   ],
+  "diagnosis_notes": "Diagnosis or complaint exactly as written",
+  "advice": "Non-medication advice written on the prescription, or empty",
+  "follow_up": "Follow-up instruction as written, or Unknown",
   "medical_history_conditions": ["Condition exactly as written"],
   "allergies_noted": ["Allergy exactly as written"],
-  "diagnosis_notes": "Diagnosis/notes exactly as written in the document",
   "raw_text_summary": "Complete readable text transcribed from the document"
 }`;
 
-const EXTRACTION_RULES = `You are a medical document transcription system.
-Transcribe ONLY what is actually visible in the document.
-NEVER guess, infer, or invent medications, dosages, diagnoses, or names.
-If a field is not readable or not present, use "Unknown" or an empty array.
-If the image is not a medical document or is unreadable, set document_type to "other" and explain in raw_text_summary.`;
+const LAB_REPORT_SCHEMA = `{
+  "document_type": "lab_report",
+  "date": "YYYY-MM-DD or Unknown",
+  "lab_name": "Laboratory name, or Unknown",
+  "referring_doctor": "Referring doctor, or Unknown",
+  "patient_name": "Patient name exactly as written, or Unknown",
+  "patient_age": "Age as written, or Unknown",
+  "pages_read": 1,
+  "panels": [
+    {
+      "panel_name": "e.g. Complete Blood Count",
+      "tests": [
+        {
+          "name": "Test name exactly as written",
+          "value": "Result value exactly as printed",
+          "unit": "Unit exactly as printed, or Unknown",
+          "reference_range": "Reference interval exactly as printed, or Unknown",
+          "flag": "high | low | normal | unknown"
+        }
+      ]
+    }
+  ],
+  "abnormal_findings": ["Test name: value (unit) — outside the printed reference range"],
+  "impression": "Impression or comments section exactly as written, or empty",
+  "medical_history_conditions": [],
+  "allergies_noted": [],
+  "medications": [],
+  "diagnosis_notes": "",
+  "raw_text_summary": "Complete readable text transcribed from EVERY page"
+}`;
 
-export const processMedicalDocument = async (fileBuffer, fileName = 'document.jpg', mimeType = 'image/jpeg') => {
+const GENERIC_SCHEMA = `{
+  "document_type": "prescription" | "lab_report" | "medical_report" | "discharge_summary" | "other",
+  "date": "YYYY-MM-DD or Unknown",
+  "doctor_name": "Doctor name, or Unknown",
+  "patient_name": "Patient name, or Unknown",
+  "medications": [{ "name": "", "strength": "", "frequency": "", "duration": "", "instructions": "" }],
+  "panels": [],
+  "abnormal_findings": [],
+  "medical_history_conditions": [],
+  "allergies_noted": [],
+  "diagnosis_notes": "",
+  "raw_text_summary": "Complete readable text"
+}`;
+
+const BASE_RULES = `You are a medical document transcription system for a rural clinic in India.
+
+ABSOLUTE RULES:
+- Transcribe ONLY what is actually visible in the document.
+- NEVER guess, infer, or invent medications, dosages, test values, reference ranges, diagnoses, or names. A fabricated value in a medical record can kill someone.
+- If a field is not readable or not present, use "Unknown" or an empty array.
+- Handwriting is common on Indian prescriptions. If a word is genuinely ambiguous, transcribe your best reading and append " (unclear)" to that field rather than dropping or inventing it.
+- If the document is not a medical document, or is unreadable, set document_type to "other" and explain in raw_text_summary.`;
+
+const LAB_RULES = `${BASE_RULES}
+
+THIS IS A LABORATORY / TEST REPORT, and it may run to several pages.
+- Read EVERY page you are given. Set pages_read to the number of pages you actually transcribed.
+- Group tests under the panel heading they appear beneath.
+- Copy value, unit and reference range EXACTLY as printed. Do not convert units or normalise formats.
+- Set flag by comparing the printed value against the printed reference range only. If either is missing or non-numeric, use "unknown" — never estimate.
+- List every out-of-range test in abnormal_findings.`;
+
+const PRESCRIPTION_RULES = `${BASE_RULES}
+
+THIS IS A PRESCRIPTION.
+- Capture every medication line, including ones written in the margin.
+- Indian prescriptions often write frequency as 1-0-1 (morning-afternoon-night). Transcribe that notation as written; do not translate it.
+- "purpose" may only be filled if the document itself states the indication. Otherwise "Unknown".`;
+
+const schemaFor = (kind) =>
+  kind === 'lab_report'
+    ? { rules: LAB_RULES, schema: LAB_REPORT_SCHEMA }
+    : kind === 'prescription'
+      ? { rules: PRESCRIPTION_RULES, schema: PRESCRIPTION_SCHEMA }
+      : { rules: BASE_RULES, schema: GENERIC_SCHEMA };
+
+/**
+ * Read one document, which may be several files that belong together
+ * (pages 1..N of one report, or the front and back of one prescription).
+ *
+ * @param {Array<{buffer: Buffer, mimetype: string, originalname: string}>} files
+ * @param {'prescription'|'lab_report'|'other'} kind
+ */
+export const processMedicalDocument = async (files, kind = 'prescription') => {
+  const list = (Array.isArray(files) ? files : [files]).filter((f) => f?.buffer?.length);
+  if (!list.length) return extractionFailure('No file data received by the OCR service.');
+
+  const names = list.map((f) => f.originalname).join(', ');
+  console.log(`OCR start: ${list.length} file(s) [${names}] as ${kind}`);
+
+  const { rules, schema } = schemaFor(kind);
   let rawText = '';
   let structuredData = null;
   let engine = null;
 
-  console.log(`📄 OCR pipeline start: ${fileName} (${mimeType})`);
+  // ---- Engine 1: Gemini multimodal (images and PDFs, all pages at once) ----
+  const inlineFiles = list
+    .filter((f) => isSupportedInlineType(f.mimetype))
+    .map((f) => ({ base64: f.buffer.toString('base64'), mimeType: f.mimetype }));
 
-  if (!fileBuffer) {
-    return extractionFailure('No file data received by the OCR service.');
-  }
-
-  // ---- Engine 1: Gemini multimodal (image documents) ----
-  if (mimeType.startsWith('image/')) {
+  if (inlineFiles.length) {
+    const pageWord = inlineFiles.length > 1 ? `${inlineFiles.length} pages of one document` : 'this document';
     const parsed = await geminiGenerateJson(
-      `${EXTRACTION_RULES}\nReturn strictly a JSON object with this schema:\n${EXTRACTION_SCHEMA}`,
-      'Transcribe and extract the structured medical information from this document image.',
-      { base64: fileBuffer.toString('base64'), mimeType }
+      `${rules}\n\nReturn strictly a JSON object with this schema:\n${schema}`,
+      `Transcribe and extract the structured medical information from ${pageWord}. Read every page in order.`,
+      inlineFiles
     );
 
-    if (parsed && (parsed.raw_text_summary || parsed.medications)) {
-      structuredData = normalize(parsed);
+    if (parsed && (parsed.raw_text_summary || parsed.medications?.length || parsed.panels?.length)) {
+      structuredData = normalize(parsed, kind, inlineFiles.length);
       rawText = parsed.raw_text_summary || '';
       engine = GEMINI_VISION_MODEL;
-      console.log('✅ Gemini vision OCR extracted the document.');
+      console.log(`Gemini read ${structuredData.pages_read} page(s).`);
     }
   }
 
-  // ---- Engine 2: Tesseract OCR + Groq text structuring ----
+  // ---- Engine 2: Tesseract per image, then Groq structuring ----
   if (!structuredData) {
-    try {
-      console.log('🔤 Running Tesseract.js OCR fallback...');
-      const worker = await createWorker('eng');
-      const ret = await worker.recognize(fileBuffer);
-      rawText = ret.data.text || '';
-      await worker.terminate();
-      console.log(`📝 Tesseract extracted ${rawText.length} characters.`);
-    } catch (tErr) {
-      console.warn('Tesseract OCR error:', tErr.message);
+    const allImages = list.filter((f) => String(f.mimetype).startsWith('image/'));
+    // Screen before Tesseract sees the buffer — see looksLikeDecodableImage.
+    const imageFiles = allImages.filter((f) => looksLikeDecodableImage(f.buffer));
+    const rejected = allImages.length - imageFiles.length;
+    if (rejected > 0) {
+      console.warn(`${rejected} file(s) are not decodable images; not sent to Tesseract.`);
+    }
+
+    if (imageFiles.length) {
+      let worker = null;
+      try {
+        console.log('Running Tesseract fallback...');
+        worker = await createWorker('eng');
+        const pages = [];
+        for (const f of imageFiles) {
+          try {
+            const ret = await worker.recognize(f.buffer);
+            pages.push(ret.data.text || '');
+          } catch (pageErr) {
+            // One unreadable page must not lose the pages that did read.
+            console.warn(`Tesseract could not read ${f.originalname}: ${pageErr.message}`);
+            pages.push('');
+          }
+        }
+        rawText = pages.join('\n\n--- page break ---\n\n');
+        console.log(`Tesseract extracted ${rawText.length} characters from ${imageFiles.length} page(s).`);
+      } catch (tErr) {
+        console.warn('Tesseract OCR error:', tErr.message);
+      } finally {
+        // Always terminate: a leaked worker holds a thread and its own memory.
+        if (worker) await worker.terminate().catch(() => {});
+      }
+    } else if (allImages.length) {
+      return extractionFailure(
+        'The uploaded image could not be opened — it may be truncated or in an unsupported format. Photograph the page again.'
+      );
+    } else if (list.some((f) => f.mimetype === 'application/pdf')) {
+      // Tesseract cannot rasterise a PDF, and there is no PDF renderer in this
+      // service. Say so plainly instead of returning an empty read.
+      return extractionFailure(
+        'This PDF could not be read. The AI document reader is unavailable — re-upload the report as photographs of each page, or enter the values manually.'
+      );
     }
 
     if (rawText.trim().length >= 20 && groq) {
       try {
-        const response = await groq.chat.completions.create({
+        const response = await groqChat({
           model: GROQ_TEXT_MODEL,
           temperature: 0.1,
           response_format: { type: 'json_object' },
           messages: [
             {
               role: 'system',
-              content: `${EXTRACTION_RULES}\nYou receive raw OCR text (may contain OCR noise). Return strictly a JSON object with this schema:\n${EXTRACTION_SCHEMA}`
+              content: `${rules}\nYou receive raw OCR text which may contain OCR noise and page breaks. Return strictly a JSON object with this schema:\n${schema}`
             },
             { role: 'user', content: `Raw OCR text:\n${rawText}` }
           ]
         });
-
         const parsed = JSON.parse(response.choices[0].message.content);
         if (parsed) {
-          structuredData = normalize(parsed);
+          structuredData = normalize(parsed, kind, imageFiles.length);
           engine = `tesseract+${GROQ_TEXT_MODEL}`;
-          console.log('✅ Groq structured the Tesseract OCR text.');
+          console.log('Groq structured the Tesseract OCR text.');
         }
       } catch (llmErr) {
         console.warn('Groq text structuring failed:', llmErr.message);
@@ -102,12 +239,11 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
     }
   }
 
-  // ---- Honest failure (no fabricated clinical data) ----
   if (!structuredData) {
     return extractionFailure(
       rawText.trim().length > 0
-        ? 'Text was detected but could not be reliably structured. Please enter the details manually.'
-        : 'The document could not be read automatically. Please enter the details manually.',
+        ? 'Text was detected but could not be reliably structured. Enter the details manually.'
+        : 'The document could not be read automatically. Enter the details manually.',
       rawText
     );
   }
@@ -116,35 +252,98 @@ export const processMedicalDocument = async (fileBuffer, fileName = 'document.jp
     raw_text: rawText,
     extracted_data: structuredData,
     ocr_engine: engine,
+    files_read: list.length,
     confidence: engine === GEMINI_VISION_MODEL ? 0.9 : 0.7,
     needs_manual_entry: false
   };
 };
 
-function normalize(parsed) {
+const asArray = (v) => (Array.isArray(v) ? v : []);
+
+/**
+ * Does this buffer actually start with the magic bytes of an image Tesseract
+ * can open?
+ *
+ * Tesseract.js reports a failed decode by THROWING FROM ITS WORKER THREAD, on
+ * a later tick — which escapes the surrounding try/catch and takes the whole
+ * Node process down. One truncated upload from one assistant killed the
+ * backend for every clinic. Screening the buffer here means the worker is
+ * never handed something it cannot open.
+ */
+const looksLikeDecodableImage = (buffer) => {
+  if (!buffer || buffer.length < 64) return false;
+  const b = buffer;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return true;                       // JPEG
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return true;       // PNG
+  if (b[0] === 0x42 && b[1] === 0x4d) return true;                                         // BMP
+  if ((b[0] === 0x49 && b[1] === 0x49) || (b[0] === 0x4d && b[1] === 0x4d)) return true;    // TIFF
+  if (b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP') return true;
+  return false;
+};
+
+function normalize(parsed, kind, fileCount) {
+  const panels = asArray(parsed.panels).map((p) => ({
+    panel_name: p.panel_name || 'Results',
+    tests: asArray(p.tests).map((t) => ({
+      name: t.name || 'Unknown',
+      value: t.value ?? 'Unknown',
+      unit: t.unit || '',
+      reference_range: t.reference_range || '',
+      flag: ['high', 'low', 'normal'].includes(String(t.flag).toLowerCase())
+        ? String(t.flag).toLowerCase()
+        : 'unknown'
+    }))
+  }));
+
   return {
-    document_type: parsed.document_type || 'other',
+    document_type: parsed.document_type || kind || 'other',
     date: parsed.date || 'Unknown',
-    doctor_name: parsed.doctor_name || 'Unknown',
+    doctor_name: parsed.doctor_name || parsed.referring_doctor || 'Unknown',
+    clinic_name: parsed.clinic_name || parsed.lab_name || 'Unknown',
     patient_name: parsed.patient_name || 'Unknown',
-    medications: Array.isArray(parsed.medications) ? parsed.medications : [],
-    medical_history_conditions: Array.isArray(parsed.medical_history_conditions) ? parsed.medical_history_conditions : [],
-    allergies_noted: Array.isArray(parsed.allergies_noted) ? parsed.allergies_noted : [],
+    patient_age: parsed.patient_age || 'Unknown',
+    pages_read: Number.parseInt(parsed.pages_read, 10) || fileCount || 1,
+
+    medications: asArray(parsed.medications).map((m) => ({
+      name: m.name || 'Unknown',
+      strength: m.strength || '',
+      form: m.form || '',
+      frequency: m.frequency || '',
+      duration: m.duration || '',
+      instructions: m.instructions || '',
+      purpose: m.purpose || 'Unknown'
+    })),
+
+    panels,
+    abnormal_findings: asArray(parsed.abnormal_findings),
+    impression: parsed.impression || '',
+    advice: parsed.advice || '',
+    follow_up: parsed.follow_up || 'Unknown',
+    medical_history_conditions: asArray(parsed.medical_history_conditions),
+    allergies_noted: asArray(parsed.allergies_noted),
     diagnosis_notes: parsed.diagnosis_notes || '',
     raw_text_summary: parsed.raw_text_summary || ''
   };
 }
 
 function extractionFailure(message, rawText = '') {
-  console.warn(`⚠️ OCR extraction failed: ${message}`);
+  console.warn(`OCR extraction failed: ${message}`);
   return {
     raw_text: rawText,
     extracted_data: {
       document_type: 'other',
       date: 'Unknown',
       doctor_name: 'Unknown',
+      clinic_name: 'Unknown',
       patient_name: 'Unknown',
+      patient_age: 'Unknown',
+      pages_read: 0,
       medications: [],
+      panels: [],
+      abnormal_findings: [],
+      impression: '',
+      advice: '',
+      follow_up: 'Unknown',
       medical_history_conditions: [],
       allergies_noted: [],
       diagnosis_notes: '',
@@ -152,6 +351,7 @@ function extractionFailure(message, rawText = '') {
       extraction_error: message
     },
     ocr_engine: 'none',
+    files_read: 0,
     confidence: 0,
     needs_manual_entry: true
   };

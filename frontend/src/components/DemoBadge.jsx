@@ -15,7 +15,7 @@ export default function DemoBadge({ patient, className = '' }) {
   return (
     <span
       title="Demonstration record — not a real patient"
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border border-amber-300 bg-amber-50 text-amber-700 align-middle ${className}`}
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border border-tier-moderate/40 bg-tier-moderateBg text-tier-moderate align-middle ${className}`}
     >
       Demo
     </span>

@@ -10,15 +10,16 @@ import { globalRateLimiter } from './middleware/rateLimit.middleware.js';
 
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
+import regionRoutes from './routes/regions.routes.js';
 import visitRoutes from './routes/visit.routes.js';
 import documentRoutes from './routes/document.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import doctorRoutes from './routes/doctor.routes.js';
 import consultationRoutes from './routes/consultation.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import visionRoutes from './routes/vision.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
-import callRoutes from './routes/call.routes.js';
 
 const app = express();
 
@@ -80,13 +81,14 @@ app.get(HAS_FRONTEND ? '/api' : ['/', '/api'], (req, res) => {
     endpoints: {
       health: '/api/health',
       patients: '/api/patients',
+      regions: '/api/regions',
       visits: '/api/visits',
       ai: '/api/ai',
       vision: '/api/vision',
       voice: '/api/voice',
       doctor: '/api/doctor',
-      calls: '/api/calls',
-      consultations: '/api/consultations'
+      consultations: '/api/consultations',
+      notifications: '/api/notifications'
     }
   });
 });
@@ -104,6 +106,7 @@ app.get('/api/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
+app.use('/api/regions', regionRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/ai', aiRoutes);
@@ -111,7 +114,7 @@ app.use('/api/vision', visionRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/consultations', consultationRoutes);
-app.use('/api/calls', callRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 
 // SPA fallback: any non-API GET serves the frontend router

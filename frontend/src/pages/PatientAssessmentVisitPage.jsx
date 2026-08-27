@@ -5,10 +5,15 @@ import api from '../services/api';
 import RiskBadge from '../components/RiskBadge';
 import OCRVerificationModal from '../components/OCRVerificationModal';
 import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
-import CallSchedulerModal from '../components/CallSchedulerModal';
+import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
 import DoctorSelectGrid from '../components/DoctorSelectGrid';
 import { useAuth } from '../context/AuthContext';
 import DemoBadge from '../components/DemoBadge';
+import { maskAadhaar } from '../config/patientFields';
+import FileCaptureInput from '../components/FileCaptureInput';
+import {
+  VITAL_FIELDS, MEASURED_FIELDS, defaultVitals, validateVitals, isAbnormal
+} from '../config/vitals';
 
 export default function PatientAssessmentVisitPage() {
   const { id: patientId } = useParams();
@@ -23,8 +28,12 @@ export default function PatientAssessmentVisitPage() {
 
   // Symptoms & Voice Input
   const [symptomsText, setSymptomsText] = useState('');
-  const [duration, setDuration] = useState('');
+  // Duration as a number plus a unit, not free text: "2" is meaningless and
+  // "a while" cannot be reasoned about by the triage rules.
+  const [durationValue, setDurationValue] = useState('');
+  const [durationUnit, setDurationUnit] = useState('days');
   const [medicalHistory, setMedicalHistory] = useState('');
+  const [knownAllergies, setKnownAllergies] = useState('');
   const [recording, setRecording] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState('Auto-detect');
 
@@ -42,19 +51,22 @@ export default function PatientAssessmentVisitPage() {
   const recognitionRef = useRef(null);
 
   // Vitals with strict clinical range validation (entered by the assistant)
-  const [vitals, setVitals] = useState({
-    temperature: '',
-    blood_pressure_systolic: '',
-    blood_pressure_diastolic: '',
-    pulse: '',
-    spo2: '',
-    respiratory_rate: '',
-    weight: '',
-    height: ''
-  });
+  // Pre-filled with typical adult values; the assistant alters what differs.
+  const [vitals, setVitals] = useState(defaultVitals);
   const [vitalsError, setVitalsError] = useState(null);
+  const [vitalErrors, setVitalErrors] = useState({});
+  // Which fields the assistant actually touched, so an assessment cannot run
+  // silently on six untouched defaults.
+  const [confirmedVitals, setConfirmedVitals] = useState(() => new Set());
 
   // Documents & OCR
+  // Three separate batches — a prescription, a multi-page lab report, and
+  // wound photos are read with different prompts and must not be mixed.
+  const [prescriptionFiles, setPrescriptionFiles] = useState([]);
+  const [reportFiles, setReportFiles] = useState([]);
+  const [woundFiles, setWoundFiles] = useState([]);
+  const [uploadingReport, setUploadingReport] = useState(false);
+  const [reportExtraction, setReportExtraction] = useState(null);
   const [documentFile, setDocumentFile] = useState(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
@@ -67,6 +79,7 @@ export default function PatientAssessmentVisitPage() {
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [visionObservation, setVisionObservation] = useState(null);
+  const [visionObservations, setVisionObservations] = useState([]);
 
   // AI Assessment Result
   const [loadingAI, setLoadingAI] = useState(false);
@@ -79,7 +92,8 @@ export default function PatientAssessmentVisitPage() {
 
   const fetchPatientAndVisit = async () => {
     try {
-      const pRes = await api.get(`/patients/${patientId}`);
+      // Aadhaar is the key and travels in the body, never the URL.
+      const pRes = await api.post('/patients/detail', { aadhaar_number: patientId });
       setPatient(pRes.data);
     } catch (err) {
       console.error('Error fetching patient:', err);
@@ -91,37 +105,35 @@ export default function PatientAssessmentVisitPage() {
   const ensureVisit = async () => {
     if (visitId) return visitId;
     const vRes = await api.post('/visits', {
-      patient_id: patientId,
+      // The patient key is the Aadhaar number, not a patient_code — sending
+      // the old field is what produced "A 12-digit Aadhaar number is required".
+      aadhaar_number: patientId,
       chief_complaint: symptomsText || 'Clinical assessment visit',
-      symptoms: symptomsText,
-      symptom_duration: duration,
-      medical_history: medicalHistory,
+      symptoms: symptomsText ? [symptomsText] : [],
+      symptom_duration_value: durationValue || null,
+      symptom_duration_unit: durationUnit,
+      medical_history: medicalHistory || null,
+      known_allergies: knownAllergies || null,
       vitals
     });
     setVisitId(vRes.data.id);
     return vRes.data.id;
   };
 
+  // Vitals still sitting at their pre-filled default, i.e. never confirmed
+  // against the patient in front of the assistant.
+  const untouchedVitals = VITAL_FIELDS.filter((f) => !confirmedVitals.has(f.key));
+
   const handleVitalsChange = (field, value) => {
-    setVitals(prev => ({ ...prev, [field]: value }));
+    setVitals((prev) => ({ ...prev, [field]: value }));
+    setConfirmedVitals((prev) => new Set(prev).add(field));
+    setVitalErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
   };
 
   const validateVitalsBounds = () => {
-    const temp = parseFloat(vitals.temperature);
-    const sys = parseInt(vitals.blood_pressure_systolic);
-    const dia = parseInt(vitals.blood_pressure_diastolic);
-    const pulse = parseInt(vitals.pulse);
-    const spo2 = parseInt(vitals.spo2);
-    const resp = parseInt(vitals.respiratory_rate);
-
-    if (temp < 95.0 || temp > 107.0) return 'Temperature out of clinical range (95.0°F - 107.0°F)';
-    if (sys < 60 || sys > 250) return 'Systolic BP out of range (60 - 250 mmHg)';
-    if (dia < 40 || dia > 150) return 'Diastolic BP out of range (40 - 150 mmHg)';
-    if (pulse < 30 || pulse > 220) return 'Pulse out of range (30 - 220 bpm)';
-    if (spo2 < 50 || spo2 > 100) return 'SpO2 out of range (50% - 100%)';
-    if (resp < 8 || resp > 60) return 'Respiratory rate out of range (8 - 60 /min)';
-
-    return null;
+    const { errors, message } = validateVitals(vitals);
+    setVitalErrors(errors);
+    return message;
   };
 
   const handleStartVoiceRecording = async () => {
@@ -198,67 +210,96 @@ export default function PatientAssessmentVisitPage() {
     }
   };
 
-  const handleDocumentUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setUploadingDoc(true);
+  /**
+   * Read one document, which may be several files that belong together —
+   * pages 1..N of a lab report, or the front and back of a prescription. They
+   * go up in one request so the model keeps cross-page context.
+   */
+  const uploadDocumentBatch = async (files, documentType, { setBusy, onDone }) => {
+    if (!files.length) return;
+    setBusy(true);
     try {
       const vId = await ensureVisit();
       const formData = new FormData();
-      formData.append('document', file);
-      formData.append('patient_id', patientId);
+      files.forEach((f) => formData.append('files', f));
+      formData.append('aadhaar_number', patientId);
       formData.append('visit_id', vId);
-      formData.append('document_type', 'prescription');
+      formData.append('document_type', documentType);
 
       const res = await api.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-
-      const { document: doc, extraction, raw_ocr, needs_manual_entry } = res.data;
-      setUploadedDocuments(prev => [...prev, doc]);
-
-      if (needs_manual_entry) {
-        alert('The document could not be read automatically. Please enter the prescription details manually in the verification window.');
-      }
-
-      // Human verification is always required before OCR data joins the record
-      setCurrentDocument({
-        id: doc.id,
-        ocr_data: extraction?.structured_data || {},
-        raw_text: raw_ocr || ''
-      });
-      setShowOCRModal(true);
+      onDone(res.data);
     } catch (err) {
       console.error('Document upload error:', err);
+      setApiError(formatApiError(err));
       alert('Document upload failed: ' + formatApiError(err));
     } finally {
-      setUploadingDoc(false);
+      setBusy(false);
     }
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handlePrescriptionUpload = () =>
+    uploadDocumentBatch(prescriptionFiles, 'prescription', {
+      setBusy: setUploadingDoc,
+      onDone: (data) => {
+        setUploadedDocuments((prev) => [...prev, data.document]);
+        // Nothing reaches the clinical record until a human confirms it.
+        setCurrentDocument({
+          id: data.document.id,
+          ocr_data: data.extraction || {},
+          raw_text: data.raw_ocr || ''
+        });
+        setShowOCRModal(true);
+        if (data.needs_manual_entry) {
+          alert('The prescription could not be read automatically. Enter the details manually in the verification window.');
+        }
+      }
+    });
 
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+  const handleReportUpload = () =>
+    uploadDocumentBatch(reportFiles, 'lab_report', {
+      setBusy: setUploadingReport,
+      onDone: (data) => {
+        setUploadedDocuments((prev) => [...prev, data.document]);
+        setReportExtraction({ ...data.extraction, _engine: data.engine, _files: data.files_read });
+        setCurrentDocument({
+          id: data.document.id,
+          ocr_data: data.extraction || {},
+          raw_text: data.raw_ocr || ''
+        });
+        setShowOCRModal(true);
+      }
+    });
+
+  const handleWoundUpload = async () => {
+    if (!woundFiles.length) return;
     setUploadingImage(true);
-
+    setImagePreview(URL.createObjectURL(woundFiles[0]));
     try {
       const vId = await ensureVisit();
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('patient_id', patientId || '');
-      formData.append('visit_id', vId);
-
-      const res = await api.post('/vision/analyze', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      setVisionObservation(res.data);
+      // Vision reads one photograph at a time — each is a separate observation,
+      // and merging them would let one clear shot mask an unreadable one.
+      const results = [];
+      for (const file of woundFiles) {
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('visit_id', vId);
+        const res = await api.post('/vision/analyze', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        results.push(res.data);
+      }
+      setVisionObservations(results);
+      // The highest severity across the photos is what the assessment sees.
+      const rank = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+      setVisionObservation(
+        results.reduce((worst, r) => (rank[r.severity_impression] > rank[worst.severity_impression] ? r : worst), results[0])
+      );
     } catch (err) {
-      console.error('Vision image upload error:', err);
-      alert('Vision image upload failed: ' + formatApiError(err));
+      console.error('Vision upload error:', err);
+      setApiError(formatApiError(err));
+      alert('Wound photo analysis failed: ' + formatApiError(err));
     } finally {
       setUploadingImage(false);
     }
@@ -297,9 +338,10 @@ export default function PatientAssessmentVisitPage() {
         visit_id: vId,
         patient_id: patientId,
         symptoms: symptomsText,
-        symptom_duration: duration,
+        symptom_duration: durationValue ? `${durationValue} ${durationUnit}` : '',
         medical_history: medicalHistory,
-        vitals: vitals,
+        known_allergies: knownAllergies,
+        vitals,
         verified_ocr_data: verifiedOCRData,
         vision_observation: visionObservation
       };
@@ -315,57 +357,61 @@ export default function PatientAssessmentVisitPage() {
     }
   };
 
+  /**
+   * Hand the case to a doctor.
+   *
+   * The doctor queue filters on `assigned_doctor_id`, so assigning the visit
+   * IS the handoff — there is no separate push endpoint. (/consultations/push-case
+   * was part of the removed unauthenticated router.)
+   */
   const handlePushCaseToDoctor = async () => {
     if (!selectedDoctor) {
-      alert('Select a doctor first — the case file will be sent to that doctor\'s queue.');
+      alert("Select a doctor first — the case will appear in that doctor's queue.");
       return;
     }
     setPushingToDoctor(true);
     setPushSuccess(false);
-
     try {
-      await api.post('/consultations/push-case', {
-        visit_id: visitId,
-        patient_id: patientId,
-        patient_name: patient?.full_name || patient?.name,
-        patient_code: patient?.patient_code,
-        village: patient?.village,
-        doctor_id: selectedDoctor.id,
-        doctor_name: selectedDoctor.name,
-        ai_assessment: aiAssessment,
-        vision_observation: visionObservation,
-        verified_ocr_data: verifiedOCRData
+      const vId = await ensureVisit();
+      await api.patch(`/visits/${vId}`, {
+        assigned_doctor_id: selectedDoctor.id,
+        status: 'awaiting_doctor',
+        risk_level: (aiAssessment?.risk_level || 'moderate').toLowerCase()
       });
-
       setPushSuccess(true);
     } catch (err) {
-      console.error('Failed to push case to doctor:', err);
-      alert('Failed to push case file to doctor database: ' + formatApiError(err));
+      console.error('Failed to assign case to doctor:', err);
+      alert('Could not send the case to the doctor: ' + formatApiError(err));
     } finally {
       setPushingToDoctor(false);
     }
   };
 
+  /**
+   * Start a video consultation now.
+   *
+   * The room id is issued by the server (an unguessable UUID) and re-verified
+   * by the signaling socket against the consultation's participant list. It is
+   * never constructed here — the old `room_PAT_<code>_<timestamp>` scheme was
+   * guessable and handed out by an unauthenticated endpoint.
+   */
   const handleExplicitStartVideoCall = async () => {
-    const roomId = `room_PAT_${patient?.patient_code || 'RECORD'}_${Date.now()}`;
+    if (!selectedDoctor) {
+      alert('Select a doctor first — a consultation room is created for that doctor.');
+      return;
+    }
     try {
-      await api.post('/consultations/ring-call', {
-        visit_id: visitId,
-        patient_id: patientId,
-        patient_name: patient?.full_name || patient?.name,
-        patient_code: patient?.patient_code,
-        village: patient?.village,
-        doctor_id: selectedDoctor?.id,
-        risk_level: aiAssessment?.risk_level || 'HIGH',
-        reason: `Emergency teleconsultation request${selectedDoctor ? ` for ${selectedDoctor.name} (${selectedDoctor.specialization})` : ''}`,
-        room_id: roomId
-      }).catch(() => {});
-    } catch (e) {}
-
-    setActiveVideoRoom({
-      room_id: roomId,
-      user_name: user?.name || 'Clinic Assistant'
-    });
+      const vId = await ensureVisit();
+      const res = await api.post('/consultations', {
+        visit_id: vId,
+        doctor_id: selectedDoctor.id
+      });
+      const joined = await api.post(`/consultations/${res.data.id}/join`);
+      setActiveVideoRoom({ room_id: joined.data.meeting_room_id });
+    } catch (err) {
+      console.error('Could not start the consultation:', err);
+      alert('Could not start the video consultation: ' + formatApiError(err));
+    }
   };
 
   const generateCompletePDFReport = () => {
@@ -410,8 +456,8 @@ export default function PatientAssessmentVisitPage() {
           <div class="section-title">1. Patient Personal Details & Demographics</div>
           <div class="grid-3">
             <div class="field"><span class="label">Patient Name:</span> <span class="value">${patient?.full_name || patient?.name || 'N/A'}</span></div>
-            <div class="field"><span class="label">Patient Code:</span> <span class="value">${patient?.patient_code || 'N/A'}</span></div>
-            <div class="field"><span class="label">Age / Gender:</span> <span class="value">${patient?.age_years || patient?.age || 'N/A'} yrs / ${patient?.gender || 'N/A'}</span></div>
+            <div class="field"><span class="label">Aadhaar:</span> <span class="value">${maskAadhaar(patient?.aadhaar_number)}</span></div>
+            <div class="field"><span class="label">Age / Gender:</span> <span class="value">${patient?.age_display || (patient?.age_years ?? 'N/A') + ' yrs'} / ${patient?.gender || 'N/A'}</span></div>
             <div class="field"><span class="label">Village / Location:</span> <span class="value">${patient?.village || 'N/A'}</span></div>
             <div class="field"><span class="label">Contact Phone:</span> <span class="value">${patient?.phone || 'N/A'}</span></div>
             <div class="field"><span class="label">Attending Assistant:</span> <span class="value">${user?.name || 'Clinic Assistant'}</span></div>
@@ -481,57 +527,57 @@ export default function PatientAssessmentVisitPage() {
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
       
       {/* Header */}
-      <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/assistant/dashboard')} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors">
+          <button onClick={() => navigate('/assistant/dashboard')} className="p-2 rounded-field bg-surface-sunken hover:bg-surface-sunken text-ink-muted transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-600" /> Patient Assessment & AI Clinical Visit
+            <h1 className="text-xl font-bold text-ink flex items-center gap-2">
+              <Activity className="w-5 h-5 text-gov-600" /> Patient Assessment & AI Clinical Visit
             </h1>
-            <p className="text-xs text-slate-500">Digitize patient complaint, record vitals, upload documents/photos & generate AI assessment.</p>
+            <p className="text-xs text-ink-muted">Digitize patient complaint, record vitals, upload documents/photos & generate AI assessment.</p>
           </div>
         </div>
 
         {patient && (
-          <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
-            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
+          <div className="flex items-center gap-3 bg-surface-sunken px-4 py-2 rounded-field border border-line">
+            <div className="w-8 h-8 rounded-full bg-blue-100 text-gov-700 font-bold text-xs flex items-center justify-center">
               {patient.full_name?.substring(0, 2) || 'PT'}
             </div>
             <div>
-              <div className="font-bold text-xs text-slate-900">
+              <div className="font-bold text-xs text-ink">
                 {patient.full_name || patient.name} <DemoBadge patient={patient} />
               </div>
-              <div className="text-[11px] text-slate-500 font-mono">Code: {patient.patient_code}</div>
+              <div className="text-[11px] text-ink-muted font-mono">Aadhaar: {maskAadhaar(patient.aadhaar_number)}</div>
             </div>
           </div>
         )}
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-slate-200 bg-white px-4 rounded-lg shadow-sm">
+      <div className="flex border-b border-line bg-surface-raised px-4 rounded-field shadow-sm">
         <button
           onClick={() => setActiveTab('symptoms')}
-          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'symptoms' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'symptoms' ? 'border-blue-600 text-gov-600' : 'border-transparent text-ink-muted hover:text-ink'}`}
         >
           <Mic className="w-4 h-4" /> 1. Symptoms & Voice
         </button>
         <button
           onClick={() => setActiveTab('vitals')}
-          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'vitals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'vitals' ? 'border-blue-600 text-gov-600' : 'border-transparent text-ink-muted hover:text-ink'}`}
         >
           <HeartPulse className="w-4 h-4" /> 2. Vitals & Physical Signs
         </button>
         <button
           onClick={() => setActiveTab('documents')}
-          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'documents' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'documents' ? 'border-blue-600 text-gov-600' : 'border-transparent text-ink-muted hover:text-ink'}`}
         >
           <FileText className="w-4 h-4" /> 3. Documents & Photos
         </button>
         <button
           onClick={() => setActiveTab('assessment')}
-          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'assessment' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+          className={`py-3 px-4 font-semibold text-xs border-b-2 flex items-center gap-1.5 transition-colors ${activeTab === 'assessment' ? 'border-blue-600 text-gov-600' : 'border-transparent text-ink-muted hover:text-ink'}`}
         >
           <Bot className="w-4 h-4" /> 4. AI Assessment &amp; Doctor Handoff
         </button>
@@ -539,31 +585,31 @@ export default function PatientAssessmentVisitPage() {
 
       {/* TAB 1: SYMPTOMS & VOICE INPUT */}
       {activeTab === 'symptoms' && (
-        <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Mic className="w-5 h-5 text-blue-600" /> Patient Chief Complaint & Multilingual Voice Assistant
+        <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <h2 className="text-base font-bold text-ink flex items-center gap-2">
+              <Mic className="w-5 h-5 text-gov-600" /> Patient Chief Complaint & Multilingual Voice Assistant
             </h2>
-            <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded border border-blue-200 font-semibold flex items-center gap-1">
+            <span className="text-xs bg-gov-50 text-gov-700 px-2.5 py-1 rounded border border-gov-200 font-semibold flex items-center gap-1">
               <Globe className="w-3.5 h-3.5" /> {detectedLanguage}
             </span>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Chief Complaint & Symptoms (Hindi / English / Voice)</label>
+              <label className="block text-xs font-semibold text-ink-muted mb-1">Chief Complaint & Symptoms (Hindi / English / Voice)</label>
               <div className="relative">
                 <textarea
                   rows={4}
                   value={symptomsText}
                   onChange={(e) => setSymptomsText(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-3 text-xs text-slate-900 focus:border-blue-500 outline-none leading-relaxed"
+                  className="w-full bg-surface-raised border border-line-strong rounded-field p-3 text-xs text-ink focus:border-gov-500 outline-none leading-relaxed"
                   placeholder="Record symptoms using microphone or type here..."
                 />
                 <button
                   type="button"
                   onClick={recording ? handleStopVoiceRecording : handleStartVoiceRecording}
-                  className={`absolute bottom-3 right-3 px-3 py-1.5 rounded-lg font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors ${recording ? 'bg-red-600 text-white animate-pulse' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                  className={`absolute bottom-3 right-3 px-3 py-1.5 rounded-field font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors ${recording ? 'bg-tier-emergency text-white animate-pulse' : 'bg-gov-600 text-white hover:bg-gov-700'}`}
                 >
                   {recording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                   {recording ? 'Stop Recording' : 'Record Symptoms by Voice'}
@@ -573,21 +619,75 @@ export default function PatientAssessmentVisitPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Symptom Duration</label>
-                <input
-                  type="text"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-                />
+                <label className="block text-xs font-semibold text-ink-muted mb-1">
+                  Symptom Duration <span className="text-tier-emergency">*</span>
+                </label>
+                {/* A number and a unit, not free text — "2" alone is
+                    meaningless and the triage rules read this. */}
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="999"
+                    inputMode="numeric"
+                    value={durationValue}
+                    onChange={(e) => setDurationValue(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    placeholder="e.g. 3"
+                    aria-label="Symptom duration amount"
+                    className="w-24 bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none"
+                  />
+                  <div className="flex rounded-field border border-line-strong overflow-hidden">
+                    {['days', 'months', 'years'].map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setDurationUnit(u)}
+                        className={`px-3 py-2 text-xs font-semibold capitalize transition-colors ${
+                          durationUnit === u
+                            ? 'bg-gov-600 text-white'
+                            : 'bg-surface-raised text-ink-muted hover:bg-surface-sunken'
+                        }`}
+                      >
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {durationValue && (
+                  <p className="mt-1 text-[11px] text-ink-muted">
+                    Recorded as: <strong className="text-ink-muted">
+                      {durationValue} {Number(durationValue) === 1 ? durationUnit.replace(/s$/, '') : durationUnit}
+                    </strong>
+                  </p>
+                )}
               </div>
+
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Known Medical History / Chronic Illness</label>
-                <input
-                  type="text"
+                <label className="block text-xs font-semibold text-ink-muted mb-1">
+                  Known Medical History / Chronic Illness
+                </label>
+                <textarea
+                  rows={2}
                   value={medicalHistory}
                   onChange={(e) => setMedicalHistory(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
+                  placeholder="e.g. Type 2 diabetes since 2019, hypertension"
+                  className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
+                />
+                <p className="mt-1 text-[11px] text-ink-subtle">
+                  Saved with the visit and passed to the AI assessment.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-ink-muted mb-1">
+                  Known Allergies
+                </label>
+                <input
+                  type="text"
+                  value={knownAllergies}
+                  onChange={(e) => setKnownAllergies(e.target.value)}
+                  placeholder="e.g. Penicillin — rash. Enter None if the patient reports none."
+                  className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
                 />
               </div>
             </div>
@@ -595,7 +695,7 @@ export default function PatientAssessmentVisitPage() {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setActiveTab('vitals')}
-                className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-colors"
+                className="px-5 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-colors"
               >
                 Next: Record Vitals <ArrowRight className="w-4 h-4" />
               </button>
@@ -606,109 +706,123 @@ export default function PatientAssessmentVisitPage() {
 
       {/* TAB 2: CLINICAL VITALS WITH BOUNDS VALIDATION */}
       {activeTab === 'vitals' && (
-        <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <HeartPulse className="w-5 h-5 text-blue-600" /> Patient Vitals & Clinical Physical Signs
+        <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-6">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <h2 className="text-base font-bold text-ink flex items-center gap-2">
+              <HeartPulse className="w-5 h-5 text-gov-600" /> Patient Vitals & Clinical Physical Signs
             </h2>
-            <span className="text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded border border-slate-200 font-medium">
-              Upper & Lower Limits Active
+            <span className="text-xs bg-surface-sunken text-ink-muted px-2.5 py-1 rounded border border-line font-medium">
+              Pre-filled with typical adult values
             </span>
           </div>
 
           {vitalsError && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2 font-semibold">
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <div role="alert" className="p-3 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-xs text-tier-emergency flex items-center gap-2 font-semibold">
+              <AlertTriangle className="w-4 h-4 text-tier-emergency shrink-0" />
               {vitalsError}
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Body Temp (°F) [95.0 - 107.0]</label>
-              <input
-                type="number"
-                step="0.1"
-                value={vitals.temperature}
-                onChange={(e) => handleVitalsChange('temperature', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
+          {/*
+            Defaults are a starting point, not a measurement. A value the
+            assistant never looked at is still a value the triage engine acts
+            on, so untouched fields are called out before the assessment runs.
+          */}
+          {untouchedVitals.length > 0 && (
+            <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30 text-[11px] text-tier-moderate">
+              <strong>{untouchedVitals.length} value{untouchedVitals.length === 1 ? '' : 's'} still at the default:</strong>{' '}
+              {untouchedVitals.map((f) => f.label).join(', ')}. Confirm each against the patient before assessing.
+              <button
+                type="button"
+                onClick={() => setConfirmedVitals(new Set(VITAL_FIELDS.map((f) => f.key)))}
+                className="ml-2 underline font-semibold hover:text-tier-moderate"
+              >
+                All measured and correct
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Systolic BP (mmHg) [60 - 250]</label>
-              <input
-                type="number"
-                value={vitals.blood_pressure_systolic}
-                onChange={(e) => handleVitalsChange('blood_pressure_systolic', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Diastolic BP (mmHg) [40 - 150]</label>
-              <input
-                type="number"
-                value={vitals.blood_pressure_diastolic}
-                onChange={(e) => handleVitalsChange('blood_pressure_diastolic', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Pulse (bpm) [30 - 220]</label>
-              <input
-                type="number"
-                value={vitals.pulse}
-                onChange={(e) => handleVitalsChange('pulse', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">SpO2 (%) [50 - 100]</label>
-              <input
-                type="number"
-                value={vitals.spo2}
-                onChange={(e) => handleVitalsChange('spo2', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Resp. Rate (/min) [8 - 60]</label>
-              <input
-                type="number"
-                value={vitals.respiratory_rate}
-                onChange={(e) => handleVitalsChange('respiratory_rate', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Weight (kg)</label>
-              <input
-                type="number"
-                value={vitals.weight}
-                onChange={(e) => handleVitalsChange('weight', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Height (cm)</label>
-              <input
-                type="number"
-                value={vitals.height}
-                onChange={(e) => handleVitalsChange('height', e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-              />
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {VITAL_FIELDS.map((f) => {
+              const err = vitalErrors[f.key];
+              const abnormal = !err && isAbnormal(f, vitals[f.key]);
+              const untouched = !confirmedVitals.has(f.key);
+              return (
+                <div key={f.key}>
+                  <label htmlFor={`vital-${f.key}`} className="block text-xs font-semibold text-ink-muted mb-1">
+                    {f.label} <span className="font-normal text-ink-subtle">({f.unit})</span>
+                  </label>
+                  <input
+                    id={`vital-${f.key}`}
+                    type="number"
+                    inputMode="decimal"
+                    step={f.step}
+                    min={f.min}
+                    max={f.max}
+                    value={vitals[f.key]}
+                    onChange={(e) => handleVitalsChange(f.key, e.target.value)}
+                    className={`w-full rounded-field px-3 py-2 text-xs outline-none border transition-colors ${
+                      err
+                        ? 'border-red-400 bg-tier-emergencyBg text-tier-emergency focus:border-red-500'
+                        : abnormal
+                          ? 'border-amber-400 bg-tier-moderateBg text-tier-moderate focus:border-amber-500'
+                          : untouched
+                            ? 'border-line bg-surface-sunken text-ink-muted focus:border-gov-500 focus:bg-surface-raised focus:text-ink'
+                            : 'border-line-strong bg-surface-raised text-ink focus:border-gov-500'
+                    }`}
+                  />
+                  <p className={`mt-1 text-[10px] ${err ? 'text-tier-emergency' : abnormal ? 'text-tier-moderate font-semibold' : 'text-ink-subtle'}`}>
+                    {err || (abnormal ? 'Outside the usual range — check the reading' : `Allowed ${f.min}–${f.max}`)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-2 border-t border-line">
+            <h3 className="text-xs font-bold text-ink mt-4 mb-3">
+              Measured values <span className="font-normal text-ink-subtle">— not pre-filled, these vary too much to guess</span>
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {MEASURED_FIELDS.map((f) => (
+                <div key={f.key}>
+                  <label htmlFor={`vital-${f.key}`} className="block text-xs font-semibold text-ink-muted mb-1">
+                    {f.label} <span className="font-normal text-ink-subtle">({f.unit})</span>
+                  </label>
+                  <input
+                    id={`vital-${f.key}`}
+                    type="number"
+                    inputMode="decimal"
+                    step={f.step}
+                    min={f.min}
+                    max={f.max}
+                    value={vitals[f.key]}
+                    onChange={(e) => handleVitalsChange(f.key, e.target.value)}
+                    placeholder="Optional"
+                    className={`w-full rounded-field px-3 py-2 text-xs outline-none border ${
+                      vitalErrors[f.key]
+                        ? 'border-red-400 bg-tier-emergencyBg text-tier-emergency'
+                        : 'border-line-strong bg-surface-raised text-ink focus:border-gov-500'
+                    }`}
+                  />
+                  <p className={`mt-1 text-[10px] ${vitalErrors[f.key] ? 'text-tier-emergency' : 'text-ink-subtle'}`}>
+                    {vitalErrors[f.key] || `Allowed ${f.min}–${f.max}`}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
 
           <div className="flex justify-between pt-2">
             <button
               onClick={() => setActiveTab('symptoms')}
-              className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+              className="px-4 py-2 rounded-field bg-surface-sunken hover:bg-surface-sunken text-ink-muted font-semibold text-xs transition-colors"
             >
               Back
             </button>
             <button
               onClick={() => setActiveTab('documents')}
-              className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-colors"
+              className="px-5 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-colors"
             >
               Next: Upload Documents &amp; Photos <ArrowRight className="w-4 h-4" />
             </button>
@@ -718,81 +832,224 @@ export default function PatientAssessmentVisitPage() {
 
       {/* TAB 3: DOCUMENTS OCR & WOUND PHOTOS */}
       {activeTab === 'documents' && (
-        <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" /> Paper Prescription OCR & Wound Photo Vision Analysis
+        <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-6">
+          <div className="border-b border-line pb-3">
+            <h2 className="text-base font-bold text-ink flex items-center gap-2">
+              <FileText className="w-5 h-5 text-gov-600" /> Paper Prescription OCR &amp; Wound Photo Vision Analysis
             </h2>
+            <p className="text-xs text-ink-muted mt-1">
+              Each section takes photos straight from the camera or files from the device.
+              Multi-page reports go up as one document so the reader keeps context across pages.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Paper Prescription Upload */}
-            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
-              <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-emerald-600" /> Upload Paper Prescription / Medical Record (OCR)
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+            {/* 1. PRESCRIPTION */}
+            <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-3">
+              <div className="font-bold text-xs text-ink flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-gov-600" /> 1. Paper prescription
               </div>
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                onChange={handleDocumentUpload}
-                disabled={uploadingDoc}
-                className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+              <FileCaptureInput
+                label="Prescription pages"
+                hint="Photograph the whole sheet, flat and well lit. Add both sides if written on."
+                accept="image/*,application/pdf"
+                multiple
+                files={prescriptionFiles}
+                onChange={setPrescriptionFiles}
+                busy={uploadingDoc}
               />
-              {uploadingDoc && (
-                <div className="text-xs text-blue-600 flex items-center gap-2 font-medium">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Running Tesseract & Vision OCR Engine...
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={handlePrescriptionUpload}
+                disabled={!prescriptionFiles.length || uploadingDoc}
+                className="w-full py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                {uploadingDoc ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Reading prescription…</>
+                ) : (
+                  <>Read {prescriptionFiles.length || ''} prescription page{prescriptionFiles.length === 1 ? '' : 's'}</>
+                )}
+              </button>
+
               {verifiedOCRData && (
-                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium">
-                  ✓ Prescription OCR Data Verified & Attached to Visit Record.
+                <div className="p-3 rounded-field bg-tier-lowBg border border-tier-low/30 text-xs text-tier-low space-y-1">
+                  <div className="font-semibold">Verified and attached to this visit</div>
+                  {(verifiedOCRData.medications || []).slice(0, 5).map((m, i) => (
+                    <div key={i} className="text-[11px]">
+                      • <strong>{m.name}</strong> {m.strength} — {m.frequency} {m.duration ? `for ${m.duration}` : ''}
+                    </div>
+                  ))}
+                  {verifiedOCRData.diagnosis_notes && (
+                    <div className="text-[11px] pt-1 border-t border-tier-low/30">
+                      Context: {verifiedOCRData.diagnosis_notes}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Clinical Injury / Wound Photo Upload */}
-            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
-              <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                <Camera className="w-4 h-4 text-purple-600" /> Upload Injury & Clinical Wound Photo (Computer Vision)
+            {/* 2. LAB / TEST REPORTS */}
+            <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-3">
+              <div className="font-bold text-xs text-ink flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-tier-low" /> 2. Test / lab reports
               </div>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                disabled={uploadingImage}
-                className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer"
+              <FileCaptureInput
+                label="Report pages"
+                hint="Add every page, in order. A PDF is read directly, all pages at once."
+                accept="image/*,application/pdf"
+                multiple
+                files={reportFiles}
+                onChange={setReportFiles}
+                busy={uploadingReport}
               />
-              {imagePreview && (
-                <div className="rounded-lg overflow-hidden border border-slate-200 max-h-40 bg-slate-100 flex items-center justify-center">
-                  <img src={imagePreview} alt="Wound Preview" className="max-h-40 object-contain" />
-                </div>
-              )}
-              {uploadingImage && (
-                <div className="text-xs text-purple-600 flex items-center gap-2 font-medium">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analyzing Surface Erythema & Swelling...
-                </div>
-              )}
-              {visionObservation && (
-                <div className="p-3 rounded-lg bg-purple-50 border border-purple-200 text-xs text-purple-900 font-medium leading-relaxed">
-                  <strong>Computer Vision Summary:</strong> {visionObservation.cautious_summary}
+              <button
+                type="button"
+                onClick={handleReportUpload}
+                disabled={!reportFiles.length || uploadingReport}
+                className="w-full py-2.5 rounded-field bg-tier-low hover:opacity-90 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                {uploadingReport ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Reading report…</>
+                ) : (
+                  <>Read {reportFiles.length || ''} report page{reportFiles.length === 1 ? '' : 's'}</>
+                )}
+              </button>
+
+              {reportExtraction && (
+                <div className="p-3 rounded-field bg-surface-raised border border-line text-xs space-y-2 max-h-64 overflow-y-auto">
+                  <div className="text-[11px] text-ink-muted">
+                    {reportExtraction.pages_read} page(s) read by {reportExtraction._engine}
+                  </div>
+                  {(reportExtraction.panels || []).map((panel, i) => (
+                    <div key={i}>
+                      <div className="font-semibold text-ink text-[11px]">{panel.panel_name}</div>
+                      {(panel.tests || []).map((t, j) => (
+                        <div key={j} className="flex justify-between gap-2 text-[11px] py-0.5 border-b border-line">
+                          <span className="text-ink-muted truncate">{t.name}</span>
+                          <span
+                            className={
+                              t.flag === 'high'
+                                ? 'font-mono shrink-0 text-tier-emergency font-bold'
+                                : t.flag === 'low'
+                                  ? 'font-mono shrink-0 text-tier-moderate font-bold'
+                                  : 'font-mono shrink-0 text-ink-muted'
+                            }
+                          >
+                            {t.value} {t.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {(reportExtraction.abnormal_findings || []).length > 0 && (
+                    <div className="pt-1 border-t border-line">
+                      <div className="font-semibold text-tier-emergency text-[11px]">Outside reference range</div>
+                      {reportExtraction.abnormal_findings.map((a, i) => (
+                        <div key={i} className="text-[11px] text-tier-emergency">• {a}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
+            {/* 3. WOUND / INJURY PHOTOS */}
+            <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-3">
+              <div className="font-bold text-xs text-ink flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-gov-600" /> 3. Wound / injury photos
+              </div>
+              <FileCaptureInput
+                label="Clinical photographs"
+                hint="Include something for scale where you can. Add several angles if the wound is deep."
+                accept="image/*"
+                multiple
+                files={woundFiles}
+                onChange={setWoundFiles}
+                busy={uploadingImage}
+              />
+              <button
+                type="button"
+                onClick={handleWoundUpload}
+                disabled={!woundFiles.length || uploadingImage}
+                className="w-full py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                {uploadingImage ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analysing…</>
+                ) : (
+                  <>Analyse {woundFiles.length || ''} photo{woundFiles.length === 1 ? '' : 's'}</>
+                )}
+              </button>
+
+              {visionObservations.map((obs, i) => (
+                <div key={i} className="p-3 rounded-field bg-surface-raised border border-line text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-ink text-[11px]">Photo {i + 1}</span>
+                    <span
+                      className={
+                        obs.severity_impression === 'HIGH'
+                          ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-tier-emergencyBg text-tier-emergency'
+                          : obs.severity_impression === 'MEDIUM'
+                            ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-tier-moderateBg text-tier-moderate'
+                            : 'text-[10px] font-bold px-2 py-0.5 rounded bg-tier-lowBg text-tier-low'
+                      }
+                    >
+                      {obs.severity_impression}
+                    </span>
+                  </div>
+
+                  {obs.body_region && obs.body_region !== 'Unknown' && (
+                    <div className="text-[11px] text-ink-muted">Region: {obs.body_region}</div>
+                  )}
+                  {obs.extent && obs.extent.approximate_area && obs.extent.approximate_area !== 'Unknown' && (
+                    <div className="text-[11px] text-ink-muted">
+                      Extent: {obs.extent.approximate_area}
+                      {obs.extent.spread_pattern && obs.extent.spread_pattern !== 'Unknown'
+                        ? ` · ${obs.extent.spread_pattern}`
+                        : ''}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-ink-muted leading-relaxed">{obs.cautious_summary}</p>
+
+                  {(obs.possible_conditions || []).length > 0 && (
+                    <div className="pt-1 border-t border-line">
+                      <div className="font-semibold text-[11px] text-ink">Appearance consistent with</div>
+                      {obs.possible_conditions.map((c, j) => (
+                        <div key={j} className="text-[11px] text-ink-muted">
+                          • {c.description} <span className="text-ink-subtle">({c.confidence} confidence)</span>
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-ink-subtle mt-1">
+                        Observation only — not a diagnosis. The doctor decides.
+                      </p>
+                    </div>
+                  )}
+
+                  {(obs.escalate_if || []).length > 0 && (
+                    <div className="pt-1 border-t border-line">
+                      <div className="font-semibold text-[11px] text-tier-emergency">Escalate if</div>
+                      {obs.escalate_if.map((e, j) => (
+                        <div key={j} className="text-[11px] text-tier-emergency">• {e}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="flex justify-between pt-2">
             <button
               onClick={() => setActiveTab('vitals')}
-              className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+              className="px-4 py-2 rounded-field bg-surface-sunken hover:bg-surface-sunken text-ink-muted font-semibold text-xs transition-colors"
             >
               Back
             </button>
             <button
               onClick={handleRunAIAssessment}
               disabled={loadingAI}
-              className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors"
+              className="px-6 py-3 rounded-field bg-gov-600 hover:bg-gov-700 text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors"
             >
               {loadingAI ? (
                 <>
@@ -813,12 +1070,12 @@ export default function PatientAssessmentVisitPage() {
         <div className="space-y-6">
           
           {apiError && (
-            <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800 font-semibold flex items-center justify-between">
+            <div className="p-4 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-xs text-tier-emergency font-semibold flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-tier-emergency shrink-0" />
                 <span>AI Protocol Error: {apiError}</span>
               </div>
-              <button onClick={handleRunAIAssessment} className="px-3 py-1.5 rounded bg-red-600 text-white text-xs font-semibold hover:bg-red-700">
+              <button onClick={handleRunAIAssessment} className="px-3 py-1.5 rounded bg-tier-emergency text-white text-xs font-semibold hover:opacity-90">
                 Retry Assessment
               </button>
             </div>
@@ -828,45 +1085,45 @@ export default function PatientAssessmentVisitPage() {
             <div className="space-y-6">
               
               {/* Top Risk & Actions Banner */}
-              <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <RiskBadge level={aiAssessment.risk_level} />
-                    <span className="text-xs font-semibold text-slate-500">Visit ID: {visitId}</span>
+                    <span className="text-xs font-semibold text-ink-muted">Visit ID: {visitId}</span>
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">AI Clinical Triage Synthesis Completed</h2>
+                  <h2 className="text-lg font-bold text-ink">AI Clinical Triage Synthesis Completed</h2>
                 </div>
 
                 <button
                   onClick={generateCompletePDFReport}
-                  className="px-5 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors"
+                  className="px-5 py-2.5 rounded-field bg-surface-sunken hover:bg-surface-sunken text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors"
                 >
                   <Printer className="w-4 h-4 text-blue-400" /> Print Visit Report
                 </button>
               </div>
 
               {/* Patient Assessment Summary Box */}
-              <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
+              <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
                 
-                <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                <div className="p-4 rounded-field bg-gov-50 border border-gov-200">
                   <div className="font-bold text-xs text-blue-800 mb-1 flex items-center gap-1.5">
-                    <Bot className="w-4 h-4 text-blue-600" /> AI LLM Patient Assessment Summary
+                    <Bot className="w-4 h-4 text-gov-600" /> AI LLM Patient Assessment Summary
                   </div>
-                  <p className="text-xs text-slate-800 leading-relaxed font-medium">
+                  <p className="text-xs text-ink leading-relaxed font-medium">
                     {aiAssessment.patient_summary || aiAssessment.summary}
                   </p>
                 </div>
 
                 {/* Step-by-Step First Aid Guidance */}
                 {aiAssessment.first_aid_steps && aiAssessment.first_aid_steps.length > 0 && (
-                  <div className="p-4 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-2">
-                    <div className="font-bold text-xs text-emerald-800 flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" /> First-Aid Steps (perform now)
+                  <div className="p-4 rounded-field bg-tier-lowBg/60 border border-tier-low/30 space-y-2">
+                    <div className="font-bold text-xs text-tier-low flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-tier-low" /> First-Aid Steps (perform now)
                     </div>
-                    <div className="space-y-1.5 text-xs text-slate-800">
+                    <div className="space-y-1.5 text-xs text-ink">
                       {aiAssessment.first_aid_steps.map((step, idx) => (
                         <div key={idx} className="flex items-start gap-2">
-                          <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">{idx+1}</span>
+                          <span className="w-4 h-4 rounded-full bg-tier-lowBg text-tier-low font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">{idx+1}</span>
                           <span>{step}</span>
                         </div>
                       ))}
@@ -876,11 +1133,11 @@ export default function PatientAssessmentVisitPage() {
 
                 {/* Supportive medication guidance (doctor approval pending) */}
                 {aiAssessment.supportive_medication_guidance && aiAssessment.supportive_medication_guidance.length > 0 && (
-                  <div className="p-4 rounded-lg bg-sky-50/60 border border-sky-200 space-y-2">
+                  <div className="p-4 rounded-field bg-sky-50/60 border border-sky-200 space-y-2">
                     <div className="font-bold text-xs text-sky-800 flex items-center gap-1.5">
                       <Pill className="w-4 h-4 text-sky-600" /> Supportive Medication Guidance — pending doctor approval
                     </div>
-                    <ul className="space-y-1.5 text-xs text-slate-800 list-disc list-inside">
+                    <ul className="space-y-1.5 text-xs text-ink list-disc list-inside">
                       {aiAssessment.supportive_medication_guidance.map((med, idx) => (
                         <li key={idx}>{med}</li>
                       ))}
@@ -893,11 +1150,11 @@ export default function PatientAssessmentVisitPage() {
 
                 {/* Warning signs to monitor */}
                 {aiAssessment.warnings && aiAssessment.warnings.length > 0 && (
-                  <div className="p-4 rounded-lg bg-amber-50/70 border border-amber-200 space-y-2">
-                    <div className="font-bold text-xs text-amber-800 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" /> Warning Signs — escalate immediately if seen
+                  <div className="p-4 rounded-field bg-tier-moderateBg/70 border border-tier-moderate/30 space-y-2">
+                    <div className="font-bold text-xs text-tier-moderate flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-tier-moderate" /> Warning Signs — escalate immediately if seen
                     </div>
-                    <ul className="space-y-1 text-xs text-slate-800 list-disc list-inside">
+                    <ul className="space-y-1 text-xs text-ink list-disc list-inside">
                       {aiAssessment.warnings.map((w, idx) => (
                         <li key={idx}>{w}</li>
                       ))}
@@ -906,24 +1163,24 @@ export default function PatientAssessmentVisitPage() {
                 )}
 
                 {aiAssessment.legal_disclaimer && (
-                  <p className="text-[11px] text-slate-500 border-t border-slate-200 pt-3">{aiAssessment.legal_disclaimer}</p>
+                  <p className="text-[11px] text-ink-muted border-t border-line pt-3">{aiAssessment.legal_disclaimer}</p>
                 )}
 
               </div>
 
               {/* PUSH CASE TO DOCTOR DATABASE & OPTIONAL EMERGENCY VIDEO CALL */}
-              <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
+              <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
                 
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Send className="w-5 h-5 text-blue-600" /> Hand Off Case to a Doctor
+                  <h3 className="text-base font-bold text-ink flex items-center gap-2">
+                    <Send className="w-5 h-5 text-gov-600" /> Hand Off Case to a Doctor
                   </h3>
-                  <p className="text-xs text-slate-500">First select the doctor, then send the vitals, AI summary, verified prescription data and wound photos to that doctor's review queue.</p>
+                  <p className="text-xs text-ink-muted">First select the doctor, then send the vitals, AI summary, verified prescription data and wound photos to that doctor's review queue.</p>
                 </div>
 
                 {/* Doctor selection — core handoff step */}
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-700">
+                  <div className="text-xs font-semibold text-ink-muted">
                     Step 1 — Select the doctor for this case:
                     {selectedDoctor && (
                       <span className="ml-2 px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold">
@@ -934,13 +1191,13 @@ export default function PatientAssessmentVisitPage() {
                   <DoctorSelectGrid selected={selectedDoctor} onChange={setSelectedDoctor} />
                 </div>
 
-                <div className="text-xs font-semibold text-slate-700 pt-1">Step 2 — Choose the action:</div>
+                <div className="text-xs font-semibold text-ink-muted pt-1">Step 2 — Choose the action:</div>
                 <div className="flex flex-col sm:flex-row items-center gap-3">
                   <button
                     onClick={handlePushCaseToDoctor}
                     disabled={pushingToDoctor || !selectedDoctor}
                     title={!selectedDoctor ? 'Select a doctor above first' : undefined}
-                    className="w-full sm:w-auto px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
+                    className="w-full sm:w-auto px-6 py-3 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
                   >
                     <Send className="w-4 h-4" /> {pushingToDoctor
                       ? 'Sending case...'
@@ -949,24 +1206,22 @@ export default function PatientAssessmentVisitPage() {
                         : 'Send Case to Selected Doctor'}
                   </button>
 
+                  {/* One entry point. The modal offers both paths — Instant
+                      (find a doctor free right now) and Schedule (pick a slot) —
+                      because which one is right depends on the case, not on
+                      which button the assistant happened to reach for. */}
                   <button
                     onClick={() => setShowScheduleModal(true)}
-                    className="w-full sm:w-auto px-5 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
+                    disabled={!visitId}
+                    className="w-full sm:w-auto px-5 py-3 rounded-field bg-tier-low hover:opacity-90 disabled:opacity-50 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
                   >
-                    <Calendar className="w-4 h-4" /> Schedule Video Consultation
-                  </button>
-
-                  <button
-                    onClick={handleExplicitStartVideoCall}
-                    className="w-full sm:w-auto px-5 py-3 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <PhoneCall className="w-4 h-4" /> Start Emergency Video Call
+                    <Video className="w-4 h-4" /> Video Consultation
                   </button>
                 </div>
 
                 {pushSuccess && (
-                  <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-semibold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <div className="p-3 rounded-field bg-tier-lowBg border border-tier-low/30 text-xs text-tier-low font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-tier-low" />
                     Case sent. The doctor can now review the AI summary, verified prescription data and wound photos in their queue.
                   </div>
                 )}
@@ -974,8 +1229,8 @@ export default function PatientAssessmentVisitPage() {
 
             </div>
           ) : (
-            <div className="bg-white p-12 rounded-lg border border-dashed border-slate-200 text-center text-xs text-slate-500 space-y-3">
-              <Bot className="w-8 h-8 text-blue-600 mx-auto" />
+            <div className="bg-surface-raised p-12 rounded-field border border-dashed border-line text-center text-xs text-ink-muted space-y-3">
+              <Bot className="w-8 h-8 text-gov-600 mx-auto" />
               <p>Complete the previous steps, then select "Generate AI Assessment" on the Documents &amp; Photos tab.</p>
             </div>
           )}
@@ -987,23 +1242,26 @@ export default function PatientAssessmentVisitPage() {
       {showOCRModal && currentDocument && (
         <OCRVerificationModal
           documentId={currentDocument.id}
+          visitId={visitId}
           initialData={currentDocument.ocr_data}
           rawText={currentDocument.raw_text}
-          onVerified={(data) => setVerifiedOCRData(data)}
+          onVerified={(data) => {
+            // A lab report and a prescription feed different parts of the
+            // assessment, so they are kept apart rather than overwriting
+            // each other in one slot.
+            if (data?.document_type === 'lab_report') setReportExtraction(data);
+            else setVerifiedOCRData(data);
+          }}
           onClose={() => setShowOCRModal(false)}
         />
       )}
 
-      {/* Schedule Call Modal */}
+      {/* Consultation booking — Instant or Scheduled */}
       {showScheduleModal && (
-        <CallSchedulerModal
-          patient={patient}
+        <ScheduleConsultationModal
           visitId={visitId}
-          preselectedDoctor={selectedDoctor}
+          patientName={patient?.full_name || 'Patient'}
           onClose={() => setShowScheduleModal(false)}
-          onScheduled={(booked) => {
-            console.log(`${booked.length} consultation(s) booked`, booked);
-          }}
         />
       )}
 

@@ -1,207 +1,337 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, ShieldCheck, HeartPulse, Stethoscope, ArrowRight, AlertTriangle, Users, FileText, CheckCircle2, Mic, Globe2, Sparkles, Building2 } from 'lucide-react';
-import ThreeDMedicalCanvas from '../components/ThreeDMedicalCanvas';
-import ClinicalUseNotice from '../components/ClinicalUseNotice';
+import { motion } from 'framer-motion';
+import {
+  Activity, ShieldCheck, Stethoscope, ArrowRight, AlertTriangle,
+  Sun, Moon, Monitor, MapPin, Languages, Lock, Scale, Wifi
+} from 'lucide-react';
+import DistrictNetwork3D from '../components/DistrictNetwork3D';
+import { Counter, TierExplorer, WorkflowTimeline, RoleCard } from '../components/landing/Interactive';
+import { useTheme } from '../context/ThemeContext';
+import { Button, Card } from '../components/ui';
+
+/**
+ * Public landing page.
+ *
+ * Written for a government or investor audience: the gap, what the system
+ * does, who is accountable for each decision, and what it deliberately will
+ * not do. The safety position sits near the top rather than in a footer —
+ * for a health system the limits of the tool are part of the case, not a
+ * disclaimer to be skimmed.
+ */
+
+const reveal = {
+  initial: { opacity: 0, y: 18 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: '-70px' },
+  transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] }
+};
+
+const STATS = [
+  { value: 75, label: 'Districts covered', suffix: '' },
+  { value: 1880, label: 'Patient records', suffix: '' },
+  { value: 375, label: 'Doctors on the roster', suffix: '' },
+  { value: 4, label: 'Triage tiers', suffix: '' }
+];
+
+const PROBLEM = [
+  { Icon: Stethoscope, text: 'Roughly one allopathic doctor per 10,000 people in rural India. The WHO norm is one per 1,000.' },
+  { Icon: MapPin, text: 'Patients travel hours over difficult terrain to a district hospital that may have no bed free when they arrive.' },
+  { Icon: Scale, text: 'Paper prescriptions are lost between visits, so history restarts from zero and diagnostics are repeated at the patient’s cost.' },
+  { Icon: Languages, text: 'Language and literacy barriers mean the presenting complaint is often recorded wrong at first contact.' }
+];
+
+const GUARANTEES = [
+  { Icon: Lock, title: 'Escalation is one-way', body: 'The rules engine sets the tier. The language model may raise it and can never lower it. Missing data escalates rather than reassuring.' },
+  { Icon: ShieldCheck, title: 'Medication is never model-authored', body: 'Every medicine comes from a formulary signed by a registered practitioner. The model formats what the rules engine selected — it never names a drug.' },
+  { Icon: Scale, title: 'A doctor signs every decision', body: 'Prescriptions, referrals and clinical judgements are made by a practitioner registered with the National Medical Commission. Nothing is automatic.' },
+  { Icon: Wifi, title: 'Honest when degraded', body: 'If a model is unavailable the case is floored at moderate and sent to a doctor. An unassessed case is never presented as a low-risk one.' }
+];
+
+function ThemeSwitch() {
+  const { choice, cycle } = useTheme();
+  const Icon = choice === 'light' ? Sun : choice === 'dark' ? Moon : Monitor;
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      aria-label={`Theme: ${choice}. Click to change.`}
+      className="p-2 rounded-field text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors"
+    >
+      <Icon className="w-5 h-5" />
+    </button>
+  );
+}
 
 export default function LandingPage() {
+  const [hoveredDistrict, setHoveredDistrict] = useState(null);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-surface-sunken">
+      <div className="h-1 tricolour-rule" aria-hidden="true" />
 
-      {/* Shown before anything else — a disclaimer below the fold is not a
-          disclaimer. Public pages only; never on an authenticated view. */}
-      <ClinicalUseNotice variant="strip" />
-
-      {/* HERO SECTION WITH 3D CANVAS ANIMATION */}
-      <section className="relative pt-12 pb-16 overflow-hidden px-4 lg:px-8 border-b border-slate-200 bg-white">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
-          
-          {/* Left Hero Text */}
-          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
-              <Sparkles className="w-4 h-4 text-blue-600" />
-              AI-Powered Virtual Clinic Platform for Rural Healthcare
+      {/* ---------------- Masthead ---------------- */}
+      <header className="sticky top-0 z-40 bg-surface-raised/95 backdrop-blur border-b border-line">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-10 h-10 rounded-field bg-gov-600 dark:bg-gov-500 text-white dark:text-gov-950 flex items-center justify-center shrink-0">
+              <Activity className="w-5 h-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-ink leading-tight truncate">Rural Health Grid</p>
+              <p className="text-[10px] text-ink-subtle uppercase tracking-wider truncate">Village Tele-Clinic Network</p>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <ThemeSwitch />
+            <Link to="/login">
+              <Button size="sm" className="whitespace-nowrap">
+                <ShieldCheck className="w-4 h-4" /> Staff Sign In
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </header>
 
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 leading-tight">
-              Bringing AI-Assisted Healthcare <br />
-              <span className="text-blue-600">
-                Closer to Rural Communities.
-              </span>
+      {/* ---------------- Hero ---------------- */}
+      <section className="relative border-b border-line bg-surface-raised overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 lg:py-16 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="relative z-10"
+          >
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gov-50 dark:bg-gov-100 text-gov-700 dark:text-gov-600 text-[11px] font-bold uppercase tracking-wider">
+              <MapPin className="w-3 h-3" />
+              {hoveredDistrict ? `${hoveredDistrict} district` : 'Uttar Pradesh · 75 districts'}
+            </span>
+
+            <h1 className="mt-4 font-display text-3xl sm:text-4xl lg:text-[3.25rem] font-bold text-ink leading-[1.1]">
+              Specialist care,
+              <span className="block text-gov-600 dark:text-gov-500">without the journey.</span>
             </h1>
 
-            <p className="text-slate-600 text-sm sm:text-base leading-relaxed max-w-2xl">
-              Empowering village health assistants across India to digitally collect patient information, capture symptoms & vitals, digitize paper prescriptions via OCR, analyze injury photos, and prepare structured doctor-ready cases using verified MoHFW clinical protocols.
+            <p className="mt-4 text-sm sm:text-base text-ink-muted leading-relaxed max-w-xl">
+              A trained health assistant at the village sub-centre captures the case.
+              AI prepares it against approved Ministry of Health protocols. A registered
+              doctor, wherever they are, makes the clinical decision.
             </p>
 
-            {/* Central Product Principle */}
-            <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 shadow-sm max-w-xl">
-              <span className="text-xs uppercase tracking-wider font-bold text-blue-700 block mb-1">Central Product Principle</span>
-              <span className="text-base font-bold text-slate-900">AI prepares the case. The doctor makes the medical decision.</span>
+            <div className="mt-6 p-4 rounded-card bg-gov-50 dark:bg-gov-100 border border-gov-200">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gov-600 dark:text-gov-500">
+                Central product principle
+              </p>
+              <p className="text-sm font-bold text-gov-800 dark:text-gov-700 mt-1">
+                AI prepares the case. The doctor makes the medical decision.
+              </p>
             </div>
 
-            {/* Login Actions */}
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
-              <Link
-                to="/login?role=CLINIC_ASSISTANT"
-                className="px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-colors flex items-center gap-2"
-              >
-                <ShieldCheck className="w-4 h-4" /> Clinic Assistant Login
+            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <Link to="/login">
+                <Button size="lg" className="w-full sm:w-auto">
+                  <ShieldCheck className="w-4 h-4" /> Staff sign in
+                </Button>
               </Link>
-              <Link
-                to="/login?role=DOCTOR"
-                className="px-5 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-emerald-700 font-semibold text-xs border border-slate-200 shadow-sm transition-colors flex items-center gap-2"
-              >
-                <Stethoscope className="w-4 h-4" /> Doctor Login
-              </Link>
-              <Link
-                to="/login?role=ADMIN"
-                className="px-5 py-2.5 rounded-lg bg-white hover:bg-slate-50 text-purple-700 font-semibold text-xs border border-slate-200 shadow-sm transition-colors flex items-center gap-2"
-              >
-                <Users className="w-4 h-4" /> Admin Login
-              </Link>
+              <a href="#how-it-works">
+                <Button size="lg" variant="secondary" className="w-full sm:w-auto">
+                  How it works <ArrowRight className="w-4 h-4" />
+                </Button>
+              </a>
             </div>
-          </div>
+          </motion.div>
 
-          {/* Right 3D Interactive WebGL Canvas */}
-          <div className="lg:col-span-5 flex justify-center">
-            <div className="w-full max-w-md bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm relative">
-              <div className="absolute top-3 left-4 text-xs font-bold text-slate-700 flex items-center gap-2">
-                <Globe2 className="w-4 h-4 text-blue-600" />
-                India Telemedicine Grid
-              </div>
-              <ThreeDMedicalCanvas />
-            </div>
-          </div>
-
-        </div>
-
-        {/* Prominent Mandatory Safety Notice */}
-        <div className="mt-8 max-w-5xl mx-auto p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <strong className="text-amber-950 font-bold">Safety & Legal Position Notice: </strong>
-            AI assistance does not replace professional medical diagnosis or treatment. Final clinical decisions are made by qualified healthcare professionals.
-          </div>
+          {/* The map is the product's real data, not decoration. */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            className="relative h-72 sm:h-96 lg:h-[30rem] rounded-card overflow-hidden bg-surface-sunken border border-line"
+          >
+            <DistrictNetwork3D className="absolute inset-0" onDistrictHover={setHoveredDistrict} />
+          </motion.div>
         </div>
       </section>
 
-      {/* INDIA-LEVEL IMPACT STATS BANNER */}
-      <section className="py-8 bg-slate-100 border-b border-slate-200 px-4 lg:px-8">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-          <div className="p-4 rounded-lg bg-white border border-slate-200 shadow-sm">
-            <div className="text-2xl font-bold text-blue-600">142</div>
-            <div className="text-xs text-slate-500 font-medium mt-1">Village Clinics Connected</div>
-          </div>
-          <div className="p-4 rounded-lg bg-white border border-slate-200 shadow-sm">
-            <div className="text-2xl font-bold text-emerald-600">12</div>
-            <div className="text-xs text-slate-500 font-medium mt-1">Indian States Covered</div>
-          </div>
-          <div className="p-4 rounded-lg bg-white border border-slate-200 shadow-sm">
-            <div className="text-2xl font-bold text-purple-600">4,820+</div>
-            <div className="text-xs text-slate-500 font-medium mt-1">Rural Patients Served</div>
-          </div>
-          <div className="p-4 rounded-lg bg-white border border-slate-200 shadow-sm">
-            <div className="text-2xl font-bold text-amber-600">4.2 Mins</div>
-            <div className="text-xs text-slate-500 font-medium mt-1">Avg Doctor Response Time</div>
-          </div>
-        </div>
-      </section>
-
-      {/* PROBLEM vs SOLUTION SECTION */}
-      <section className="py-12 px-4 lg:px-8 max-w-7xl mx-auto w-full">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* Core Problem */}
-          <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center mb-2 border border-red-100">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900">Rural Healthcare Challenges</h2>
-            <ul className="space-y-2 text-xs text-slate-700">
-              <li className="flex items-start gap-2">
-                <span className="text-red-600 font-bold">•</span>
-                <span>Severe shortage of qualified doctors in remote sub-centres and Primary Health Centres (PHCs).</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-red-600 font-bold">•</span>
-                <span>Patients travel several hours over difficult rural terrain to reach district hospitals.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-red-600 font-bold">•</span>
-                <span>Paper-based prescriptions lead to lost medical history and repeated diagnostic costs.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-red-600 font-bold">•</span>
-                <span>Language and literacy barriers prevent accurate symptom communication.</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Solution */}
-          <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-2 border border-blue-100">
-              <HeartPulse className="w-5 h-5" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900">The Virtual Clinic Solution</h2>
-            <ul className="space-y-2 text-xs text-slate-700">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>Multilingual Voice Input:</strong> Assistant records symptoms in native dialect (Hindi, Tamil, Telugu, etc.).</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>OCR & Document Digitization:</strong> Upload old paper prescriptions with mandatory human verification.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>MoHFW RAG & Protocol Engine:</strong> Retrieves approved Indian government clinical guidelines for safety.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>Doctor-in-the-Loop Teleconsultation:</strong> Structured handoff to remote doctors via encrypted video calls.</span>
-              </li>
-            </ul>
-          </div>
-
-        </div>
-      </section>
-
-      {/* 6-STEP PRODUCT WORKFLOW */}
-      <section className="py-12 px-4 lg:px-8 max-w-7xl mx-auto w-full border-t border-slate-200">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900">How The Virtual Clinic Works</h2>
-          <p className="text-slate-500 text-xs mt-1">End-to-End Clinical Journey</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          {[
-            { step: '1', title: 'Register Patient', desc: 'Assistant creates patient code & preferred language.', icon: <Users className="w-4 h-4 text-blue-600" /> },
-            { step: '2', title: 'Capture Data', desc: 'Symptoms via Voice, Vitals, Prescription OCR, & Injury photos.', icon: <Mic className="w-4 h-4 text-emerald-600" /> },
-            { step: '3', title: 'AI Assesses', desc: 'Groq LLM + Qdrant RAG retrieve approved MoHFW protocols.', icon: <FileText className="w-4 h-4 text-purple-600" /> },
-            { step: '4', title: 'Risk Detected', desc: 'Safety rules triage into GREEN, YELLOW, or RED EMERGENCY.', icon: <AlertTriangle className="w-4 h-4 text-amber-600" /> },
-            { step: '5', title: 'Doctor Reviews', desc: 'Qualified doctor inspects AI summary, vitals, OCR, & Video call.', icon: <Stethoscope className="w-4 h-4 text-blue-600" /> },
-            { step: '6', title: 'Professional Care', desc: 'Doctor issues signed digital prescription & treatment record.', icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" /> }
-          ].map((item, idx) => (
-            <div key={idx} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="w-6 h-6 rounded bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200">
-                    {item.step}
-                  </span>
-                  {item.icon}
-                </div>
-                <h3 className="text-xs font-bold text-slate-900 mb-1">{item.title}</h3>
-                <p className="text-[11px] text-slate-500 leading-normal">{item.desc}</p>
-              </div>
+      {/* ---------------- Stats ---------------- */}
+      <section className="bg-gov-600 dark:bg-gov-100 border-b border-line">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-2 lg:grid-cols-4 gap-6">
+          {STATS.map((s) => (
+            <div key={s.label} className="text-center">
+              <p className="font-display text-3xl sm:text-4xl font-bold text-white dark:text-gov-800 tabular-nums">
+                <Counter to={s.value} suffix={s.suffix} />
+              </p>
+              <p className="mt-1 text-[11px] uppercase tracking-wider text-gov-100 dark:text-gov-600">
+                {s.label}
+              </p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="mt-auto py-6 px-4 border-t border-slate-200 text-center text-xs text-slate-500 bg-white">
-        Virtual Village Clinic — Grounded in MoHFW Standard Treatment Guidelines & Telemedicine Practice Guidelines.
+      {/* ---------------- Safety notice ---------------- */}
+      <section className="bg-tier-moderateBg border-b border-tier-moderate/25">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-tier-moderate shrink-0 mt-0.5" />
+          <p className="text-xs text-tier-moderate leading-relaxed">
+            <strong>Not for clinical use in its current state.</strong> This is a demonstration
+            system. Its triage thresholds and medication list are drawn from published guidance
+            but have not been reviewed or approved by a registered medical practitioner for this
+            deployment. It does not provide medical advice, diagnosis or treatment. Every clinical
+            decision must be made by a doctor registered with the National Medical Commission.
+          </p>
+        </div>
+      </section>
+
+      {/* ---------------- Problem ---------------- */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
+        <motion.div {...reveal}>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">The gap this closes</h2>
+          <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
+            None of these are technology problems on their own. Together they mean a treatable
+            condition becomes an emergency between the village and the district hospital.
+          </p>
+        </motion.div>
+
+        <div className="mt-6 grid sm:grid-cols-2 gap-4">
+          {PROBLEM.map((p, i) => (
+            <motion.div
+              key={p.text}
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-60px' }}
+              transition={{ duration: 0.45, delay: i * 0.07 }}
+            >
+              <Card className="p-5 h-full flex gap-3">
+                <span className="w-9 h-9 rounded-field bg-tier-emergencyBg text-tier-emergency flex items-center justify-center shrink-0">
+                  <p.Icon className="w-4 h-4" />
+                </span>
+                <p className="text-sm text-ink-muted leading-relaxed">{p.text}</p>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------------- Tier explorer ---------------- */}
+      <section className="bg-surface-raised border-y border-line">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
+          <motion.div {...reveal}>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
+              Every case gets a tier
+            </h2>
+            <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
+              The tier decides what happens next — and each one has a different, defined
+              output. Select a tier to see exactly what the assistant and the doctor get.
+            </p>
+          </motion.div>
+
+          <div className="mt-8">
+            <TierExplorer />
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------- Workflow ---------------- */}
+      <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 scroll-mt-20">
+        <motion.div {...reveal}>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
+            End-to-end clinical journey
+          </h2>
+          <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
+            Six steps from a patient arriving at a sub-centre to a signed clinical decision.
+          </p>
+        </motion.div>
+
+        <div className="mt-8">
+          <WorkflowTimeline />
+        </div>
+      </section>
+
+      {/* ---------------- Safety guarantees ---------------- */}
+      <section className="bg-surface-raised border-y border-line">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
+          <motion.div {...reveal}>
+            <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
+              What the system will not do
+            </h2>
+            <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
+              These are enforced in code and covered by tests, not stated as intentions.
+            </p>
+          </motion.div>
+
+          <div className="mt-6 grid sm:grid-cols-2 gap-4">
+            {GUARANTEES.map((g, i) => (
+              <motion.div
+                key={g.title}
+                initial={{ opacity: 0, y: 14 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-60px' }}
+                transition={{ duration: 0.45, delay: i * 0.07 }}
+              >
+                <Card className="p-5 h-full">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-field bg-tier-lowBg text-tier-low flex items-center justify-center shrink-0">
+                      <g.Icon className="w-4 h-4" />
+                    </span>
+                    <h3 className="text-sm font-bold text-ink">{g.title}</h3>
+                  </div>
+                  <p className="mt-2 text-xs text-ink-muted leading-relaxed">{g.body}</p>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------- Role entry ---------------- */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
+        <motion.div {...reveal}>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">Staff access</h2>
+          <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
+            Both roles use the same sign-in. Your dashboard is determined by the role your
+            administrator assigned — roles are government-assigned, not self-selected, so
+            there is no public sign-up.
+          </p>
+        </motion.div>
+
+        <div className="mt-6 grid sm:grid-cols-2 gap-4">
+          <RoleCard
+            Icon={ShieldCheck}
+            tone="gov"
+            title="Clinic Assistant"
+            description="At the village sub-centre, with the patient in front of you."
+            bullets={[
+              'Register by Aadhaar and open a visit',
+              'Voice symptom capture in the local dialect',
+              'Prescription, report and wound-photo capture',
+              'Run the AI assessment and act on the tier'
+            ]}
+            to="/login"
+            cta="Sign in as assistant"
+          />
+          <RoleCard
+            Icon={Stethoscope}
+            tone="low"
+            title="Doctor"
+            description="Anywhere with a connection, reviewing prepared cases."
+            bullets={[
+              'Day-wise queue, worst risk first',
+              'Full case file with AI assistance clearly separated',
+              'Video consultation with the assistant and patient',
+              'Sign the diagnosis, prescription or referral'
+            ]}
+            to="/login"
+            cta="Sign in as doctor"
+          />
+        </div>
+      </section>
+
+      <footer className="bg-surface-raised border-t border-line">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-ink-subtle">
+          <p>Rural Health Grid · Grounded in MoHFW Standard Treatment &amp; Telemedicine Practice Guidelines</p>
+          <p className="font-mono">Demonstration system — not for clinical use</p>
+        </div>
       </footer>
     </div>
   );

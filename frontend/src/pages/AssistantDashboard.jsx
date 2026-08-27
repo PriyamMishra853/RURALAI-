@@ -1,265 +1,279 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { UserPlus, Search, Activity, Clock, ShieldAlert, CheckCircle, User, Video, Calendar, PhoneCall } from 'lucide-react';
+import { motion } from 'framer-motion';
+import {
+  UserPlus, Search, Activity, Users, CheckCircle2, Video, PhoneCall,
+  AlertCircle, Clock, History, Siren, RefreshCw, Inbox, ChevronRight
+} from 'lucide-react';
 import api from '../services/api';
-import RiskBadge from '../components/RiskBadge';
-import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../config/supabase';
-import DemoBadge from '../components/DemoBadge';
+import { useRealtime } from '../context/RealtimeContext';
+import { TierBadge } from '../components/TierSystem';
+import { maskAadhaar, digitsOnly } from '../config/patientFields';
+import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
+
+/**
+ * Clinic assistant workspace.
+ *
+ * §3.9 asks for the 5–10 most recently handled patients as a recency stack, plus
+ * add-new and search, plus the emergency bypass. The recency stack is the
+ * primary surface because the same patient is very often seen twice in a week
+ * at a sub-centre, and making the assistant search for someone they saw an hour
+ * ago is the wrong default.
+ */
+
+const RECENT_LIMIT = 8;
 
 export default function AssistantDashboard() {
   const { user } = useAuth();
-  const [patients, setPatients] = useState([]);
-  const [consultations, setConsultations] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [activeVideoRoom, setActiveVideoRoom] = useState(null);
-
+  const { subscribe } = useRealtime();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchData();
+  const [patients, setPatients] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [consultations, setConsultations] = useState([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
-    // Realtime: refresh as soon as a consultation or appointment changes,
-    // with polling as the fallback transport.
-    const channel = supabase
-      .channel('assistant-dashboard-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'consultations' }, fetchData)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, fetchData)
-      .subscribe();
-
-    const interval = setInterval(fetchData, 10000);
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (opts = {}) => {
+    if (opts.silent) setRefreshing(true);
     try {
       const [pRes, cRes] = await Promise.all([
         api.get('/patients'),
-        api.get('/consultations').catch(() => ({ data: [] }))
+        api.get('/consultations', { params: { scope: 'today' } })
+          .catch(() => ({ data: { consultations: [] } }))
       ]);
-      setPatients(pRes.data || []);
-      setConsultations((cRes.data || []).filter((c) => ['waiting', 'active'].includes(c.status)));
+      setPatients(pRes.data?.patients ?? []);
+      setTotal(pRes.data?.total ?? 0);
+      setConsultations(
+        (cRes.data?.consultations ?? []).filter((c) => ['SCHEDULED', 'ACTIVE'].includes(c.status))
+      );
+      setError(null);
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      setError(err.response?.data?.error || 'Could not load your workspace.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
 
-  const handleJoinCall = async (consultId, roomId) => {
-    let finalRoom = roomId;
-    try {
-      const res = await api.post(`/consultations/${consultId}/join`);
-      finalRoom = res.data?.room_id || roomId;
-    } catch (err) {
-      console.warn('Join endpoint failed, entering room directly:', err.message);
-    }
-    setActiveVideoRoom({ room_id: finalRoom });
-  };
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => subscribe((msg) => {
+    if (msg.type === 'notification') fetchData({ silent: true });
+  }), [subscribe, fetchData]);
+
+  useEffect(() => {
+    const t = setInterval(() => fetchData({ silent: true }), 30000);
+    return () => clearInterval(t);
+  }, [fetchData]);
 
   const today = new Date().toDateString();
-  const todayPatients = patients.filter((p) => new Date(p.created_at).toDateString() === today).length;
-  const highRiskCalls = consultations.filter((c) => (c.risk_level || '').toUpperCase() === 'HIGH').length;
+  const registeredToday = patients.filter((p) => new Date(p.created_at).toDateString() === today).length;
 
-  const filteredPatients = patients.filter((p) =>
-    (p.name || p.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.patient_code || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.village || '').toLowerCase().includes(searchQuery.toLowerCase())
+  /** The recency stack — most recently registered first. */
+  const recent = useMemo(() => patients.slice(0, RECENT_LIMIT), [patients]);
+
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const digits = digitsOnly(q);
+    return patients.filter((p) =>
+      (p.full_name || '').toLowerCase().includes(q) ||
+      (digits && (p.aadhaar_number || '').includes(digits)) ||
+      (digits && (p.phone || '').includes(digits)) ||
+      (p.village_line1 || '').toLowerCase().includes(q)
+    );
+  }, [patients, query]);
+
+  const startVisit = (aadhaar) => navigate(`/assistant/assessment/${aadhaar}`);
+
+  const PatientRow = ({ p, index }) => (
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: Math.min(index * 0.04, 0.24) }}
+      onClick={() => startVisit(p.aadhaar_number)}
+      className="w-full text-left p-3 sm:p-4 rounded-card border border-line bg-surface-raised hover:border-gov-300 hover:shadow-raised transition-all flex items-center gap-3"
+    >
+      <span className="w-10 h-10 rounded-full bg-gov-50 dark:bg-gov-100 text-gov-600 dark:text-gov-500 flex items-center justify-center shrink-0 font-bold text-sm">
+        {(p.full_name || '?').charAt(0).toUpperCase()}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-ink truncate">{p.full_name}</p>
+        <p className="text-xs text-ink-muted truncate">
+          {p.age_display || '—'} · {p.gender} · {p.village_line1}
+        </p>
+        <p className="text-[10px] text-ink-subtle font-mono truncate">
+          {maskAadhaar(p.aadhaar_number)} · {p.phone}
+        </p>
+      </div>
+      <span className="hidden sm:flex items-center gap-1 text-xs font-semibold text-gov-600 dark:text-gov-500 shrink-0">
+        Start visit <ChevronRight className="w-4 h-4" />
+      </span>
+      <ChevronRight className="w-4 h-4 text-ink-subtle sm:hidden shrink-0" />
+    </motion.button>
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-6">
+    <div className="space-y-5">
 
-      {/* Header + primary actions */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Clinic Assistant Workspace</h1>
-          <p className="text-xs text-slate-500">Signed in as <strong>{user?.name || 'Clinic Assistant'}</strong></p>
+      {/* ---- Header ---- */}
+      <Card className="p-5 sm:p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <span className="w-11 h-11 rounded-field bg-gov-50 dark:bg-gov-100 text-gov-600 dark:text-gov-500 flex items-center justify-center shrink-0">
+              <Users className="w-5 h-5" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="font-display text-lg sm:text-xl font-bold text-ink truncate">
+                Clinic Assistant Workspace
+              </h1>
+              <p className="text-xs text-ink-muted truncate">
+                {user?.name}{user?.district ? ` · ${user.district} sub-centre` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => fetchData({ silent: true })} aria-label="Refresh">
+              <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+            </Button>
+            <Link to="/assistant/patients/new">
+              <Button><UserPlus className="w-4 h-4" /> Register patient</Button>
+            </Link>
+          </div>
         </div>
+      </Card>
 
-        <Link
-          to="/assistant/patients/new"
-          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-sm flex items-center gap-2 transition-colors"
-        >
-          <UserPlus className="w-4 h-4" /> Register New Patient
-        </Link>
+      {error && <Alert tone="danger" icon={AlertCircle}>{error}</Alert>}
+
+      {/* ---- Stats ---- */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <Stat label="Registered patients" value={total} icon={Users} />
+        <Stat label="Registered today" value={registeredToday} tone="low" icon={CheckCircle2} />
+        <Stat label="Open consultations" value={consultations.length} tone="moderate" icon={Video} />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Registered Patients</p>
-            <h3 className="text-2xl font-bold text-slate-900 mt-1">{patients.length}</h3>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
-            <User className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Registered Today</p>
-            <h3 className="text-2xl font-bold text-emerald-600 mt-1">{todayPatients}</h3>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
-            <CheckCircle className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-medium">Open Video Consultations</p>
-            <h3 className="text-2xl font-bold text-amber-600 mt-1">{consultations.length}</h3>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100">
-            <Video className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-medium">High-Risk Calls Waiting</p>
-            <h3 className="text-2xl font-bold text-red-600 mt-1">{highRiskCalls}</h3>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center border border-red-100">
-            <ShieldAlert className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Open video consultations */}
-      <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Video className="w-5 h-5 text-purple-600" /> Open Video Consultations
-          </h2>
-          <p className="text-xs text-slate-500">Rooms waiting for the doctor or currently in progress. To book a new one, open a patient's assessment and select "Schedule Video Consultation".</p>
-        </div>
-
-        {consultations.length === 0 ? (
-          <div className="p-6 text-center text-slate-500 text-xs border border-dashed border-slate-200 rounded-lg">
-            No open video consultations right now.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {consultations.map((c) => (
-              <div key={c.id} className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <RiskBadge level={c.risk_level} />
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${c.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
-                      {c.status === 'active' ? 'IN PROGRESS' : 'WAITING'}
-                    </span>
+      {/* ---- Live consultations ---- */}
+      {consultations.length > 0 && (
+        <Card>
+          <CardHeader title="Video consultations today" icon={Video} />
+          <div className="p-4 sm:p-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {consultations.map((c) => {
+              const p = c.visits?.patients || c.patients;
+              const canJoin = c.join_action === 'JOIN' || c.join_action === 'REJOIN';
+              return (
+                <div key={c.id} className="p-4 rounded-card border border-line bg-surface-sunken flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <TierBadge level={c.visits?.risk_level} size="sm" />
+                    <Badge tone={c.status === 'ACTIVE' ? 'low' : 'neutral'}>
+                      {c.status === 'ACTIVE' ? 'Live' : c.status}
+                    </Badge>
                   </div>
-
-                  <div className="font-bold text-sm text-slate-900">{c.patient_name}</div>
-                  {c.patient_code && <div className="text-xs text-slate-500">Code: <strong className="text-blue-600">{c.patient_code}</strong></div>}
-                  <div className="text-xs text-emerald-700 font-semibold mt-1">
-                    {c.doctor_name}{c.doctor_specialization ? ` · ${c.doctor_specialization}` : ''}
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-ink truncate">{p?.full_name || 'Patient'}</p>
+                    <p className="text-xs text-ink-muted line-clamp-2">{c.visits?.chief_complaint}</p>
+                    <p className="text-[11px] text-tier-moderate flex items-center gap-1 mt-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      {new Date(c.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
-                  <div className="text-xs text-slate-700 mt-1 font-medium">{c.reason || 'Teleconsultation'}</div>
-                  <div className="text-xs text-amber-700 flex items-center gap-1 mt-1 font-medium">
-                    <Clock className="w-3.5 h-3.5" /> {new Date(c.scheduled_time || c.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                  </div>
+                  <Button
+                    size="sm"
+                    variant={canJoin ? 'primary' : 'secondary'}
+                    disabled={!canJoin}
+                    onClick={() => navigate(`/call/${c.id}`)}
+                    className="w-full"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" /> {c.join_label}
+                  </Button>
                 </div>
-
-                <button
-                  onClick={() => handleJoinCall(c.id, c.room_id)}
-                  className="w-full py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
-                >
-                  <PhoneCall className="w-4 h-4" /> Join Video Consultation
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        )}
-      </div>
-
-      {/* Patient directory */}
-      <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <h2 className="text-base font-bold text-slate-900">Patient Directory</h2>
-
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            <input
-              type="text"
-              placeholder="Search by name, code, or village..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-4 py-2 text-xs text-slate-900 focus:border-blue-500 outline-none"
-            />
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="p-6 text-center text-xs text-slate-500">Loading patients...</div>
-        ) : filteredPatients.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
-            {patients.length === 0 ? 'No patients registered yet. Select "Register New Patient" to add the first one.' : 'No patients match your search.'}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3">Patient Code</th>
-                  <th className="px-4 py-3">Name &amp; Demographics</th>
-                  <th className="px-4 py-3">Village</th>
-                  <th className="px-4 py-3">Language</th>
-                  <th className="px-4 py-3">Phone</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-800">
-                {filteredPatients.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3.5 font-mono text-blue-600 font-bold">{p.patient_code}</td>
-                    <td className="px-4 py-3.5">
-                      <div className="font-semibold text-slate-900">
-                        {p.name || p.full_name} <DemoBadge patient={p} />
-                      </div>
-                      <div className="text-[11px] text-slate-500">{p.age || p.age_years} yrs | {p.gender}</div>
-                    </td>
-                    <td className="px-4 py-3.5">{p.village}</td>
-                    <td className="px-4 py-3.5">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{p.preferred_language || 'Hindi'}</span>
-                    </td>
-                    <td className="px-4 py-3.5 font-mono text-slate-500">{p.phone || '—'}</td>
-                    <td className="px-4 py-3.5 text-right">
-                      <button
-                        onClick={() => navigate(`/assistant/assessment/${p.id}`)}
-                        className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors inline-flex items-center gap-1.5 shadow-sm"
-                      >
-                        <Activity className="w-3.5 h-3.5" /> Start Assessment Visit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* WebRTC video call modal */}
-      {activeVideoRoom && (
-        <WebRTCVideoCallModal
-          roomId={activeVideoRoom.room_id}
-          userName={user?.name || 'Clinic Assistant'}
-          userId={user?.id || `ast_${Date.now()}`}
-          role="CLINIC_ASSISTANT"
-          peerName="Doctor"
-          onClose={() => setActiveVideoRoom(null)}
-        />
+        </Card>
       )}
 
+      {/* ---- Search ---- */}
+      <Card>
+        <CardHeader
+          title={searchResults ? `Search results (${searchResults.length})` : 'Recently handled'}
+          subtitle={searchResults
+            ? 'Matching name, Aadhaar, phone or village'
+            : `The last ${RECENT_LIMIT} patients registered at this sub-centre`}
+          icon={searchResults ? Search : History}
+          action={
+            <div className="relative w-40 sm:w-64">
+              <Search className="w-4 h-4 text-ink-subtle absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search patients"
+                aria-label="Search patients"
+                className="field pl-9 py-2 text-xs"
+              />
+            </div>
+          }
+        />
+
+        <div className="p-4 sm:p-5">
+          {loading ? (
+            <Spinner label="Loading your patients…" />
+          ) : (searchResults ?? recent).length === 0 ? (
+            <EmptyState
+              icon={Inbox}
+              title={searchResults ? 'No patients match that search' : 'No patients registered yet'}
+              description={searchResults
+                ? 'Try a name, the full 12-digit Aadhaar, or a phone number.'
+                : 'Register the first patient to begin.'}
+              action={
+                searchResults
+                  ? <Button size="sm" variant="secondary" onClick={() => setQuery('')}>Clear search</Button>
+                  : <Link to="/assistant/patients/new"><Button size="sm"><UserPlus className="w-4 h-4" /> Register patient</Button></Link>
+              }
+            />
+          ) : (
+            <div className="grid gap-2 sm:gap-3">
+              {(searchResults ?? recent).map((p, i) => (
+                <PatientRow key={p.aadhaar_number} p={p} index={i} />
+              ))}
+            </div>
+          )}
+
+          {!searchResults && total > recent.length && (
+            <p className="mt-3 text-[11px] text-ink-subtle text-center">
+              Showing the {recent.length} most recent of {total}. Use search to find any other patient.
+            </p>
+          )}
+        </div>
+      </Card>
+
+      {/* ---- Emergency bypass ---- */}
+      <Card className="border-l-4 border-l-tier-emergency">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+          <span className="w-11 h-11 rounded-field bg-tier-emergencyBg text-tier-emergency flex items-center justify-center shrink-0">
+            <Siren className="w-5 h-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-bold text-ink">Emergency — patient not registered</h3>
+            <p className="text-xs text-ink-muted mt-0.5 leading-relaxed">
+              For a genuinely urgent case, search the register first — most patients are
+              already on it. If they are not, register with the minimum fields and
+              reconcile the record afterwards. Do not delay care to complete a form.
+            </p>
+          </div>
+          <Link to="/assistant/patients/new" className="shrink-0">
+            <Button variant="danger" size="sm">
+              <Activity className="w-4 h-4" /> Urgent registration
+            </Button>
+          </Link>
+        </div>
+      </Card>
     </div>
   );
 }

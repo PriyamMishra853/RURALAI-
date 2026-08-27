@@ -1,0 +1,601 @@
+{
+  "paracetamol": {
+    "molecule": "paracetamol",
+    "total_products": 2503,
+    "strengths": {
+      "650mg": {
+        "product_count": 571,
+        "price_min": 3.31,
+        "price_median": 19.0,
+        "examples": [
+          {
+            "name": "Alice 650mg Tablet",
+            "price_inr": 3.31,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Ind Swift Laboratories Ltd"
+          },
+          {
+            "name": "Anglopar 650 Tablet",
+            "price_inr": 4.81,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Anglo-French Drugs & Industries Ltd"
+          },
+          {
+            "name": "Paranir 650mg Tablet",
+            "price_inr": 5.67,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Nirlife Healthcare"
+          }
+        ]
+      },
+      "500mg": {
+        "product_count": 421,
+        "price_min": 2.5,
+        "price_median": 15.0,
+        "examples": [
+          {
+            "name": "Babymol 500mg Tablet",
+            "price_inr": 2.5,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Laborate Pharmaceuticals India Ltd"
+          },
+          {
+            "name": "Anglopar 500mg Tablet",
+            "price_inr": 2.86,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Anglo-French Drugs & Industries Ltd"
+          },
+          {
+            "name": "Dagmol 500mg Tablet",
+            "price_inr": 2.9,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Dagon Pharmaceuticals Pvt Ltd"
+          }
+        ]
+      },
+      "250mg": {
+        "product_count": 216,
+        "price_min": 8.3,
+        "price_median": 36.9,
+        "examples": [
+          {
+            "name": "Paradana 250mg Tablet",
+            "price_inr": 8.3,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Dana Pharmaceuticals Pvt Ltd"
+          },
+          {
+            "name": "Medimol 250mg Tablet",
+            "price_inr": 9.5,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Synchem Lab"
+          },
+          {
+            "name": "Calpol 250mg Tablet",
+            "price_inr": 13.07,
+            "pack": "strip of 15 tablets",
+            "manufacturer": "Glaxo SmithKline Pharmaceuticals Ltd"
+          }
+        ]
+      },
+      "250mg/5ml": {
+        "product_count": 204,
+        "price_min": 9.6,
+        "price_median": 37.89,
+        "examples": [
+          {
+            "name": "Fabrimol 250mg/5ml Suspension",
+            "price_inr": 9.6,
+            "pack": "bottle of 60 ml Suspension",
+            "manufacturer": "Syncom Formulations  I  Limited"
+          },
+          {
+            "name": "Merimol 250mg/5ml Syrup",
+            "price_inr": 13.12,
+            "pack": "bottle of 60 ml Syrup",
+            "manufacturer": "Wockhardt Ltd"
+          },
+          {
+            "name": "Flumol 250mg/5ml Suspension",
+            "price_inr": 13.2,
+            "pack": "bottle of 60 ml Suspension",
+            "manufacturer": "Elder Pharmaceuticals Ltd"
+          }
+        ]
+      },
+      "125mg": {
+        "product_count": 182,
+        "price_min": 3.8,
+        "price_median": 24.0,
+        "examples": [
+          {
+            "name": "Flumol Kid 125mg Tablet",
+            "price_inr": 3.8,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Medihands Pharmaceuticals"
+          },
+          {
+            "name": "Synamol P 125mg Tablet",
+            "price_inr": 4.9,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Zota Health care Ltd"
+          },
+          {
+            "name": "Tempros KID 125mg Tablet",
+            "price_inr": 5.0,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Osho Pharma Pvt Ltd"
+          }
+        ]
+      },
+      "1000mg": {
+        "product_count": 135,
+        "price_min": 6.85,
+        "price_median": 260.0,
+        "examples": [
+          {
+            "name": "Paarmol Injection",
+            "price_inr": 6.85,
+            "pack": "vial of 2 ml Injection",
+            "manufacturer": "Sun Pharmaceutical Industries Ltd"
+          },
+          {
+            "name": "Pacimol 1000mg Tablet",
+            "price_inr": 10.98,
+            "pack": "strip of 6 tablets",
+            "manufacturer": "Ipca Laboratories Ltd"
+          },
+          {
+            "name": "Paracin 1000mg Tablet",
+            "price_inr": 22.12,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Stadmed Pvt Ltd"
+          }
+        ]
+      }
+    }
+  },
+  "acetaminophen": {
+    "molecule": "acetaminophen",
+    "total_products": 265,
+    "strengths": {}
+  },
+  "zinc": {
+    "molecule": "zinc",
+    "total_products": 32,
+    "strengths": {
+      "20mg": {
+        "product_count": 11,
+        "price_min": 26.0,
+        "price_median": 68.45,
+        "examples": [
+          {
+            "name": "HI ZN Syrup",
+            "price_inr": 26.0,
+            "pack": "bottle of 60 ml Syrup",
+            "manufacturer": "Halcyon Drugs"
+          },
+          {
+            "name": "Adrovit Z Syrup",
+            "price_inr": 34.15,
+            "pack": "bottle of 30 ml Syrup",
+            "manufacturer": "Adley Formulations"
+          },
+          {
+            "name": "Zia 20 Tablet DT",
+            "price_inr": 35.0,
+            "pack": "strip of 10 tablet dt",
+            "manufacturer": "West-Coast Pharmaceutical Works Ltd"
+          }
+        ]
+      },
+      "50mg": {
+        "product_count": 5,
+        "price_min": 51.0,
+        "price_median": 150.0,
+        "examples": [
+          {
+            "name": "Zincovec 50 Tablet",
+            "price_inr": 51.0,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Biorex Healthcare Pvt Ltd"
+          },
+          {
+            "name": "Redivit ZN 50mg Tablet",
+            "price_inr": 65.0,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Best Biotech"
+          },
+          {
+            "name": "Ziverdo Kit",
+            "price_inr": 150.0,
+            "pack": "box of 1 Kit",
+            "manufacturer": "Mankind Pharma Ltd"
+          }
+        ]
+      },
+      "20mg/5ml": {
+        "product_count": 3,
+        "price_min": 58.0,
+        "price_median": 58.55,
+        "examples": [
+          {
+            "name": "Zia Syrup",
+            "price_inr": 58.0,
+            "pack": "bottle of 100 ml Syrup",
+            "manufacturer": "West-Coast Pharmaceutical Works Ltd"
+          },
+          {
+            "name": "Zia Syrup",
+            "price_inr": 58.55,
+            "pack": "bottle of 50 ml Syrup",
+            "manufacturer": "West-Coast Pharmaceutical Works Ltd"
+          },
+          {
+            "name": "Actozinc Syrup",
+            "price_inr": 85.0,
+            "pack": "bottle of 100 ml Oral Solution",
+            "manufacturer": "Spc Healthcare Private Limited"
+          }
+        ]
+      },
+      "75mg": {
+        "product_count": 2,
+        "price_min": 88.38,
+        "price_median": 209.19,
+        "examples": [
+          {
+            "name": "Carnozin 75mg Tablet",
+            "price_inr": 88.38,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Bharti Life Sciences"
+          },
+          {
+            "name": "Gastrozin 75mg Tablet",
+            "price_inr": 330.0,
+            "pack": "strip of 30 tablets",
+            "manufacturer": "Synergy Pharma Formulations India Pvt Ltd"
+          }
+        ]
+      },
+      "137.232mg": {
+        "product_count": 1,
+        "price_min": 55.0,
+        "price_median": 55.0,
+        "examples": [
+          {
+            "name": "Zynwin Tablet",
+            "price_inr": 55.0,
+            "pack": "strip of 10 tablets",
+            "manufacturer": "Macleods Pharmaceuticals Pvt Ltd"
+          }
+        ]
+      },
+      "137.5mg": {
+        "product_count": 1,
+        "price_min": 21.0,
+        "price_median": 21.0,
+        "examples": [
+          {
+            "name": "Zincolak Capsule",
+            "price_inr": 21.0,
+            "pack": "strip of 10 capsules",
+            "manufacturer": "A. Menarini India Pvt Ltd"
+          }
+        ]
+      }
+    }
+  },
+  "sodium chloride": {
+    "molecule": "sodium chloride",
+    "total_products": 179,
+    "strengths": {
+      "0.65% w/v": {
+        "product_count": 76,
+        "price_min": 17.5,
+        "price_median": 43.85,
+        "examples": [
+          {
+            "name": "Naresol 0.65% Nasal Drops",
+            "price_inr": 17.5,
+            "pack": "bottle of 15 ml Nasal Drops",
+            "manufacturer": "Alembic Pharmaceuticals Ltd"
+          },
+          {
+            "name": "Osolin 0.65% Nasal Drops",
+            "price_inr": 19.8,
+            "pack": "bottle of 15 ml Nasal Drops",
+            "manufacturer": "Olcare Laboratories"
+          },
+          {
+            "name": "Nipit Nasal Drops",
+            "price_inr": 20.0,
+            "pack": "bottle of 15 ml Nasal Drops",
+            "manufacturer": "Anthiea Labs Pvt Ltd"
+          }
+        ]
+      },
+      "0.9% w/v": {
+        "product_count": 30,
+        "price_min": 9.37,
+        "price_median": 28.61,
+        "examples": [
+          {
+            "name": "N S 0.9% Infusion",
+            "price_inr": 9.37,
+            "pack": "bottle of 100 ml Infusion",
+            "manufacturer": "Baxter India Pvt Ltd"
+          },
+          {
+            "name": "Euroline 0.9% Infusion",
+            "price_inr": 16.07,
+            "pack": "bottle of 100 ml Infusion",
+            "manufacturer": "Eurolife Healthcare Pvt Ltd"
+          },
+          {
+            "name": "Elkos NS 0.9% Infusion",
+            "price_inr": 16.5,
+            "pack": "bottle of 100 ml Infusion",
+            "manufacturer": "Elkos Healthcare Pvt Ltd"
+          }
+        ]
+      },
+      "NA": {
+        "product_count": 12,
+        "price_min": 11.25,
+        "price_median": 29.6,
+        "examples": [
+          {
+            "name": "Normal Saline Infusion",
+            "price_inr": 11.25,
+            "pack": "bottle of 100 ml Infusion",
+            "manufacturer": "Venus Remedies Ltd"
+          },
+          {
+            "name": "N S Solution",
+            "price_inr": 16.25,
+            "pack": "bottle of 100 ml Solution for Infusion",
+            "manufacturer": "AstraZeneca"
+          },
+          {
+            "name": "Normal Saline Infusion",
+            "price_inr": 16.62,
+            "pack": "bottle of 100 ml Infusion",
+            "manufacturer": "Nirlife Healthcare"
+          }
+        ]
+      },
+      "5% w/v": {
+        "product_count": 11,
+        "price_min": 42.0,
+        "price_median": 55.0,
+        "examples": [
+          {
+            "name": "Osmoeye Eye Drop",
+            "price_inr": 42.0,
+            "pack": "packet of 10 ml Eye Drop",
+            "manufacturer": "Eyekare Kilitch Limited"
+          },
+          {
+            "name": "Osmoeye Gel",
+            "price_inr": 42.0,
+            "pack": "packet of 10 ml Ophthalmic Solution",
+            "manufacturer": "Eyekare Kilitch Limited"
+          },
+          {
+            "name": "Osmogel Eye Drop",
+            "price_inr": 42.0,
+            "pack": "packet of 10 ml Eye Drop",
+            "manufacturer": "Micro Labs Ltd"
+          }
+        ]
+      },
+      "6% w/w": {
+        "product_count": 10,
+        "price_min": 90.0,
+        "price_median": 120.0,
+        "examples": [
+          {
+            "name": "Hitsol 6 Eye Ointment",
+            "price_inr": 90.0,
+            "pack": "tube of 3 gm Eye Ointment",
+            "manufacturer": "Nri Vision Care India Limited"
+          },
+          {
+            "name": "Socl 6 Eye Ointment",
+            "price_inr": 105.0,
+            "pack": "tube of 5 gm Eye Ointment",
+            "manufacturer": "Optho Life Sciences Pvt Ltd"
+          },
+          {
+            "name": "Hypersenz Eye Ointment",
+            "price_inr": 114.27,
+            "pack": "tube of 5 gm Eye Ointment",
+            "manufacturer": "Senses Pharmaceuticals Ltd"
+          }
+        ]
+      },
+      "0.600gm": {
+        "product_count": 6,
+        "price_min": 22.5,
+        "price_median": 41.18,
+        "examples": [
+          {
+            "name": "Ringer Lactate Infusion",
+            "price_inr": 22.5,
+            "pack": "bottle of 500 ml Infusion",
+            "manufacturer": "Baxter India Pvt Ltd"
+          },
+          {
+            "name": "Ringer Lactate Infusion",
+            "price_inr": 29.81,
+            "pack": "bottle of 500 ml Infusion",
+            "manufacturer": "Nirlife Healthcare"
+          },
+          {
+            "name": "Ringer Lactate IP Poly Infusion",
+            "price_inr": 36.25,
+            "pack": "bottle of 500 ml Infusion",
+            "manufacturer": "Albert David Ltd"
+          }
+        ]
+      }
+    }
+  },
+  "povidone": {
+    "molecule": "povidone",
+    "total_products": 374,
+    "strengths": {
+      "5% w/w": {
+        "product_count": 142,
+        "price_min": 14.37,
+        "price_median": 50.5,
+        "examples": [
+          {
+            "name": "Nicodin Ointment",
+            "price_inr": 14.37,
+            "pack": "tube of 15 gm Ointment",
+            "manufacturer": "Abbott"
+          },
+          {
+            "name": "Bectosept 5% Ointment",
+            "price_inr": 18.0,
+            "pack": "tube of 10 gm Ointment",
+            "manufacturer": "Sun Pharmaceutical Industries Ltd"
+          },
+          {
+            "name": "Zevodine Ointment",
+            "price_inr": 20.0,
+            "pack": "tube of 20 gm Ointment",
+            "manufacturer": "Zeelab Pharmacy Pvt Ltd"
+          }
+        ]
+      },
+      "2% w/v": {
+        "product_count": 43,
+        "price_min": 43.05,
+        "price_median": 126.48,
+        "examples": [
+          {
+            "name": "Cipladine Solution",
+            "price_inr": 43.05,
+            "pack": "bottle of 2 ml Solution",
+            "manufacturer": "Cipla Ltd"
+          },
+          {
+            "name": "Soludine 2% Gargle",
+            "price_inr": 43.8,
+            "pack": "bottle of 60 ml Gargle",
+            "manufacturer": "Lincoln Pharmaceuticals Ltd"
+          },
+          {
+            "name": "Zevodine Gargle Mint",
+            "price_inr": 45.0,
+            "pack": "bottle of 100 ml Gargle",
+            "manufacturer": "Zeelab Pharmacy Pvt Ltd"
+          }
+        ]
+      },
+      "5% w/v": {
+        "product_count": 41,
+        "price_min": 17.32,
+        "price_median": 74.98,
+        "examples": [
+          {
+            "name": "Winodine Solution",
+            "price_inr": 17.32,
+            "pack": "bottle of 100 ml Solution",
+            "manufacturer": "Makers Laboratories Ltd"
+          },
+          {
+            "name": "G Dine Lotion",
+            "price_inr": 19.25,
+            "pack": "bottle of 100 ml Lotion",
+            "manufacturer": "Zydus Cadila"
+          },
+          {
+            "name": "Septidine Solution",
+            "price_inr": 21.25,
+            "pack": "bottle of 5 ml Solution",
+            "manufacturer": "Sunways India Pvt Ltd"
+          }
+        ]
+      },
+      "5%": {
+        "product_count": 32,
+        "price_min": 11.06,
+        "price_median": 35.14,
+        "examples": [
+          {
+            "name": "Povicidal 5% Powder",
+            "price_inr": 11.06,
+            "pack": "box of 10 gm Powder",
+            "manufacturer": "Cadila Pharmaceuticals Ltd"
+          },
+          {
+            "name": "Zypovid 5% Ointment",
+            "price_inr": 12.5,
+            "pack": "tube of 20 gm Ointment",
+            "manufacturer": "Zydus Healthcare Limited"
+          },
+          {
+            "name": "Intadine Dusting Powder",
+            "price_inr": 12.5,
+            "pack": "packet of 10 gm Dusting Powder",
+            "manufacturer": "Intas Pharmaceuticals Ltd"
+          }
+        ]
+      },
+      "10% w/w": {
+        "product_count": 27,
+        "price_min": 28.48,
+        "price_median": 70.0,
+        "examples": [
+          {
+            "name": "Eradine Ointment",
+            "price_inr": 28.48,
+            "pack": "tube of 15 gm Ointment",
+            "manufacturer": "Embiotic Laboratories Pvt Ltd"
+          },
+          {
+            "name": "Healodine 10% Ointment",
+            "price_inr": 33.0,
+            "pack": "tube of 15 gm Ointment",
+            "manufacturer": "Univentis Medicare Ltd"
+          },
+          {
+            "name": "Pdson 10% Ointment",
+            "price_inr": 40.0,
+            "pack": "tube of 20 gm Ointment",
+            "manufacturer": "Unison Pharmaceuticals Pvt Ltd"
+          }
+        ]
+      },
+      "10% w/v": {
+        "product_count": 23,
+        "price_min": 55.0,
+        "price_median": 115.36,
+        "examples": [
+          {
+            "name": "Ioditune 10% Ointment",
+            "price_inr": 55.0,
+            "pack": "tube of 15 gm Ointment",
+            "manufacturer": "Fortune Labs"
+          },
+          {
+            "name": "Soludine Lotion",
+            "price_inr": 70.8,
+            "pack": "bottle of 100 ml Lotion",
+            "manufacturer": "Lincoln Pharmaceuticals Ltd"
+          },
+          {
+            "name": "Povilon 10% Solution",
+            "price_inr": 88.48,
+            "pack": "bottle of 100 ml Solution",
+            "manufacturer": "Healthlon Pharmaceuticals"
+          }
+        ]
+      }
+    }
+  }
+}
