@@ -22,10 +22,13 @@ export const EVENTS = {
   CANCELLED: 'CONSULTATION_CANCELLED',
   COMPLETED: 'CONSULTATION_COMPLETED',
   FAILED: 'CONSULTATION_FAILED',
-  // Not a consultation event: a case handed to a doctor for review, with no
-  // call attached. `consultation_id` is null on these rows, which the column
-  // already allows.
-  CASE_ASSIGNED: 'CASE_ASSIGNED'
+  // The two halves of the case loop. Neither has a consultation attached, so
+  // `consultation_id` is null on these rows — which the column already allows.
+  //
+  //   CASE_ASSIGNED    — assistant hands the case to a doctor.
+  //   REVIEW_COMPLETED — the doctor's decision travelling back to the assistant.
+  CASE_ASSIGNED: 'CASE_ASSIGNED',
+  REVIEW_COMPLETED: 'DOCTOR_REVIEW_COMPLETED'
 };
 
 /**

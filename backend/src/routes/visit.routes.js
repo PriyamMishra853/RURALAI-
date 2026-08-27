@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { createVisit, getVisitById, updateVisit, handOffVisit } from '../controllers/visit.controller.js';
+import {
+  createVisit, getVisitById, updateVisit, handOffVisit, getVisitReview
+} from '../controllers/visit.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { ROLES } from '../config/roles.js';
@@ -11,6 +13,8 @@ router.use(denyAdminClinicalAccess);
 
 router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), createVisit);
 router.get('/:id', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), getVisitById);
+// The doctor's decision, read by the assistant who opened the visit.
+router.get('/:id/review', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), getVisitReview);
 router.patch('/:id', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), updateVisit);
 
 // Handing a case to a doctor is the assistant's action alone. A doctor

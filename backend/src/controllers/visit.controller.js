@@ -444,3 +444,63 @@ export const handOffVisit = async (req, res) => {
     missing
   });
 };
+
+/**
+ * GET /api/visits/:id/review — the doctor's decision, for the assistant.
+ *
+ * §3.6 asks for the doctor's review to reach the assistant's portal. The
+ * assistant is standing with the patient; the decision has to travel back to
+ * them, not sit in the doctor's portal waiting to be asked for.
+ *
+ * HIGH-risk visits are excluded deliberately. Those were referred to a
+ * hospital, the case is closed on this platform, and there is no doctor review
+ * to return — saying so plainly is better than an empty object that looks like
+ * a review is still pending.
+ */
+export const getVisitReview = async (req, res) => {
+  let q = supabaseAdmin
+    .from('visits')
+    .select(`
+      id, visit_code, status, risk_level, chief_complaint,
+      patients ( full_name ),
+      doctor:assigned_doctor_id ( full_name ),
+      doctor_reviews ( id, decision, clinical_notes, agreed_with_ai, created_at ),
+      prescriptions ( id, prescription_code, items, advice, signed_at )
+    `)
+    .eq('id', req.params.id);
+
+  q = req.user.role === 'DOCTOR'
+    ? q.eq('assigned_doctor_id', req.user.id)
+    : q.eq('district_id', req.user.districtId);
+
+  const { data, error } = await q.maybeSingle();
+  if (error) return res.status(500).json({ error: 'Could not load the review.' });
+  if (!data) return res.status(404).json({ error: 'No such visit available to you.' });
+
+  const reviews = Array.isArray(data.doctor_reviews) ? data.doctor_reviews : [];
+  const latest = reviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
+
+  if (data.risk_level === 'emergency' || data.status === 'referred') {
+    return res.json({
+      visit_id: data.id,
+      visit_code: data.visit_code,
+      closed: true,
+      reason: 'This case was referred to hospital and is closed on this platform. '
+        + 'It will be reviewed offline by the receiving facility.',
+      review: null,
+      prescription: null
+    });
+  }
+
+  return res.json({
+    visit_id: data.id,
+    visit_code: data.visit_code,
+    status: data.status,
+    patient_name: data.patients?.full_name,
+    doctor_name: data.doctor?.full_name,
+    closed: false,
+    pending: !latest,
+    review: latest,
+    prescription: (data.prescriptions || [])[0] || null
+  });
+};

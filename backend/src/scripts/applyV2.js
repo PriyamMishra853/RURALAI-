@@ -14,7 +14,7 @@ import { makeClient, runSqlFile } from './lib/db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const V2_DIR = path.resolve(__dirname, '../../../database/v2');
 
-const FILES = ['01_reset.sql', '02_schema.sql', '03_rls.sql', '04_visit_history.sql'];
+const FILES = ['01_reset.sql', '02_schema.sql', '03_rls.sql', '04_visit_history.sql', '05_consultations.sql', '06_patient_images.sql'];
 
 const main = async () => {
   if (!process.argv.includes('--confirm')) {

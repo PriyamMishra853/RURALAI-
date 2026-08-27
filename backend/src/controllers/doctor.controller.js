@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { withAge } from '../services/patientFields.js';
 import { istDateString } from '../services/schedulingService.js';
+import { notify, EVENTS } from '../services/notificationService.js';
 
 /**
  * The doctor's caseload.
@@ -136,7 +137,9 @@ export const getDoctorCaseDetails = async (req, res) => {
                      pulse_bpm, spo2_percent, respiratory_rate, blood_glucose_mgdl, recorded_at ),
       visit_symptoms ( description, source, created_at ),
       patient_documents ( id, document_type, ocr_text, extracted_data, verified_at, created_at ),
-      patient_images ( id, image_url, storage_path, observation, severity_impression, engine, created_at )
+      patient_images ( id, image_url, storage_path, observation, severity_impression, engine, created_at ),
+      doctor_reviews ( id, decision, clinical_notes, agreed_with_ai, created_at ),
+      prescriptions ( id, prescription_code, items, advice, signed_at )
     `)
     .eq('id', req.params.id)
     .eq('assigned_doctor_id', req.user.id)
@@ -187,7 +190,7 @@ export const recordDoctorReview = async (req, res) => {
 
   const { data: visit } = await supabaseAdmin
     .from('visits')
-    .select('id, visit_date, status')
+    .select('id, visit_date, status, visit_code, assistant_id, patients ( full_name )')
     .eq('id', req.params.id)
     .eq('assigned_doctor_id', req.user.id)
     .maybeSingle();
@@ -262,6 +265,36 @@ export const recordDoctorReview = async (req, res) => {
     entityId: req.params.id,
     metadata: { decision, agreed_with_ai, medicines: meds.length }, ip: req.ip
   });
+
+  /*
+   * Close the loop back to the assistant — spec §3.6.
+   *
+   * The assistant is standing with the patient waiting to know what to do.
+   * Before this, the doctor's decision lived only in the doctor's portal and
+   * the assistant had no way to learn it without asking.
+   *
+   * HIGH-risk cases are excluded on purpose: those were referred, the case is
+   * already closed on this platform, and a doctor review does not exist for
+   * them to send.
+   */
+  if (visit.assistant_id) {
+    await notify({
+      consultationId: null,
+      recipients: [{ id: visit.assistant_id, role: 'CLINIC_ASSISTANT' }],
+      event: EVENTS.REVIEW_COMPLETED,
+      payload: {
+        visit_id: req.params.id,
+        visit_code: visit.visit_code,
+        patient_name: visit.patients?.full_name,
+        doctor_name: req.user.name,
+        decision,
+        diagnosis: String(diagnosis).trim(),
+        medicines: meds.length,
+        prescription_id: prescriptionId,
+        status: nextStatus
+      }
+    });
+  }
 
   return res.status(201).json({ review: data, prescription_id: prescriptionId, visit_status: nextStatus });
 };
