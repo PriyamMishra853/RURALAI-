@@ -76,6 +76,17 @@ export const buildReferral = async ({ districtName, lat, lon }) => {
   const referral = {
     primary,
     alternatives: options.slice(1),
+    // Real, nationally published emergency numbers — not invented, and the
+    // only contact details on this screen we can actually stand behind.
+    // Direct hospital switchboard numbers are NOT listed: there is no
+    // authoritative public register of them, and a wrong number on a referral
+    // screen costs minutes at exactly the wrong moment.
+    emergency_lines: [
+      { number: '108', label: 'Emergency ambulance (free, 24x7)' },
+      { number: '102', label: 'Maternal & child health ambulance' },
+      { number: '104', label: 'Health helpline / advice' },
+      { number: '112', label: 'National emergency number' }
+    ],
     emergency_line: '108',
     // Stated explicitly so the UI cannot quietly imply we know bed status.
     capacity_status: 'UNKNOWN',

@@ -246,8 +246,12 @@ export default function CallPage() {
   const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const patient = consultation?.patients;
 
+  // The call shell is always dark, in both themes. Call UIs are dark
+  // everywhere for a reason — it cuts glare and puts the video first — and
+  // every control on this screen is white-on-dark. The theme sweep briefly
+  // made this surface light, which left all of those controls invisible.
   return (
-    <div className="min-h-[85vh] bg-surface-sunken -m-4 sm:-m-6 p-4 sm:p-6 flex flex-col gap-4">
+    <div className="min-h-[85vh] bg-gov-950 dark:bg-gov-50 -m-4 sm:-m-6 p-4 sm:p-6 flex flex-col gap-4">
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">

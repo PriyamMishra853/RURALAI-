@@ -14,6 +14,7 @@ import FileCaptureInput from '../components/FileCaptureInput';
 import {
   VITAL_FIELDS, MEASURED_FIELDS, defaultVitals, validateVitals, isAbnormal
 } from '../config/vitals';
+import TierResult from '../components/TierResult';
 
 export default function PatientAssessmentVisitPage() {
   const { id: patientId } = useParams();
@@ -1081,6 +1082,22 @@ export default function PatientAssessmentVisitPage() {
             </div>
           )}
 
+          {/*
+            Tiered result — spec §3.6. LOW/MEDIUM/HIGH each produce a genuinely
+            different screen, with the speak-aloud control and the PDF hardcopy
+            buttons. Rendered above the older detail blocks, which remain for
+            the protocol/vision breakdown.
+          */}
+          {aiAssessment?.workflow && (
+            <TierResult
+              workflow={aiAssessment.workflow}
+              assessment={aiAssessment}
+              visitId={visitId}
+              language={patient?.preferred_language || 'Hindi'}
+              onScheduleConsultation={() => setShowScheduleModal(true)}
+            />
+          )}
+
           {aiAssessment ? (
             <div className="space-y-6">
               
@@ -1096,7 +1113,7 @@ export default function PatientAssessmentVisitPage() {
 
                 <button
                   onClick={generateCompletePDFReport}
-                  className="px-5 py-2.5 rounded-field bg-surface-sunken hover:bg-surface-sunken text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors"
+                  className="px-5 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 dark:bg-gov-500 dark:hover:bg-gov-400 dark:text-gov-950 text-white font-bold text-xs shadow-sm flex items-center gap-2 transition-colors min-h-[2.5rem]"
                 >
                   <Printer className="w-4 h-4 text-blue-400" /> Print Visit Report
                 </button>

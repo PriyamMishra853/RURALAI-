@@ -17,6 +17,7 @@ import aiRoutes from './routes/ai.routes.js';
 import doctorRoutes from './routes/doctor.routes.js';
 import consultationRoutes from './routes/consultation.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import reportRoutes from './routes/report.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import visionRoutes from './routes/vision.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
@@ -115,6 +116,7 @@ app.use('/api/voice', voiceRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/consultations', consultationRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
 
 // SPA fallback: any non-API GET serves the frontend router

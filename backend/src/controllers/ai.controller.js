@@ -8,6 +8,7 @@ import { assertRuleSourced, formatMedicationLine } from '../services/formularySe
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { ageFromDob } from '../services/patientFields.js';
+import { buildTierWorkflow } from '../services/tierWorkflowService.js';
 
 export const transcribeSpeech = async (req, res) => {
   try {
@@ -231,7 +232,16 @@ export const analyzePatientCase = async (req, res) => {
       assessment_id: savedAssessment?.id || null,
       persisted: Boolean(savedAssessment?.id),
       visit_id,
-      ...aiResult
+      ...aiResult,
+      // §3.6 — the tier decides what happens next, and each tier has its own
+      // defined output set. Built here so a single /assess call gives the
+      // frontend everything it needs to render the correct screen.
+      workflow: await buildTierWorkflow({
+        assessment: aiResult,
+        patient,
+        visit,
+        districtName: patient?.address_district || null
+      })
     });
 
   } catch (error) {

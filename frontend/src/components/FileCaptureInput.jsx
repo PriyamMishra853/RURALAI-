@@ -145,7 +145,14 @@ export default function FileCaptureInput({
           type="button"
           onClick={() => openCamera()}
           disabled={disabled || busy}
-          className="px-4 py-2.5 rounded-field bg-surface-sunken hover:bg-surface-sunken disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2"
+          /*
+            Primary action, and it must LOOK like one. The theme sweep turned
+            the original bg-slate-900 into bg-surface-sunken while leaving
+            text-white — near-white text on a near-white panel, invisible in
+            light mode. Camera capture is the main way documents enter this
+            system, so it gets the primary treatment, not a ghost button.
+          */
+          className="px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 dark:bg-gov-500 dark:hover:bg-gov-400 dark:text-gov-950 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm min-h-[2.5rem]"
         >
           <Camera className="w-4 h-4" /> Open camera
         </button>
@@ -153,7 +160,7 @@ export default function FileCaptureInput({
           type="button"
           onClick={() => pickerRef.current?.click()}
           disabled={disabled || busy}
-          className="px-4 py-2.5 rounded-field bg-surface-raised hover:bg-surface-sunken disabled:opacity-50 text-ink-muted border border-line-strong text-xs font-semibold flex items-center gap-2"
+          className="px-4 py-2.5 rounded-field bg-surface-raised hover:bg-surface-sunken disabled:opacity-50 text-ink border border-line-strong text-xs font-semibold flex items-center gap-2 min-h-[2.5rem]"
         >
           <FolderOpen className="w-4 h-4" /> Choose files
         </button>

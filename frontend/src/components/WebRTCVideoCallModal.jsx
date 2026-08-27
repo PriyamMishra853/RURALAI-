@@ -466,7 +466,7 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
         <div className="bg-surface-sunken px-6 py-4 border-t border-line flex items-center justify-center gap-4">
           <button
             onClick={toggleAudio}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAudioMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-surface-sunken hover:bg-slate-700 text-ink'}`}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAudioMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}
             title={isAudioMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isAudioMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -474,7 +474,7 @@ export default function WebRTCVideoCallModal({ roomId, userName, userId, role = 
 
           <button
             onClick={toggleVideo}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isVideoMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-surface-sunken hover:bg-slate-700 text-ink'}`}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isVideoMuted ? 'bg-tier-emergency hover:opacity-90 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}
             title={isVideoMuted ? 'Turn Camera On' : 'Turn Camera Off'}
           >
             {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
