@@ -138,13 +138,35 @@ const main = async () => {
   console.log('Connected.\n');
 
   try {
-    console.log('1. Clearing previous demo data');
-    await client.query('BEGIN');
-    // Ordered by dependency; visits/patients cascade to their children.
-    await client.query('DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM staff_profiles WHERE is_demo)');
-    await client.query('DELETE FROM visits   WHERE is_demo');
-    await client.query('DELETE FROM patients WHERE is_demo');
-    await client.query("DELETE FROM staff_profiles WHERE is_demo AND role <> 'super_admin'");
+console.log('1. Clearing previous demo data');
+await client.query('BEGIN');
+
+// Delete dependent demo records before their referenced parent records.
+await client.query(`
+  DELETE FROM doctor_reviews
+  WHERE doctor_id IN (
+    SELECT id FROM staff_profiles WHERE is_demo
+  )
+`);
+
+await client.query(`
+  DELETE FROM audit_logs
+  WHERE actor_id IN (
+    SELECT id FROM staff_profiles WHERE is_demo
+  )
+`);
+
+await client.query('DELETE FROM visits WHERE is_demo');
+await client.query('DELETE FROM patients WHERE is_demo');
+
+await client.query(`
+  DELETE FROM staff_profiles
+  WHERE is_demo AND role <> 'super_admin'
+`);
+
+await client.query('COMMIT');
+await deleteDemoAuthUsers();
+console.log('   database rows cleared\n');
     await client.query('COMMIT');
     await deleteDemoAuthUsers();
     console.log('   database rows cleared\n');
