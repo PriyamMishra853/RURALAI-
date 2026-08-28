@@ -138,10 +138,16 @@ const main = async () => {
   console.log('Connected.\n');
 
   try {
-console.log('1. Clearing previous demo data');
+
+    console.log('1. Clearing previous demo data');
 await client.query('BEGIN');
 
-// Delete dependent demo records before their referenced parent records.
+// ---------------------------------------------------------------
+// Delete dependent demo records first.
+// staff_profiles is referenced by several clinical/admin tables.
+// ---------------------------------------------------------------
+
+// Doctor reviews reference staff_profiles.doctor_id
 await client.query(`
   DELETE FROM doctor_reviews
   WHERE doctor_id IN (
@@ -149,6 +155,15 @@ await client.query(`
   )
 `);
 
+// Prescriptions reference staff_profiles.doctor_id
+await client.query(`
+  DELETE FROM prescriptions
+  WHERE doctor_id IN (
+    SELECT id FROM staff_profiles WHERE is_demo
+  )
+`);
+
+// Audit records reference staff_profiles.actor_id
 await client.query(`
   DELETE FROM audit_logs
   WHERE actor_id IN (
@@ -156,20 +171,31 @@ await client.query(`
   )
 `);
 
-await client.query('DELETE FROM visits WHERE is_demo');
-await client.query('DELETE FROM patients WHERE is_demo');
+// Visits reference doctors/assistants and patients.
+// Delete visits before deleting patients/staff.
+await client.query(`
+  DELETE FROM visits
+  WHERE is_demo
+`);
 
+// Delete demo patients.
+await client.query(`
+  DELETE FROM patients
+  WHERE is_demo
+`);
+
+// Now staff can safely be removed.
 await client.query(`
   DELETE FROM staff_profiles
-  WHERE is_demo AND role <> 'super_admin'
+  WHERE is_demo
+    AND role <> 'super_admin'
 `);
 
 await client.query('COMMIT');
+
 await deleteDemoAuthUsers();
+
 console.log('   database rows cleared\n');
-    await client.query('COMMIT');
-    await deleteDemoAuthUsers();
-    console.log('   database rows cleared\n');
 
     // -- regions ------------------------------------------------------------
     console.log('2. Regions');
