@@ -1,8 +1,7 @@
-
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://ruralai-production-220.up.railway.app',
+  baseURL: 'https://ruralai-production-220.up.railway.app/api',
   headers: { 'Content-Type': 'application/json' }
 });
 
