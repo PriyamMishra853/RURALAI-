@@ -56,8 +56,24 @@ export const aiServiceHealth = () => call('/health');
  * Returns null when unavailable, which callers must treat as "no candidates",
  * never as "no disease".
  */
-export const getDiseaseCandidates = async ({ text, symptoms = [], topK = 5 }) =>
-  call('/diagnose', { method: 'POST', body: { text: text || '', symptoms, top_k: topK } });
+/**
+ * `ageYears` and `sex` are used ONLY to drop candidates that are impossible for
+ * the patient — the classifier was trained on symptom vectors alone and has
+ * never seen a demographic, so without them it will happily rank "ovarian
+ * cyst" for a five-year-old boy. Both are optional: unknown demographics
+ * disable the gate rather than narrowing the list on a guess.
+ */
+export const getDiseaseCandidates = async ({ text, symptoms = [], topK = 5, ageYears = null, sex = null }) =>
+  call('/diagnose', {
+    method: 'POST',
+    body: {
+      text: text || '',
+      symptoms,
+      top_k: topK,
+      age_years: Number.isFinite(Number(ageYears)) ? Number(ageYears) : null,
+      sex: sex || null
+    }
+  });
 
 /**
  * Pipeline 2 — what is actually purchasable for a molecule the signed

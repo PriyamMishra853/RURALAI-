@@ -46,6 +46,34 @@ except Exception as exc:  # noqa: BLE001 - startup diagnostics
     NB, VOCAB, META, SYMPTOMS, SYMPTOM_INDEX = None, None, None, [], {}
     STATE['error'] = f'{type(exc).__name__}: {exc}'
 
+# ------------------------------------------------------- clinical alias layer
+#
+# The training vocabulary is US clinical English. The people typing into this
+# system write Indian English and Hindi transliteration. Those two registers
+# share no tokens for the most common complaint in rural paediatrics -- "loose
+# motion" versus "diarrhea" -- and the matcher's shared-token gate (correctly)
+# refuses to bridge that on string similarity alone. So the bridge is an
+# explicit, reviewed table instead of a looser threshold.
+#
+# Targets are validated against the vocabulary on load. An alias pointing at a
+# term that does not exist is a silent no-op, which is the worst kind of bug in
+# a clinical matcher, so it is reported in /health rather than ignored.
+ALIASES: dict = {}
+ALIAS_ERRORS: List[str] = []
+
+try:
+    _alias_doc = json.loads((ROOT / 'data' / 'clinical_aliases.json').read_text(encoding='utf-8'))
+    for _alias, _target in _alias_doc.get('aliases', {}).items():
+        if _target in SYMPTOM_INDEX:
+            ALIASES[_alias.lower()] = _target
+        else:
+            ALIAS_ERRORS.append(f'{_alias!r} -> {_target!r} (not in vocabulary)')
+except Exception as exc:  # noqa: BLE001
+    ALIAS_ERRORS.append(f'{type(exc).__name__}: {exc}')
+
+# Longest first: "loose motion" must win over "motion" inside the same fragment.
+ALIAS_BY_LENGTH = sorted(ALIASES, key=lambda a: (-len(a.split()), a))
+
 try:
     MEDICINES = json.loads((MODELS / 'medicine_index.json').read_text(encoding='utf-8'))
 except Exception:
@@ -65,6 +93,9 @@ class DiagnoseRequest(BaseModel):
     top_k: int = Field(5, ge=1, le=10)
     # Below this the candidate list is not worth showing as a ranked answer.
     min_confidence: float = Field(0.02, ge=0.0, le=1.0)
+    # Demographics, used ONLY to remove impossible candidates (see gate_candidate).
+    age_years: Optional[float] = Field(None, ge=0, le=130)
+    sex: Optional[str] = Field(None, description="'male' | 'female' | anything else is ignored")
 
 
 class MedicineRequest(BaseModel):
@@ -103,6 +134,32 @@ BODY_SITES = {
     'stomach', 'hip', 'groin', 'leg', 'legs', 'knee', 'ankle', 'foot', 'feet',
     'toe', 'toes', 'vaginal', 'vagina', 'penis', 'rectal', 'anus', 'head',
     'face', 'lip', 'lips', 'ankles', 'shoulders', 'scrotum', 'testicular',
+    # Added after "stomach pain" matched "rib pain": the site list was the only
+    # thing standing between a bare symptom word and an arbitrary anatomical
+    # term, and every site missing from it was a hole. These are the remaining
+    # sites named by the 377-term vocabulary.
+    'rib', 'ribs', 'flank', 'side', 'pelvic', 'pelvis', 'suprapubic',
+    'buttock', 'thigh', 'calf', 'spine', 'sinus', 'sinuses', 'bladder',
+    'kidney', 'kidneys', 'prostate', 'testicle', 'testicles', 'testes',
+    'nipple', 'navel', 'belly', 'tonsil', 'tonsils', 'lymph', 'gland',
+    'glands', 'muscle', 'joint', 'joints', 'bone', 'bones', 'nail', 'nails',
+    'hair', 'vulva', 'vulvar', 'uterine', 'menstrual', 'sputum', 'urine',
+    'stool', 'stools', 'mouth', 'facial', 'penile', 'heart', 'pupils', 'nodes',
+}
+
+# Words that name a COMPLAINT but not WHICH complaint. On their own they carry
+# no anatomy and no mechanism, so a bare one of these must never be allowed to
+# select a specific multi-word term: "pain" picked "rib pain", then "mouth
+# pain", purely on which site word happened to be missing from BODY_SITES.
+# Enumerating sites forever is a losing game; this is the general rule that
+# makes the site list a refinement rather than the only defence.
+GENERIC_SYMPTOM_WORDS = {
+    'pain', 'painful', 'ache', 'aches', 'aching', 'swelling', 'swollen',
+    'weakness', 'weak', 'stiffness', 'tightness', 'tight', 'cramps', 'cramp',
+    'spasms', 'lump', 'mass', 'itching', 'itchy', 'itchiness', 'redness',
+    'red', 'discharge', 'bleeding', 'rash', 'burning', 'burns', 'sore',
+    'soreness', 'problem', 'problems', 'symptoms', 'disorder', 'irritation',
+    'infection', 'infected', 'lesion', 'lesions', 'growth',
 }
 
 
@@ -132,6 +189,26 @@ def score_candidate(fragment: str, term: str) -> float:
     # No shared content word means no match, however well the characters line
     # up. This is what stops "body ache" reaching "foreign body sensation in eye".
     if not shared:
+        return 0.0
+
+    # Sharing a BODY PART is not sharing a COMPLAINT.
+    #
+    # "stomach pain" matched "stomach bloating": the only shared word was the
+    # anatomy, and the actual symptom — pain versus bloating — was invented
+    # wholesale. The wrong-site penalty below could not catch it, because that
+    # fires when the TERM names a site the input lacks; here both name the same
+    # site and disagree about everything else.
+    #
+    # So at least one shared token must be a symptom word. "sharp chest pain"
+    # still matches itself on 'sharp'/'pain'; "leg pain" on 'pain'.
+    if not (shared - BODY_SITES):
+        return 0.0
+
+    # A bare generic complaint word cannot choose a specific term for the
+    # patient. "pain" must not become "rib pain" or "mouth pain" — the site is
+    # the whole clinical content of those terms and the assistant never wrote
+    # it. Longer windows are unaffected: "itchy rash" still reaches "skin rash".
+    if len(a) == 1 and len(b) > 1 and a <= GENERIC_SYMPTOM_WORDS:
         return 0.0
 
     # Containment, not Jaccard: what fraction of the VOCABULARY TERM'S meaning
@@ -176,12 +253,37 @@ def match_symptoms(text: str, threshold: float = 62.0):
     A silent mismatch is far worse than a visible low-confidence one.
     """
     if not text.strip():
-        return []
+        return [], []
 
     fragments = [f.strip().lower() for f in SPLIT_RE.split(text) if len(f.strip()) > 2]
-    matched, seen = [], set()
+    matched, seen, unmatched = [], set(), []
 
     for frag in fragments:
+        # ---- Alias pass, before any fuzzy scoring ----
+        #
+        # An exact phrase the reviewed table knows is not a guess, so it does
+        # not go through a threshold. Checked longest-first so "loose motion"
+        # inside "loose motion 5 times" wins over the bare word "motion".
+        frag_words = set(re.findall(r'[a-z]+', frag))
+        alias_hit = None
+        for alias in ALIAS_BY_LENGTH:
+            # Whole-word containment: "gas" must not fire inside "gastritis".
+            if alias in frag and set(alias.split()) <= frag_words:
+                alias_hit = alias
+                break
+
+        if alias_hit:
+            term = ALIASES[alias_hit]
+            if term not in seen:
+                seen.add(term)
+                matched.append({
+                    'input': alias_hit,
+                    'symptom': term,
+                    'score': 100.0,
+                    'via': 'alias',
+                })
+            continue
+
         # Score against sub-spans, not just the whole fragment.
         #
         # An assistant writes a sentence — "itchy rash spreading on both
@@ -222,15 +324,93 @@ def match_symptoms(text: str, threshold: float = 62.0):
 
         best_score = best[0] if best else 0.0
 
-        if best_term and best_score >= threshold and best_term not in seen:
-            seen.add(best_term)
-            matched.append({
-                'input': best_window,
-                'symptom': best_term,
-                'score': round(best_score, 1)
-            })
+        if best_term and best_score >= threshold:
+            if best_term not in seen:
+                seen.add(best_term)
+                matched.append({
+                    'input': best_window,
+                    'symptom': best_term,
+                    'score': round(best_score, 1),
+                    'via': 'fuzzy',
+                })
+        else:
+            # Reported, not swallowed. A complaint the system did not
+            # understand is information the assistant needs: it is the
+            # difference between "we found nothing" and "we did not read the
+            # thing you were most worried about". The UI asks them to rephrase.
+            unmatched.append(frag)
 
-    return matched
+    return matched, unmatched
+
+
+# --------------------------------------------------------- demographic gates
+#
+# The classifier was trained on symptom vectors alone. It has never been shown
+# an age or a sex, so nothing stops it ranking "ovarian cyst" and "breast
+# infection (mastitis)" for a five-year-old boy with diarrhoea -- which is
+# exactly what it did before this gate existed.
+#
+# This is not a confidence adjustment. These are candidates that are
+# ANATOMICALLY OR DEVELOPMENTALLY IMPOSSIBLE for the patient, and a doctor
+# reading a candidate list that contains one immediately (and rightly) stops
+# trusting the rest of it. Removing them is a correctness fix, not a cosmetic
+# one.
+#
+# Gates only ever REMOVE candidates. Nothing here can promote a disease or
+# change a rank, so a wrong gate costs a candidate, never adds a false one.
+FEMALE_ONLY = re.compile(
+    r'ovar|uter|vagin|vulv|cervic|endometri|menstru|menopaus|pregnan|'
+    r'eclampsia|ectopic|mastitis|postpartum|abortion|obstetric|'
+    r'pelvic inflammatory|gravidarum|oophor|fibroid|pcos|vaginismus|vulvodynia',
+    re.I,
+)
+
+MALE_ONLY = re.compile(
+    r'prostat|testic|penis|penile|epididym|scrot|erectile|balanitis|'
+    r'varicocele|phimosis|hydrocele',
+    re.I,
+)
+
+# Conditions that do not occur in young children. Deliberately conservative --
+# only entries where paediatric occurrence is negligible, not merely uncommon.
+# Congenital and perinatal presentations are why this is gated at 12 rather
+# than at 18.
+ADULT_ONLY = re.compile(
+    r'prostat|menopaus|erectile|infertility|trichomonas|gonorrhea|gonorrhoea|'
+    r'chlamydia|syphilis|pelvic inflammatory|endometri|ovarian|uterine fibroid|'
+    r'alcohol|smoking|copd|emphysema|atheroscler|osteoporosis|'
+    r'benign prostatic|varicocele|premature ejaculation|mastitis',
+    re.I,
+)
+ADULT_ONLY_BELOW_YEARS = 12
+
+# Conditions of ageing that should not head the list for a young adult.
+ELDERLY_SKEW = re.compile(r'dementia|alzheimer|parkinson', re.I)
+ELDERLY_SKEW_BELOW_YEARS = 40
+
+
+def gate_candidate(disease: str, age_years: Optional[float], sex: Optional[str]):
+    """
+    Return a rejection reason, or None if the candidate is plausible.
+
+    Kept as a pure function so the eval suite can assert on it directly.
+    """
+    s = (sex or '').strip().lower()
+    is_female = s.startswith('f')
+    is_male = s.startswith('m')
+
+    if is_male and FEMALE_ONLY.search(disease):
+        return 'female-specific condition; patient is recorded male'
+    if is_female and MALE_ONLY.search(disease):
+        return 'male-specific condition; patient is recorded female'
+
+    if age_years is not None:
+        if age_years < ADULT_ONLY_BELOW_YEARS and ADULT_ONLY.search(disease):
+            return f'not plausible at age {age_years:g}'
+        if age_years < ELDERLY_SKEW_BELOW_YEARS and ELDERLY_SKEW.search(disease):
+            return f'condition of later life; patient is {age_years:g}'
+
+    return None
 
 
 def vectorise(symptom_names):
@@ -253,7 +433,11 @@ def health():
             'symptom_diagnosis': bool(NB),
             'medicine_index': len(MEDICINES),
             'precautions': len(PRECAUTIONS),
+            'clinical_aliases': len(ALIASES),
         },
+        # Surfaced, not logged and forgotten: an alias pointing at a term that
+        # does not exist is a silently dead mapping.
+        'alias_errors': ALIAS_ERRORS,
         'meta': META,
     }
 
@@ -271,7 +455,7 @@ def diagnose(req: DiagnoseRequest):
     if not STATE['ready']:
         raise HTTPException(503, f'Diagnosis model unavailable: {STATE["error"]}')
 
-    matched = match_symptoms(req.text) if req.text else []
+    matched, unmatched = match_symptoms(req.text) if req.text else ([], [])
     names = [m['symptom'] for m in matched] + [s for s in req.symptoms if s in SYMPTOM_INDEX]
     names = list(dict.fromkeys(names))
 
@@ -283,20 +467,52 @@ def diagnose(req: DiagnoseRequest):
             'ok': False,
             'reason': 'No recorded symptom could be matched to the clinical vocabulary.',
             'matched_symptoms': matched,
+            'unmatched_fragments': unmatched,
             'candidates': [],
         }
 
     proba = NB.predict_proba(vectorise(names))[0]
-    order = np.argsort(proba)[::-1][:req.top_k]
+    # Rank the whole space, then gate, then take top_k — otherwise gating a
+    # candidate out of the top 5 shortens the list instead of promoting the
+    # next plausible disease into it.
+    order = np.argsort(proba)[::-1]
 
-    candidates = [
-        {'disease': str(NB.classes_[i]), 'confidence': round(float(proba[i]), 4)}
-        for i in order if proba[i] >= req.min_confidence
-    ]
+    candidates, excluded = [], []
+    for i in order:
+        conf = float(proba[i])
+        if conf < req.min_confidence:
+            break
+        disease = str(NB.classes_[i])
+        reason = gate_candidate(disease, req.age_years, req.sex)
+        if reason:
+            excluded.append({'disease': disease, 'confidence': round(conf, 4), 'reason': reason})
+            continue
+        candidates.append({'disease': disease, 'confidence': round(conf, 4)})
+        if len(candidates) >= req.top_k:
+            break
+
+    # Honest confidence reporting.
+    #
+    # A flat posterior — top candidate at 5% over 582 classes — is the model
+    # saying it does not know, and printing it as a ranked list invites the
+    # reader to treat 5% as a finding. `confident` lets the caller render "no
+    # confident match" instead of five near-tied guesses.
+    top = candidates[0]['confidence'] if candidates else 0.0
+    confident = top >= 0.15
+    single_symptom = len(names) == 1
 
     return {
         'ok': bool(candidates),
+        'confident': confident,
+        'confidence_note': (
+            None if confident else
+            'The model did not find a confident match. The candidates below are weak and '
+            'near-tied; treat them as a prompt to record more detail, not as a shortlist.'
+        ),
         'matched_symptoms': matched,
+        'unmatched_fragments': unmatched,
+        'excluded_candidates': excluded,
+        'sparse_input': single_symptom,
         'symptoms_used': names,
         'candidates': candidates,
         'model': META.get('selected'),

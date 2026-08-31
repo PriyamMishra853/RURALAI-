@@ -28,11 +28,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'service'))
 
-from app import match_symptoms  # noqa: E402
+from app import gate_candidate, match_symptoms  # noqa: E402
 
 
 def matched_names(text):
-    return {m['symptom'] for m in match_symptoms(text)}
+    matched, _unmatched = match_symptoms(text)
+    return {m['symptom'] for m in matched}
+
+
+def unmatched_fragments(text):
+    _matched, unmatched = match_symptoms(text)
+    return unmatched
 
 
 # --------------------------------------------------------------- positive
@@ -91,9 +97,109 @@ def test_gibberish_matches_nothing():
     than feeding an all-zero vector to the classifier — which would return the
     training-set prior as if it were a finding.
     """
-    assert match_symptoms('zzzzz qqqq wwww') == []
+    assert matched_names('zzzzz qqqq wwww') == set()
 
 
 def test_empty_input_matches_nothing():
-    assert match_symptoms('') == []
-    assert match_symptoms('   ') == []
+    assert match_symptoms('') == ([], [])
+    assert match_symptoms('   ') == ([], [])
+
+
+# ------------------------------------------------- clinical alias layer
+# The vocabulary is US clinical English; the assistants type Indian English
+# and Hindi transliteration. These are the terms that were being dropped
+# silently before the alias table existed.
+
+def test_loose_motion_is_diarrhoea():
+    """
+    The single highest-impact miss. 'loose motion' is THE phrase used for
+    diarrhoea across rural India, shares no token with 'diarrhea', and so
+    could never match on string similarity. A dehydrated child was being
+    scored on 'vomiting' alone.
+    """
+    assert 'diarrhea' in matched_names('loose motion 5 times since morning')
+
+
+def test_british_spelling_matches():
+    """'diarrhoea' and 'diarrhea' are one letter apart but the token gate
+    compares whole words, so the variant never matched."""
+    assert 'diarrhea' in matched_names('diarrhoea since yesterday')
+
+
+def test_hindi_transliteration_matches():
+    assert 'fever' in matched_names('bukhar')
+    assert 'cough' in matched_names('khaansi')
+    assert 'dizziness' in matched_names('chakkar aana')
+
+
+def test_breathlessness_matches():
+    assert 'shortness of breath' in matched_names('breathlessness on walking')
+
+
+def test_paediatric_dehydration_cluster_is_now_complete():
+    """The case that exposed the gap: before the alias layer this returned
+    only {vomiting, mouth dryness} and the model ranked ovarian cyst."""
+    names = matched_names('loose motion 5 times, vomiting, dry mouth')
+    assert {'diarrhea', 'vomiting', 'mouth dryness'} <= names
+
+
+def test_alias_does_not_fire_on_substring():
+    """'gas' is an alias for flatulence. It must not fire inside 'gastritis'."""
+    assert 'flatulence' not in matched_names('gastritis diagnosed last year')
+
+
+def test_alias_prefers_longest_phrase():
+    """'loose motion' must win over the bare word 'motion'."""
+    matched, _ = match_symptoms('loose motion since morning')
+    hit = next(m for m in matched if m['symptom'] == 'diarrhea')
+    assert hit['input'] == 'loose motion'
+
+
+# ------------------------------------------------- unrecognised reporting
+
+def test_ambiguous_complaint_is_reported_not_guessed():
+    """
+    'stomach pain' has no neutral vocabulary term — only upper/lower/burning/
+    sharp. Picking one fabricates a qualifier, so it must surface as
+    unrecognised for the assistant to clarify.
+    """
+    assert 'stomach pain' in unmatched_fragments('stomach pain')
+    assert 'upper abdominal pain' not in matched_names('stomach pain')
+
+
+def test_qualified_abdominal_pain_does_match():
+    assert 'upper abdominal pain' in matched_names('upper stomach pain since 2 days')
+
+
+# ------------------------------------------------- demographic gating
+# The classifier never saw an age or a sex, so nothing stopped it ranking
+# ovarian cyst for a five-year-old boy. These candidates are not unlikely;
+# they are impossible, and one of them in a list discredits all of it.
+
+def test_female_condition_rejected_for_male():
+    assert gate_candidate('ovarian cyst', 30, 'male')
+    assert gate_candidate('breast infection (mastitis)', 30, 'male')
+
+
+def test_male_condition_rejected_for_female():
+    assert gate_candidate('prostate cancer', 60, 'female')
+    assert gate_candidate('testicular torsion', 20, 'female')
+
+
+def test_adult_condition_rejected_for_child():
+    assert gate_candidate('trichomonas infection', 5, 'female')
+    assert gate_candidate('ovarian cyst', 5, 'female')
+    assert gate_candidate('benign prostatic hyperplasia (bph)', 5, 'male')
+
+
+def test_plausible_candidate_passes():
+    assert gate_candidate('ovarian cyst', 30, 'female') is None
+    assert gate_candidate('infectious gastroenteritis', 5, 'female') is None
+    assert gate_candidate('flu', 30, 'male') is None
+
+
+def test_gate_is_inert_without_demographics():
+    """Unknown age and sex must never remove a candidate — absence of data is
+    not grounds to narrow the list."""
+    assert gate_candidate('ovarian cyst', None, None) is None
+    assert gate_candidate('prostate cancer', None, None) is None

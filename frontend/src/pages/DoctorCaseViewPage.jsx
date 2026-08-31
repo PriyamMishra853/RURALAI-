@@ -8,6 +8,7 @@ import api from '../services/api';
 import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
 import RiskBadge from '../components/RiskBadge';
 import { maskAadhaar } from '../config/patientFields';
+import CaseEvidence from '../components/CaseEvidence';
 
 /**
  * Doctor case file and review.
@@ -326,61 +327,11 @@ export default function DoctorCaseViewPage() {
             </div>
           )}
 
-          {/* Wound photographs. These were captured and analysed at the clinic
-              but never requested by the case query, so the only evidence a
-              doctor cannot reconstruct from text was also the only evidence
-              that never arrived. */}
-          {images.length > 0 && (
-            <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-3">
-                Wound photographs ({images.length})
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {images.map((img) => {
-                  const obs = img.observation || {};
-                  return (
-                    <figure key={img.id} className="border border-line rounded-field overflow-hidden bg-surface-sunken">
-                      {img.image_url ? (
-                        <img
-                          src={img.image_url}
-                          alt={obs.body_region ? `Clinical photograph — ${obs.body_region}` : 'Clinical photograph'}
-                          className="w-full max-h-56 object-contain bg-black"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-24 flex items-center justify-center text-[11px] text-ink-subtle">
-                          Image unavailable
-                        </div>
-                      )}
-                      <figcaption className="p-2.5 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {img.severity_impression && (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                              img.severity_impression === 'HIGH'
-                                ? 'bg-tier-emergencyBg text-tier-emergency border-tier-emergency/30'
-                                : img.severity_impression === 'MEDIUM'
-                                  ? 'bg-tier-moderateBg text-tier-moderate border-tier-moderate/30'
-                                  : 'bg-tier-lowBg text-tier-low border-tier-low/30'
-                            }`}>
-                              {img.severity_impression}
-                            </span>
-                          )}
-                          {obs.body_region && (
-                            <span className="text-[10px] text-ink-muted">{obs.body_region}</span>
-                          )}
-                        </div>
-                        {obs.description && <p className="text-[11px] text-ink-muted">{obs.description}</p>}
-                        <p className="text-[10px] text-ink-subtle">
-                          Observation only, from {img.engine || 'the vision model'} — not a diagnosis.
-                        </p>
-                      </figcaption>
-                    </figure>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
+          {/* Everything the assistant captured — documents with their
+              verification state, and the wound photographs with the vision
+              model's reading. For a doctor reviewing remotely these ARE the
+              examination, so they are shown in full rather than counted. */}
+          <CaseEvidence documents={documents} images={images} />
           {assistant && (
             <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">Verified by</h3>

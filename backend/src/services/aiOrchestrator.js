@@ -81,7 +81,9 @@ export const runFullPatientAssessment = async (patientContext) => {
   try {
     diseaseCandidates = await getDiseaseCandidates({
       text: combinedSymptoms,
-      topK: 5
+      topK: 5,
+      ageYears: patient.age ?? patient.age_years ?? null,
+      sex: patient.gender ?? patient.sex ?? null
     });
   } catch (err) {
     console.warn('Disease candidate lookup failed:', err.message);
@@ -270,6 +272,16 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
         top5_accuracy: diseaseCandidates.model_top5_accuracy,
         recognised_symptoms: (diseaseCandidates.matched_symptoms || []).map((m) => m.symptom),
         candidates: diseaseCandidates.candidates,
+        // A flat posterior is the model saying "I do not know". Rendering that
+        // as a ranked five invites the reader to treat 5% as a finding, so the
+        // flag travels with the data and the UI states it plainly.
+        confident: diseaseCandidates.confident !== false,
+        confidence_note: diseaseCandidates.confidence_note || null,
+        // Complaints the vocabulary could not read. Surfacing these is the
+        // difference between "nothing found" and "we did not understand the
+        // thing you were most worried about" — the assistant can rephrase.
+        unrecognised_text: diseaseCandidates.unmatched_fragments || [],
+        excluded_for_demographics: diseaseCandidates.excluded_candidates || [],
         note: 'Ranked candidates from a statistical model. Not a diagnosis.'
       }
     : {
