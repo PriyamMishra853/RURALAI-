@@ -8,11 +8,9 @@ nixPkgs = ['nodejs_20', 'python311']
 cmds = [
   'cd backend && npm install',
   'cd frontend && npm install',
-  # A virtualenv, because the Nix store is read-only — pip cannot install into
-  # the interpreter that nixPkgs provides. start.sh looks for exactly this path.
-  'python3 -m venv AI/LLM/.venv',
-  'AI/LLM/.venv/bin/pip install --no-cache-dir --upgrade pip',
-  'AI/LLM/.venv/bin/pip install --no-cache-dir -r AI/LLM/requirements.txt'
+  # Non-fatal by design — see build-ai.sh. A dependency that will not resolve
+  # costs symptom retrieval, not the whole deploy.
+  'bash ./build-ai.sh'
 ]
 
 [phases.build]

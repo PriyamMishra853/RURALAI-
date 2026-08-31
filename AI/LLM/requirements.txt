@@ -1,22 +1,26 @@
 # Inference service dependencies.
 #
-# Pinned to the versions this service was developed and evaluated against. The
-# symptom model is a scikit-learn estimator loaded from a joblib file, and
-# joblib unpickles it by importing the classes it was trained with — a
-# different scikit-learn major version can refuse to load the artifact, or load
-# it and behave differently. That artifact is committed to the repo, so the
-# version that reads it is pinned alongside it.
+# Ranges, not exact pins. These were originally pinned to the versions on the
+# development machine, and the deploy failed resolving them — a wheel that
+# exists for one Python build is not guaranteed for the container's. The
+# platform picks the interpreter; pinning the whole tree to one machine's
+# freeze output makes the build depend on that coincidence.
 #
 # scikit-learn and scipy are not imported by app.py directly. They are required
 # at runtime all the same: joblib.load reconstructs the estimator, which pulls
 # them in. Removing them because nothing references them by name breaks
 # startup, not the tests.
+#
+# scikit-learn is held to a narrow range because the committed model artifact
+# is unpickled by it. If it ever fails to load, that is visible rather than
+# silent: /health reports symptom_diagnosis false, and the backend's
+# /api/ai/service-status repeats it.
 
-fastapi==0.141.1
-uvicorn[standard]==0.52.4
-pydantic==2.13.4
-numpy==2.5.2
-joblib==1.5.3
-scikit-learn==1.9.0
-scipy==1.18.1
-RapidFuzz==3.14.5
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+pydantic>=2.6,<3
+numpy>=1.26,<3
+joblib>=1.3,<2
+scikit-learn>=1.5,<2
+scipy>=1.11,<2
+RapidFuzz>=3.6,<4
