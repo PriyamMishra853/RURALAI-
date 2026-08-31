@@ -12,6 +12,7 @@ import {
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
+import { ROLES } from '../config/roles.js';
 
 // Cap upload size: memoryStorage buffers the whole file in heap, so an
 // unbounded upload is a trivial denial-of-service.
@@ -23,11 +24,27 @@ const router = Router();
 
 router.use(authenticateUser);
 
-// Deployment diagnostic, placed above the AI rate limiter on purpose: it costs
-// nothing at an external provider, and an operator checking whether the
-// inference service is up must not be throttled by the very calls that are
-// failing because it is down.
-router.get('/service-status', getAiServiceStatus);
+/*
+ * Deployment diagnostic. Administrators only.
+ *
+ * Above the AI rate limiter on purpose: it costs nothing at an external
+ * provider, and someone checking whether the inference service is up must not
+ * be throttled by the very calls that are failing because it is down. Above
+ * denyAdminClinicalAccess too, because this is the one route on this router
+ * that IS for administrators — it carries no patient data.
+ *
+ * Restricted because of what it returns: an internal address and the tail of
+ * the service's own log, which carries stack traces and file paths when
+ * something has gone wrong. That is operational detail for whoever runs the
+ * deployment, not something a clinic assistant or a doctor has any use for,
+ * and every extra reader of an internal error log is another way for its
+ * contents to travel.
+ */
+router.get(
+  '/service-status',
+  authorizeRoles(ROLES.SUPER_ADMIN, ROLES.STATE_ADMIN, ROLES.DISTRICT_ADMIN),
+  getAiServiceStatus
+);
 // Admins have no clinical access — plan §C.2. Fails closed for any route
 // added below, including one that forgets its own role list.
 router.use(denyAdminClinicalAccess);
