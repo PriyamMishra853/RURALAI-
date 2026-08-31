@@ -190,7 +190,7 @@ export const recordDoctorReview = async (req, res) => {
 
   const { data: visit } = await supabaseAdmin
     .from('visits')
-    .select('id, visit_date, status, visit_code, assistant_id, patients ( full_name )')
+    .select('id, visit_date, status, visit_code, assistant_id, patient_id, patients ( full_name )')
     .eq('id', req.params.id)
     .eq('assigned_doctor_id', req.user.id)
     .maybeSingle();
@@ -284,6 +284,10 @@ export const recordDoctorReview = async (req, res) => {
       event: EVENTS.REVIEW_COMPLETED,
       payload: {
         visit_id: req.params.id,
+        // The assistant's assessment screen is addressed by patient, not by
+        // visit, so the notification carries it — without this the alert can
+        // say a decision arrived but not take anyone to it.
+        patient_id: visit.patient_id,
         visit_code: visit.visit_code,
         patient_name: visit.patients?.full_name,
         doctor_name: req.user.name,

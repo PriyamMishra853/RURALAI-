@@ -1,15 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Wifi, WifiOff, Video, CalendarClock, XCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import {
+  Bell, Wifi, WifiOff, Video, CalendarClock, XCircle, CheckCircle2,
+  AlertTriangle, Inbox, Stethoscope, ChevronRight
+} from 'lucide-react';
 import { useRealtime } from '../context/RealtimeContext';
 
 /**
- * Notification bell — live consultation events for the signed-in user.
+ * Notification bell — live events for the signed-in user.
  *
  * The connection state is shown deliberately. If the socket is down the user
  * is still seeing notifications (they are polled and persisted), but they are
  * no longer arriving the instant they happen — and someone waiting on a doctor
  * to join a call needs to know which of those two situations they are in.
+ *
+ * Every event here is something a person has to act on, so each row carries
+ * the destination for that action. The two ends of the case loop are the
+ * point: a doctor is told a case arrived and can open it, and the assistant
+ * standing with the patient is told the decision came back and can go read it.
  */
 
 const EVENT_STYLE = {
@@ -18,7 +26,63 @@ const EVENT_STYLE = {
   CONSULTATION_STARTED:   { icon: Video, tone: 'text-tier-low bg-tier-lowBg', label: 'Consultation started' },
   CONSULTATION_CANCELLED: { icon: XCircle, tone: 'text-tier-emergency bg-tier-emergencyBg', label: 'Consultation cancelled' },
   CONSULTATION_COMPLETED: { icon: CheckCircle2, tone: 'text-ink-muted bg-surface-sunken', label: 'Consultation completed' },
-  CONSULTATION_FAILED:    { icon: AlertTriangle, tone: 'text-tier-emergency bg-tier-emergencyBg', label: 'Video session failed' }
+  CONSULTATION_FAILED:    { icon: AlertTriangle, tone: 'text-tier-emergency bg-tier-emergencyBg', label: 'Video session failed' },
+  CASE_ASSIGNED:          { icon: Inbox, tone: 'text-gov-600 bg-gov-50', label: 'New case for review' },
+  DOCTOR_REVIEW_COMPLETED:{ icon: Stethoscope, tone: 'text-tier-low bg-tier-lowBg', label: 'Doctor’s decision received' }
+};
+
+// Anything not listed above is still shown, plainly. It used to fall through to
+// the CONSULTATION_SCHEDULED style, so a new event type would be confidently
+// mislabelled "Consultation booked" — which is worse than saying nothing.
+const FALLBACK_STYLE = { icon: Bell, tone: 'text-ink-muted bg-surface-sunken', label: 'Update' };
+
+const DECISION_LABEL = {
+  prescribe: 'Prescription issued',
+  treat_locally: 'Treat locally',
+  follow_up: 'Follow-up scheduled',
+  refer_hospital: 'Referred to hospital',
+  no_action_needed: 'No action needed'
+};
+
+/**
+ * Where this notification takes you, if anywhere.
+ *
+ * The assistant's assessment screen is addressed by patient, the doctor's case
+ * view by visit, and a call by consultation — so each event resolves its own.
+ */
+const destinationFor = (n) => {
+  const p = n.payload || {};
+  switch (n.event_type) {
+    case 'CONSULTATION_STARTED':
+    case 'CONSULTATION_REMINDER':
+      return n.consultation_id ? { to: `/call/${n.consultation_id}`, label: 'Join now' } : null;
+    case 'CASE_ASSIGNED':
+      return p.visit_id ? { to: `/doctor/cases/${p.visit_id}`, label: 'Open case' } : null;
+    case 'DOCTOR_REVIEW_COMPLETED':
+      return p.patient_id ? { to: `/assistant/assessment/${p.patient_id}`, label: 'View decision' } : null;
+    default:
+      return null;
+  }
+};
+
+/** The one line of detail that matters for this event. */
+const detailFor = (n) => {
+  const p = n.payload || {};
+  if (n.event_type === 'CASE_ASSIGNED') {
+    const c = p.contents || {};
+    const bits = [];
+    if (c.vitals) bits.push(`${c.vitals} vitals`);
+    if (c.images) bits.push(`${c.images} photo${c.images === 1 ? '' : 's'}`);
+    if (c.documents) bits.push(`${c.documents} doc${c.documents === 1 ? '' : 's'}`);
+    if (c.ai_assessment) bits.push('AI assessment');
+    return bits.join(' · ') || null;
+  }
+  if (n.event_type === 'DOCTOR_REVIEW_COMPLETED') {
+    const parts = [DECISION_LABEL[p.decision] || p.decision].filter(Boolean);
+    if (p.medicines) parts.push(`${p.medicines} medicine${p.medicines === 1 ? '' : 's'}`);
+    return parts.join(' · ') || null;
+  }
+  return null;
 };
 
 const timeAgo = (iso) => {
@@ -82,39 +146,75 @@ export default function NotificationBell() {
           ) : (
             <ul className="divide-y divide-line">
               {notifications.map((n) => {
-                const style = EVENT_STYLE[n.event_type] || EVENT_STYLE.CONSULTATION_SCHEDULED;
+                const style = EVENT_STYLE[n.event_type] || FALLBACK_STYLE;
                 const Icon = style.icon;
                 const p = n.payload || {};
-                const joinable = n.event_type === 'CONSULTATION_STARTED' || n.event_type === 'CONSULTATION_REMINDER';
+                const destination = destinationFor(n);
+                const detail = detailFor(n);
+
+                // The whole row is the target when there is somewhere to go —
+                // a notification you have to hunt for the link inside is one
+                // more step for someone standing with a patient.
+                const go = () => {
+                  if (!destination) return;
+                  setOpen(false);
+                  navigate(destination.to);
+                };
 
                 return (
-                  <li key={n.id} className={`px-4 py-3 ${n.read_at ? '' : 'bg-gov-50/40'}`}>
-                    <div className="flex gap-3">
+                  <li key={n.id} className={n.read_at ? '' : 'bg-gov-50/40'}>
+                    <div
+                      role={destination ? 'button' : undefined}
+                      tabIndex={destination ? 0 : undefined}
+                      onClick={go}
+                      onKeyDown={(e) => {
+                        if (!destination) return;
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+                      }}
+                      className={`w-full text-left px-4 py-3 flex gap-3 ${
+                        destination ? 'cursor-pointer hover:bg-surface-sunken transition-colors' : ''
+                      }`}
+                    >
                       <div className={`w-8 h-8 rounded-field flex items-center justify-center shrink-0 ${style.tone}`}>
                         <Icon className="w-4 h-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-ink">{style.label}</p>
-                        <p className="text-[11px] text-ink-muted truncate">
-                          {p.patient_name && <>{p.patient_name}</>}
-                          {p.doctor_name && <> · {p.doctor_name}</>}
+                        <p className="text-xs font-semibold text-ink flex items-center gap-1.5">
+                          {style.label}
+                          {p.risk_level && (
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                              p.risk_level === 'emergency' || p.risk_level === 'high'
+                                ? 'bg-tier-emergencyBg text-tier-emergency'
+                                : p.risk_level === 'moderate'
+                                  ? 'bg-tier-moderateBg text-tier-moderate'
+                                  : 'bg-tier-lowBg text-tier-low'
+                            }`}>
+                              {p.risk_level}
+                            </span>
+                          )}
                         </p>
+
+                        <p className="text-[11px] text-ink-muted truncate">
+                          {p.patient_name}
+                          {p.doctor_name && <> · {p.doctor_name}</>}
+                          {p.assistant_name && <> · from {p.assistant_name}</>}
+                        </p>
+
+                        {detail && <p className="text-[11px] text-ink-muted truncate">{detail}</p>}
+
                         {p.scheduled_time && (
                           <p className="text-[11px] text-ink-muted">
                             {new Date(p.scheduled_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                           </p>
                         )}
                         {p.reason && <p className="text-[11px] text-tier-emergency mt-0.5">{p.reason}</p>}
+
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-ink-subtle">{timeAgo(n.created_at)}</span>
-                          {joinable && n.consultation_id && (
-                            <button
-                              type="button"
-                              onClick={() => { setOpen(false); navigate(`/call/${n.consultation_id}`); }}
-                              className="text-[10px] font-bold text-tier-low hover:underline"
-                            >
-                              Join now
-                            </button>
+                          {destination && (
+                            <span className="text-[10px] font-bold text-gov-600 flex items-center gap-0.5">
+                              {destination.label} <ChevronRight className="w-3 h-3" />
+                            </span>
                           )}
                         </div>
                       </div>

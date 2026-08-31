@@ -14,6 +14,7 @@ import {
   VITAL_FIELDS, MEASURED_FIELDS, defaultVitals, validateVitals, isAbnormal
 } from '../config/vitals';
 import TierResult from '../components/TierResult';
+import DoctorReviewPanel from '../components/DoctorReviewPanel';
 
 export default function PatientAssessmentVisitPage() {
   const { id: patientId } = useParams();
@@ -1070,6 +1071,17 @@ export default function PatientAssessmentVisitPage() {
                 Retry Assessment
               </button>
             </div>
+          )}
+
+          {/* The doctor's decision, arriving live. Rendered first, above the AI
+              result: once a case has gone to a doctor, what the doctor said is
+              the thing the assistant is standing there waiting for — the AI
+              assessment is by then only context. */}
+          {visitId && (
+            <DoctorReviewPanel
+              visitId={visitId}
+              language={patient?.preferred_language || 'Hindi'}
+            />
           )}
 
           {/*
