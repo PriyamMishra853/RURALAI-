@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { probeInferenceService } from '../services/aiInferenceClient.js';
 import { runFullPatientAssessment } from '../services/aiOrchestrator.js';
 import { transcribeAndExtractSymptoms } from '../services/speechService.js';
@@ -419,8 +421,44 @@ export const interpretReport = async (req, res) => {
 export const getAiServiceStatus = async (req, res) => {
   const probe = await probeInferenceService();
 
+  /*
+   * When it is unreachable, say which failure this is.
+   *
+   * "fetch failed" is the same message whether the dependencies never
+   * installed or the process started and crashed, and those need opposite
+   * fixes. The virtualenv's presence separates them: build-ai.sh deletes it on
+   * a failed install, so absent means the build could not resolve the
+   * requirements, and present means uvicorn itself did not survive startup.
+   */
+  let diagnosis;
+  if (!probe.reachable) {
+    // The container is Linux; the Windows path keeps this honest when the same
+    // check runs locally, so a diagnosis is never wrong about which failure
+    // this is.
+    const venvPresent = ['../AI/LLM/.venv/bin/python', 'AI/LLM/.venv/bin/python',
+                         '../AI/LLM/.venv/Scripts/python.exe', 'AI/LLM/.venv/Scripts/python.exe']
+      .some((rel) => fs.existsSync(path.resolve(process.cwd(), rel)));
+
+    let log = null;
+    try {
+      const logPath = process.env.AI_SERVICE_LOG || '/tmp/ai-service.log';
+      if (fs.existsSync(logPath)) {
+        log = fs.readFileSync(logPath, 'utf8').trim().split('\n').slice(-12).join('\n');
+      }
+    } catch { /* the log is a convenience, never a requirement */ }
+
+    diagnosis = {
+      venv_present: venvPresent,
+      cause: venvPresent
+        ? 'Dependencies installed but the service is not listening — it failed at startup.'
+        : 'The virtualenv is absent, so the build could not install the dependencies.',
+      service_log_tail: log
+    };
+  }
+
   return res.json({
     ...probe,
+    ...(diagnosis ? { diagnosis } : {}),
     // Said plainly, because the whole point is that the degraded mode is
     // otherwise invisible: assessments still render without it.
     retrieval: probe.reachable

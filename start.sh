@@ -30,17 +30,22 @@ fi
 
 if [ -n "$AI_PY" ]; then
   AI_PY_ABS="$PWD/$AI_PY"
+  # Tee'd to a file as well as the container log so /api/ai/service-status can
+  # show why it died. Without that, diagnosing a crash needs log access that
+  # whoever is looking at the running system may not have.
+  AI_LOG="${AI_SERVICE_LOG:-/tmp/ai-service.log}"
   (
     cd AI/LLM
     exec "$AI_PY_ABS" -m uvicorn service.app:app --host 127.0.0.1 --port "$AI_PORT"
-  ) &
+  ) 2>&1 | tee "$AI_LOG" &
   AI_PID=$!
   echo "Inference service starting on 127.0.0.1:${AI_PORT} (pid ${AI_PID})"
 
   # Stop it with the container rather than leaving it orphaned.
   trap 'kill "$AI_PID" 2>/dev/null || true' EXIT INT TERM
 else
-  echo "WARNING: ${AI_PY} not found — the inference service will not run."
+  echo "WARNING: AI/LLM/.venv not found — the inference service will not run."
+  echo "         The build step could not install its dependencies; see build-ai.sh output."
   echo "         Symptom retrieval and precautions will be unavailable; the"
   echo "         rule engine still produces an assessment."
 fi
