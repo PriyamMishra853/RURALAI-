@@ -3,6 +3,7 @@ import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { withAge } from '../services/patientFields.js';
 import { istDateString } from '../services/schedulingService.js';
 import { notify, EVENTS } from '../services/notificationService.js';
+import { withSignedUrls } from '../services/imageAccess.js';
 
 /**
  * The doctor's caseload.
@@ -137,7 +138,7 @@ export const getDoctorCaseDetails = async (req, res) => {
                      pulse_bpm, spo2_percent, respiratory_rate, blood_glucose_mgdl, recorded_at ),
       visit_symptoms ( description, source, created_at ),
       patient_documents ( id, document_type, ocr_text, extracted_data, verified_at, created_at ),
-      patient_images ( id, image_url, storage_path, observation, severity_impression, engine, created_at ),
+      patient_images ( id, image_url, storage_bucket, storage_path, observation, severity_impression, engine, created_at ),
       doctor_reviews ( id, decision, clinical_notes, agreed_with_ai, created_at ),
       prescriptions ( id, prescription_code, items, advice, signed_at )
     `)
@@ -153,7 +154,21 @@ export const getDoctorCaseDetails = async (req, res) => {
     action: 'CASE_OPENED', entityType: 'VISITS', entityId: req.params.id, ip: req.ip
   });
 
-  return res.json({ ...data, patients: withAge(data.patients) });
+  /*
+   * Wound photographs live in a private bucket, so the stored row carries a
+   * storage path and no URL. A permanent link to a clinical photograph of an
+   * identifiable patient would be viewable by anyone who ever saw it; these are
+   * signed per request and expire.
+   */
+  const signedImages = await withSignedUrls(
+    Array.isArray(data.patient_images) ? data.patient_images : []
+  );
+
+  return res.json({
+    ...data,
+    patients: withAge(data.patients),
+    patient_images: signedImages
+  });
 };
 
 /**

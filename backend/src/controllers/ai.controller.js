@@ -12,6 +12,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { ageFromDob } from '../services/patientFields.js';
 import { buildTierWorkflow } from '../services/tierWorkflowService.js';
+import { signedImageUrl } from '../services/imageAccess.js';
 
 export const transcribeSpeech = async (req, res) => {
   try {
@@ -145,22 +146,16 @@ export const analyzePatientCase = async (req, res) => {
         .eq('visit_id', visit_id);
 
       if (images?.length) {
-        storedImages = images.map((img) => {
-          // Prefer the URL captured at upload; fall back to resolving the path,
-          // which covers rows written before image_url was stored.
-          let url = img.image_url;
-          if (!url && img.storage_bucket && img.storage_path) {
-            const { data: pub } = supabaseAdmin.storage.from(img.storage_bucket).getPublicUrl(img.storage_path);
-            url = pub?.publicUrl || null;
-          }
-          return {
-            image_url: url,
-            observation: img.observation || null,
-            severity_impression: img.severity_impression || null,
-            engine: img.engine || null,
-            created_at: img.created_at
-          };
-        });
+        // Signed on demand: the bucket is private, so there is no stored link
+        // to hand out. Done in parallel — one round trip each, and a case can
+        // carry several photographs.
+        storedImages = await Promise.all(images.map(async (img) => ({
+          image_url: await signedImageUrl(img.storage_path, img.storage_bucket || 'injury-photos'),
+          observation: img.observation || null,
+          severity_impression: img.severity_impression || null,
+          engine: img.engine || null,
+          created_at: img.created_at
+        })));
       }
     } catch (err) {
       console.warn('stored wound photos could not be loaded:', err.message);
@@ -284,29 +279,57 @@ export const getRiskAssessment = async (req, res) => {
 
 export const analyzeImageAI = async (req, res) => {
   try {
-    const { patient_id, visit_id } = req.body;
+    const { visit_id } = req.body;
     const file = req.file;
 
     const observation = await analyzeInjuryImage(file ? file.buffer : null, file ? file.mimetype : 'image/jpeg');
 
     let finalImageUrl = observation.image_url;
 
-    if (patient_id && file) {
+    /*
+     * Which patient this photograph belongs to comes from the visit, not the
+     * request body.
+     *
+     * The screen only ever sends visit_id, and this used to read patient_id
+     * from the body and skip the entire storage block when it was absent —
+     * which was always. Three separate failures were stacked here and each was
+     * caught and warned: the bucket did not exist, patient_id was never sent,
+     * and the insert named a column the table does not have. The photograph was
+     * analysed, displayed once, and dropped.
+     *
+     * Deriving it from the visit also removes the client's ability to attach a
+     * photograph to a patient other than the one whose visit it is, and the
+     * lookup is scoped to the caller's district so a visit id from elsewhere
+     * resolves to nothing.
+     */
+    let patientId = null;
+    if (visit_id) {
+      const { data: visit } = await supabaseAdmin
+        .from('visits')
+        .select('patient_id')
+        .eq('id', visit_id)
+        .eq('district_id', req.user.districtId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      patientId = visit?.patient_id || null;
+    }
+
+    if (patientId && file) {
       const fileName = `${Date.now()}_${file.originalname.replace(/\s+/g, '_')}`;
-      const storagePath = `injuries/${patient_id}/${fileName}`;
+      const storagePath = `injuries/${patientId}/${fileName}`;
 
-      // Upload actual file binary to Supabase Storage bucket 'injury-photos'
-      try {
-        await supabaseAdmin.storage
-          .from('injury-photos')
-          .upload(storagePath, file.buffer, { contentType: file.mimetype, upsert: true });
+      // The bucket is private: these are clinical photographs of identifiable
+      // patients, and a public URL would be viewable by anyone holding it,
+      // indefinitely, with no authentication. Readers mint short-lived signed
+      // URLs instead — see signedImageUrl.
+      const { error: upErr } = await supabaseAdmin.storage
+        .from('injury-photos')
+        .upload(storagePath, file.buffer, { contentType: file.mimetype, upsert: true });
 
-        const { data: pubUrlData } = supabaseAdmin.storage.from('injury-photos').getPublicUrl(storagePath);
-        if (pubUrlData?.publicUrl) {
-          finalImageUrl = pubUrlData.publicUrl;
-        }
-      } catch (stgErr) {
-        console.warn('Supabase Storage injury-photos upload warning:', stgErr.message);
+      if (upErr) {
+        console.error('injury-photos upload FAILED — the doctor will not see this photo:', upErr.message);
+      } else {
+        finalImageUrl = await signedImageUrl(storagePath);
       }
 
       /*
@@ -325,11 +348,14 @@ export const analyzeImageAI = async (req, res) => {
        * return something different.
        */
       const { error: imgErr } = await supabaseAdmin.from('patient_images').insert([{
-        patient_id,
+        patient_id: patientId,
         visit_id: visit_id || null,
         storage_bucket: 'injury-photos',
         storage_path: storagePath,
-        image_url: finalImageUrl || null,
+        // Deliberately not the signed URL: it expires, and a stored link that
+        // silently stops working is worse than none. storage_path is the
+        // durable reference and readers sign it on demand.
+        image_url: null,
         mime_type: file.mimetype,
         observation: observation || {},
         severity_impression: ['LOW', 'MEDIUM', 'HIGH'].includes(observation?.severity_impression)
