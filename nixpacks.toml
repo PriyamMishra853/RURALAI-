@@ -1,11 +1,22 @@
+# One container runs both halves of the backend: the Express API and the Python
+# inference service it calls on loopback. Python is therefore part of the
+# runtime image, not just a build tool.
 [phases.setup]
-nixPkgs = ['nodejs_20']
+nixPkgs = ['nodejs_20', 'python311']
 
 [phases.install]
-cmds = ['cd backend && npm install', 'cd frontend && npm install']
+cmds = [
+  'cd backend && npm install',
+  'cd frontend && npm install',
+  # A virtualenv, because the Nix store is read-only — pip cannot install into
+  # the interpreter that nixPkgs provides. start.sh looks for exactly this path.
+  'python3 -m venv AI/LLM/.venv',
+  'AI/LLM/.venv/bin/pip install --no-cache-dir --upgrade pip',
+  'AI/LLM/.venv/bin/pip install --no-cache-dir -r AI/LLM/requirements.txt'
+]
 
 [phases.build]
 cmds = ['cd frontend && npm run build']
 
 [start]
-cmd = 'cd backend && node src/server.js'
+cmd = './start.sh'

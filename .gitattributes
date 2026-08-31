@@ -1,0 +1,12 @@
+# Shell scripts must keep LF endings.
+#
+# start.sh is the container entrypoint. Checked out with CRLF on Linux, bash
+# reads the carriage return as part of the command and the deploy dies with
+# "\r: command not found" — a failure whose message points nowhere near a line
+# ending. Development happens on Windows, so this is not hypothetical.
+*.sh text eol=lf
+
+# Same reasoning for anything else the container executes or parses literally.
+Dockerfile   text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf

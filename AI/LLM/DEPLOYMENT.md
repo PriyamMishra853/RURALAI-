@@ -1,78 +1,105 @@
-# Deploying the inference service
+# The inference service in production
 
 The Node backend calls this service for three things: ranked disease candidates
 from recorded symptoms, dataset-sourced precautions, and real Indian medicine
 availability.
 
-**It has never run in production.** `aiInferenceClient` reads `AI_SERVICE_URL`
-and falls back to `http://127.0.0.1:8001`; that variable was never set, and the
-backend's Railway service starts only `cd backend && npm start`. Every call
-therefore failed.
+**It runs inside the same container as the API.** There is no second Railway
+service and nothing to configure: `aiInferenceClient` looks for
+`http://127.0.0.1:8001` when `AI_SERVICE_URL` is unset, and `start.sh` starts
+uvicorn on exactly that address before handing off to Node. Loopback is also
+where this service belongs — it has no authentication of its own, and inside
+one container "only the backend can reach it" is literally true.
+
+## Why it was never running
+
+`AI_SERVICE_URL` was unset, so the client dialled `127.0.0.1:8001` — but
+nothing was listening, because Railway's start command was
+`cd backend && npm start` and the Python service was never launched.
 
 It failed *quietly*, which is why this looked like poor model output rather
-than a missing deployment: a circuit breaker opens after the first failure,
-each call returns `null`, and the callers correctly treat `null` as "no
-candidates" rather than "no disease". The assessment still rendered, so nothing
-appeared broken — it was simply running without its retrieval step.
+than a missing process: a circuit breaker opens after the first failure, each
+call returns `null`, and the callers correctly treat `null` as "no candidates"
+rather than "no disease". The assessment still rendered — without its retrieval
+step.
 
-## What runs
+## How it starts now
 
-Verified locally against the committed artifacts:
+`railway.json` builds both halves and runs `bash ./start.sh`, which:
 
-```
-GET  /health                  → models loaded, metrics, training metadata
-POST /diagnose                → ranked candidates  (aiOrchestrator)
-GET  /precautions/{disease}   → precaution list    (tierWorkflowService)
-POST /medicine-availability   → products + prices  (formulary enrichment)
-```
+1. starts `uvicorn service.app:app` on `127.0.0.1:8001` in the background,
+2. `exec`s the Node server in the foreground.
 
-The symptom model reports top-1 0.85 / top-5 0.97 over 582 diseases. The
-model artifacts are committed under `AI/LLM/data/models/`, so a deploy needs no
-training step and no dataset download.
+`start.sh` deliberately does **not** use `set -e`. If the inference service
+cannot start, the clinic must still register patients, run consultations and
+hand cases to doctors — so a Python failure costs the retrieval step, not the
+platform. The script says so in its log rather than failing silently.
 
-## Railway setup
+The Python dependencies install into `AI/LLM/.venv` during the build, because
+the Nix store is read-only and pip cannot install into the interpreter that
+`nixPkgs` provides.
 
-1. **New service** in the same Railway project, from the same repository.
-2. **Settings → Root Directory:** `AI/LLM`
-   Railway then picks up `requirements.txt` and `railway.json` from this
-   directory. The start command and the `/health` check are already in
-   `railway.json`; `$PORT` is supplied by Railway, so do not hardcode 8001.
-3. **Do NOT generate a public domain for this service.**
-   It answers clinical queries and has no authentication of its own — it was
-   written on the assumption that only the backend can reach it. Leave it on
-   the private network.
-4. **On the backend service**, set:
+## Deploying
 
-   ```
-   AI_SERVICE_URL=http://<ai-service-name>.railway.internal:<port>
-   ```
+Push to `main` and redeploy on Railway. No new service, no new variables.
 
-   Railway's private DNS resolves `*.railway.internal` between services in one
-   project. Take the exact host and port from the AI service's Settings →
-   Networking → Private Network.
-5. **Redeploy the backend** so it picks up the variable.
+The build takes longer than before — it now installs Python packages as well as
+two npm trees and a Vite build.
 
 ## Confirming it worked
 
-The backend logs a warning on every failed call, so absence of
+In the deploy logs, near the top:
+
+```
+Inference service starting on 127.0.0.1:8001 (pid ...)
+```
+
+Then, from the Python service itself, `Application startup complete.`
+
+If instead you see:
+
+```
+WARNING: AI/LLM/.venv/bin/python not found — the inference service will not run.
+```
+
+the build's pip step did not produce the virtualenv — check the build log for
+the `python3 -m venv` and `pip install` lines.
+
+The backend logs a warning on every failed call, so a recurring
 
 ```
 AI service /diagnose unreachable: ...
 ```
 
-is the first signal. To check positively, the assessment response gains
-retrieval-backed candidates rather than falling through to the rule engine
-alone.
+means the process died after starting. Its own output is in the same log
+stream.
 
-The service's own `/health` returns `models.symptom_diagnosis: true` and a
-`meta` block naming the training run. If `symptom_diagnosis` is `false`, the
-model artifacts did not deploy — check that `AI/LLM/data/models/` is present in
-the build, since that directory is the whole reason no training step is needed.
+## What runs
+
+Verified locally against the committed artifacts, driven through `start.sh` and
+called through the real Node client:
+
+```
+GET  /health                  → models loaded, metrics, training metadata
+POST /diagnose                → ranked candidates  (aiOrchestrator)
+GET  /precautions/{disease}   → precaution list    (tierWorkflowService)
+POST /medicine-availability   → products + prices
+```
+
+The symptom model reports top-1 0.85 / top-5 0.97 over 582 diseases. Its
+artifacts are committed under `AI/LLM/data/models/`, so a deploy needs no
+training step and no dataset download. If `/health` reports
+`symptom_diagnosis: false`, that directory did not reach the image.
+
+## Local development
+
+`AI/LLM/service/run.sh` starts just the inference service against the repo's
+virtualenv, on `127.0.0.1:8001`. Or run `./start.sh` from the repo root to
+bring up both exactly as production does.
 
 ## Cost note
 
-This service loads a scikit-learn model and a medicine index into memory at
-startup. It is small, but it is a second always-on container. If that is not
-wanted, the alternative is removing the dependency entirely and accepting the
-rule engine alone — the callers already degrade to exactly that, which is what
-production has been doing all along.
+This adds a scikit-learn model and a medicine index to the API container's
+memory. It is small, but it is not free. The alternative is dropping the
+dependency and accepting the rule engine alone — which is what production has
+been doing unintentionally all along.
