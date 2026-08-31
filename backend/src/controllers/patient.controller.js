@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import {
-  AADHAAR_RE, digitsOnly, validateRegistration, withAge
+  AADHAAR_RE, PHONE_RE, GENDERS, digitsOnly, validateRegistration, withAge
 } from '../services/patientFields.js';
 
 /**
@@ -25,6 +25,128 @@ const PATIENT_FIELDS = `
 `;
 
 /** POST /api/patients — register. */
+/**
+ * POST /api/patients/urgent  { gender, age_years, full_name?, phone? }
+ *
+ * Register a patient who needs care now, before their documents exist.
+ *
+ * A provisional identifier is issued rather than an Aadhaar. Real Aadhaar
+ * numbers never begin with 0 or 1 — UIDAI allocates from 2-9 — so a `1` prefix
+ * cannot collide with a real person's number, the same reasoning the demo seed
+ * uses for its `0` prefix. The record is marked `emergency_bypass`, and every
+ * identity field the clinic does not have is left null rather than invented:
+ * see 09_emergency_registration.sql for why that required relaxing the schema.
+ *
+ * Age is the one clinical detail that is still required. Triage thresholds
+ * differ for children and the elderly, so a missing age silently changes how
+ * the patient is scored — an estimate is normal practice and is what this
+ * asks for.
+ */
+export const registerUrgentPatient = async (req, res) => {
+  const { full_name, gender, age_years, phone } = req.body || {};
+  const { districtId, stateId } = req.user;
+
+  if (!districtId || !stateId) {
+    return res.status(403).json({ error: 'Your account has no district assigned. Contact an administrator.' });
+  }
+
+  if (!GENDERS.includes(gender)) {
+    return res.status(400).json({
+      error: 'Some fields need attention.',
+      fields: { gender: `Select one of: ${GENDERS.join(', ')}.` }
+    });
+  }
+
+  const age = Number.parseInt(age_years, 10);
+  if (!Number.isInteger(age) || age < 0 || age > 120) {
+    return res.status(400).json({
+      error: 'Some fields need attention.',
+      fields: { age_years: 'Enter an estimated age in years (0-120). Triage depends on it.' }
+    });
+  }
+
+  // An estimated age becomes a date of birth because that is what the column
+  // holds and what ageFromDob reads everywhere else. The emergency_bypass mode
+  // on the row is what marks it as an estimate rather than a known birthday.
+  const dob = new Date();
+  dob.setUTCFullYear(dob.getUTCFullYear() - age);
+  const dateOfBirth = dob.toISOString().slice(0, 10);
+
+  // Phone is optional here, but if one is offered it must still be a real
+  // mobile — a malformed number is worse than none.
+  const cleanPhone = phone ? digitsOnly(phone) : null;
+  if (cleanPhone && !PHONE_RE.test(cleanPhone)) {
+    return res.status(400).json({
+      error: 'Some fields need attention.',
+      fields: { phone: 'Enter a 10-digit Indian mobile number, or leave it blank.' }
+    });
+  }
+
+  // Allocate the next guest number, retrying on collision. Two assistants
+  // registering at the same moment is exactly the situation this path is for,
+  // so the insert races rather than trusting the count.
+  const { count: existingGuests } = await supabaseAdmin
+    .from('patients')
+    .select('aadhaar_number', { count: 'exact', head: true })
+    .like('aadhaar_number', '1%');
+
+  let lastError = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const seq = (existingGuests || 0) + 1 + attempt;
+    const guestId = `1${String(seq).padStart(11, '0')}`;
+    const label = `Guest ${String(seq).padStart(3, '0')}`;
+
+    const { data, error } = await supabaseAdmin
+      .from('patients')
+      .insert([{
+        aadhaar_number: guestId,
+        full_name: (full_name || '').trim() || label,
+        gender,
+        date_of_birth: dateOfBirth,
+        // Deliberately null: not collected, not invented.
+        village_line1: null,
+        address_district: null,
+        address_state_id: null,
+        pin_code: null,
+        phone: cleanPhone,
+        registration_mode: 'emergency_bypass',
+        clinic_district_id: districtId,
+        clinic_state_id: stateId,
+        registered_by: req.user.id,
+        is_demo: false
+      }])
+      .select(PATIENT_FIELDS)
+      .single();
+
+    if (!error) {
+      await logAuditEvent({
+        actorId: req.user.id, actorRole: req.user.role,
+        action: 'PATIENT_REGISTERED_URGENT', entityType: 'PATIENTS', entityId: guestId,
+        metadata: { guest_label: label, age_years: age }, ip: req.ip
+      });
+
+      return res.status(201).json({
+        ...withAge(data),
+        guest_label: label,
+        provisional: true,
+        // The assistant is meant to go straight to recording symptoms.
+        next: `/assistant/assessment/${guestId}`
+      });
+    }
+
+    // 23505 is the primary-key collision — another assistant took this number
+    // between the count and the insert. Try the next one.
+    if (error.code !== '23505') {
+      console.error('urgent registration failed:', error.message);
+      return res.status(500).json({ error: 'The emergency registration could not be saved.' });
+    }
+    lastError = error;
+  }
+
+  console.error('urgent registration exhausted guest numbers:', lastError?.message);
+  return res.status(409).json({ error: 'Could not allocate a guest record. Please retry.' });
+};
+
 export const createPatient = async (req, res) => {
   const { valid, errors, value } = validateRegistration(req.body);
   if (!valid) {

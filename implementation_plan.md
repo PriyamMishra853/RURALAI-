@@ -177,12 +177,30 @@ clinical-safety boundary that is currently open.
 | 1.1 Medication is doctor-only | **Done** |
 | 1.2 Patient search hits the database | **Done** |
 | 1.3 Withdraw an accidental case | **Done** |
-| 1.4 Urgent registration | Not started |
-| 1.5 Unified consultations list | Not started |
-| 1.6 Health card OCR | Not started |
+| 1.4 Urgent registration | **Done** |
+| 1.5 Unified consultations list | **Done** |
+| 1.6 Health card OCR | **Done** |
 
-Backend suite 122/122. Migration `08_visit_soft_delete.sql` applied to
-production; 1898 existing visits unaffected.
+Phase 1 complete. Backend suite 135/135. Migrations `08_visit_soft_delete.sql`
+and `09_emergency_registration.sql` applied to production; existing rows
+unaffected.
+
+Two findings worth recording, because both were schema or scoping problems
+rather than the missing UI they looked like:
+
+- **Emergency registration could not be stored.** `registration_mode` has
+  carried `emergency_bypass` since v2, but `phone` and `pin_code` were NOT NULL
+  *and* had to match real Indian formats. Registering a patient with no
+  documents therefore required inventing a mobile number and a PIN that would
+  pass those checks — fabricated values indistinguishable from real ones, in a
+  clinical record. Migration 09 makes the identity columns nullable and adds a
+  conditional constraint so standard and ABHA registrations still require all
+  of them.
+- **Doctor-scheduled consultations were invisible to assistants.** A
+  consultation created by a doctor stored `assistant_id: null`, and the
+  assistant's list filters on `assistant_id = me`. The unified list the brief
+  asks for was not a UI problem: the row simply did not name the assistant. It
+  is now inherited from the visit.
 
 ### 1.1 Disable AI medication recommendations — CRITICAL, do first — DONE
 

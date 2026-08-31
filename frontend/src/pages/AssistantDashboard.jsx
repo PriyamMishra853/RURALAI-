@@ -11,6 +11,7 @@ import { useRealtime } from '../context/RealtimeContext';
 import { TierBadge } from '../components/TierSystem';
 import { maskAadhaar } from '../config/patientFields';
 import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
+import UrgentRegistrationModal from '../components/UrgentRegistrationModal';
 
 /**
  * Clinic assistant workspace.
@@ -49,20 +50,23 @@ export default function AssistantDashboard() {
   const [searchResults, setSearchResults] = useState(null);
   const [searchTotal, setSearchTotal] = useState(0);
   const [searching, setSearching] = useState(false);
+  const [showUrgent, setShowUrgent] = useState(false);
 
   const fetchData = useCallback(async (opts = {}) => {
     if (opts.silent) setRefreshing(true);
     try {
       const [pRes, cRes] = await Promise.all([
         api.get('/patients'),
-        api.get('/consultations', { params: { scope: 'today' } })
+        // `today` hid a call booked for tomorrow, which is exactly the one an
+        // assistant needs to know about in advance so they can tell the
+        // patient when to come back. `upcoming` is already SCHEDULED+ACTIVE
+        // from now on, server-side.
+        api.get('/consultations', { params: { scope: 'upcoming' } })
           .catch(() => ({ data: { consultations: [] } }))
       ]);
       setPatients(pRes.data?.patients ?? []);
       setTotal(pRes.data?.total ?? 0);
-      setConsultations(
-        (cRes.data?.consultations ?? []).filter((c) => ['SCHEDULED', 'ACTIVE'].includes(c.status))
-      );
+      setConsultations(cRes.data?.consultations ?? []);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not load your workspace.');
@@ -197,11 +201,17 @@ export default function AssistantDashboard() {
       {/* ---- Live consultations ---- */}
       {consultations.length > 0 && (
         <Card>
-          <CardHeader title="Video consultations today" icon={Video} />
+          <CardHeader
+            title="Open consultations"
+            subtitle="Scheduled and live calls for your patients, however they were booked"
+            icon={Video}
+          />
           <div className="p-4 sm:p-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {consultations.map((c) => {
               const p = c.visits?.patients || c.patients;
               const canJoin = c.join_action === 'JOIN' || c.join_action === 'REJOIN';
+              const when = new Date(c.scheduled_start_time);
+              const isToday = when.toDateString() === new Date().toDateString();
               return (
                 <div key={c.id} className="p-4 rounded-card border border-line bg-surface-sunken flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2">
@@ -215,8 +225,16 @@ export default function AssistantDashboard() {
                     <p className="text-xs text-ink-muted line-clamp-2">{c.visits?.chief_complaint}</p>
                     <p className="text-[11px] text-tier-moderate flex items-center gap-1 mt-1">
                       <Clock className="w-3.5 h-3.5" />
-                      {new Date(c.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {/* The day is shown for anything not today. A time alone
+                          reads as "now" and would send an assistant looking for
+                          a patient who is booked for tomorrow. */}
+                      {isToday
+                        ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : when.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </p>
+                    {c.doctor?.full_name && (
+                      <p className="text-[11px] text-ink-subtle truncate">with {c.doctor.full_name}</p>
+                    )}
                   </div>
                   <Button
                     size="sm"
@@ -310,13 +328,16 @@ export default function AssistantDashboard() {
               reconcile the record afterwards. Do not delay care to complete a form.
             </p>
           </div>
-          <Link to="/assistant/patients/new" className="shrink-0">
-            <Button variant="danger" size="sm">
-              <Activity className="w-4 h-4" /> Urgent registration
-            </Button>
-          </Link>
+          {/* Opens the bypass, not the full form. Sending an assistant to the
+              registration form — Aadhaar, address, PIN, phone — was sending
+              them to the exact thing an emergency is meant to skip. */}
+          <Button variant="danger" size="sm" className="shrink-0" onClick={() => setShowUrgent(true)}>
+            <Activity className="w-4 h-4" /> Urgent registration
+          </Button>
         </div>
       </Card>
+
+      {showUrgent && <UrgentRegistrationModal onClose={() => setShowUrgent(false)} />}
     </div>
   );
 }

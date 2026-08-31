@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
-  createPatient, getPatients, lookupByAadhaar, getPatientDetail, updatePatient
+  createPatient, getPatients, lookupByAadhaar, getPatientDetail, updatePatient,
+  registerUrgentPatient
 } from '../controllers/patient.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
@@ -25,6 +26,11 @@ router.post('/detail', patientSearchRateLimiter, CLINICAL, getPatientDetail);
 
 router.get('/', patientSearchRateLimiter, CLINICAL, getPatients);
 router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), createPatient);
+
+// Emergency bypass: a provisional record for a patient who needs care before
+// their documents exist. Deliberately a separate endpoint — createPatient's
+// validation requires the identity data this path is defined by not having.
+router.post('/urgent', authorizeRoles(ROLES.CLINIC_ASSISTANT), registerUrgentPatient);
 router.patch('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), updatePatient);
 
 export default router;

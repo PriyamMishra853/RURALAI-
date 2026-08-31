@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../config/supabase.js';
-import { processMedicalDocument } from '../services/ocrService.js';
+import { processMedicalDocument, readHealthCard } from '../services/ocrService.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { AADHAAR_RE, digitsOnly } from '../services/patientFields.js';
 
@@ -162,4 +162,54 @@ export const listDocuments = async (req, res) => {
     .order('created_at', { ascending: false });
 
   return res.json({ documents: data || [] });
+};
+
+/**
+ * POST /api/documents/health-card — read a health card to pre-fill registration.
+ *
+ * Nothing is stored. This runs during registration, before a patient record or
+ * a visit exists, and its only output is a *proposal* the operator accepts
+ * field by field. Persisting an identity document read from an unverified
+ * photo, against a patient who does not exist yet, would create a record
+ * nobody had checked.
+ *
+ * The response deliberately reports which fields were rejected as well as
+ * which were read. A card whose date of birth failed validation should say so
+ * — silently returning three fields when the operator can see four printed on
+ * the card looks like the feature half-working rather than the value being
+ * refused.
+ */
+export const scanHealthCard = async (req, res) => {
+  const files = (req.files || []).filter((f) => f?.buffer?.length);
+  if (!files.length) {
+    return res.status(400).json({ error: 'Attach a photo of the card.' });
+  }
+
+  let result;
+  try {
+    result = await readHealthCard(files);
+  } catch (err) {
+    console.error('health card OCR failed:', err.message);
+    return res.status(502).json({ error: 'The card could not be read. Enter the details by hand.' });
+  }
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'HEALTH_CARD_SCANNED', entityType: 'PATIENTS', entityId: null,
+    metadata: { ok: result.ok, confidence: result.confidence, fields: Object.keys(result.fields || {}) },
+    ip: req.ip
+  });
+
+  if (!result.ok) {
+    return res.status(422).json({ error: result.error, fields: {}, confidence: result.confidence });
+  }
+
+  return res.json({
+    fields: result.fields,
+    confidence: result.confidence,
+    // What the model claimed but validation refused, so the UI can say the
+    // card was read yet a field was not trustworthy.
+    rejected: ['full_name', 'gender', 'date_of_birth'].filter((k) => !(k in result.fields)),
+    raw_text: result.raw_text
+  });
 };

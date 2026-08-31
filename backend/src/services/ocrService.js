@@ -95,6 +95,36 @@ const GENERIC_SCHEMA = `{
   "raw_text_summary": "Complete readable text"
 }`;
 
+/**
+ * Health card / ABHA card — an identity document, not a clinical one.
+ *
+ * Read to pre-fill a registration form, so the only fields wanted are the ones
+ * the form asks for. Everything here is checked by a human before it is used;
+ * `confidence` exists so a poor read can be presented as a suggestion rather
+ * than an answer.
+ */
+const HEALTH_CARD_SCHEMA = `{
+  "document_type": "health_card",
+  "full_name": "Name exactly as printed, or empty if not legible",
+  "gender": "male" | "female" | "other" | "",
+  "date_of_birth": "YYYY-MM-DD, or empty if not printed",
+  "year_of_birth": "YYYY if only a year is printed, else empty",
+  "card_number": "The card/ABHA number as printed, digits and hyphens only, or empty",
+  "confidence": "high" | "medium" | "low",
+  "raw_text_summary": "Everything legible on the card, as plain text"
+}`;
+
+const HEALTH_CARD_RULES = `You are reading an Indian health identity card (ABHA card, health insurance card, or state health scheme card) to pre-fill a clinic registration form.
+
+ABSOLUTE RULES:
+- Transcribe ONLY what is printed on the card.
+- NEVER guess or infer a name, sex or date of birth. An invented identity attaches one person's medical record to another.
+- If a field is not printed or not legible, return an empty string for it. An empty field is correct and expected; a plausible guess is not.
+- Many Indian cards print only a year of birth. Put it in year_of_birth and leave date_of_birth empty rather than inventing a day and month.
+- Indian names are frequently transliterated. Transcribe what is printed without "correcting" the spelling.
+- Set confidence to "low" if the image is blurred, cropped, glared or partly obscured, whatever you managed to read.
+- If this is not a health or identity card, set document_type to "other" and leave every field empty.`;
+
 const BASE_RULES = `You are a medical document transcription system for a rural clinic in India.
 
 ABSOLUTE RULES:
@@ -355,4 +385,101 @@ function extractionFailure(message, rawText = '') {
     confidence: 0,
     needs_manual_entry: true
   };
+}
+
+/**
+ * Read an Indian health / ABHA card for the registration form.
+ *
+ * Deliberately separate from processMedicalDocument. That function reads
+ * clinical documents and stores them against a visit; this reads an identity
+ * document during registration, when there is no visit yet, and stores
+ * nothing. What it returns is a *proposal* for a human to accept field by
+ * field — see the caller.
+ *
+ * Every field is validated here rather than trusted. A model that returns
+ * "01-01-1990" or a birth date in the future, or a gender the enum does not
+ * have, must not reach the form: a wrong identity silently attaches one
+ * person's medical record to another, and the operator would have no way to
+ * see that the value was invented rather than read.
+ */
+export const readHealthCard = async (files) => {
+  const list = (Array.isArray(files) ? files : [files]).filter((f) => f?.buffer?.length);
+  if (!list.length) {
+    return { ok: false, error: 'No file data received.', fields: {}, confidence: 'low' };
+  }
+
+  const inlineFiles = list
+    .filter((f) => isSupportedInlineType(f.mimetype))
+    .map((f) => ({ base64: f.buffer.toString('base64'), mimeType: f.mimetype }));
+
+  if (!inlineFiles.length) {
+    return { ok: false, error: 'That file type cannot be read. Use a photo or a PDF.', fields: {}, confidence: 'low' };
+  }
+
+  const parsed = await geminiGenerateJson(
+    `${HEALTH_CARD_RULES}\n\nReturn strictly a JSON object with this schema:\n${HEALTH_CARD_SCHEMA}`,
+    'Read this health identity card and extract the printed details.',
+    inlineFiles
+  );
+
+  if (!parsed) {
+    return { ok: false, error: 'The card could not be read. Enter the details by hand.', fields: {}, confidence: 'low' };
+  }
+
+  if (parsed.document_type && parsed.document_type !== 'health_card') {
+    return {
+      ok: false,
+      error: 'That does not look like a health or identity card.',
+      fields: {},
+      confidence: 'low',
+      raw_text: String(parsed.raw_text_summary || '').slice(0, 2000)
+    };
+  }
+
+  return {
+    ok: true,
+    fields: validateHealthCardFields(parsed),
+    confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
+    raw_text: String(parsed.raw_text_summary || '').slice(0, 2000)
+  };
+};
+
+/** Keep only values that are well-formed. A rejected field is simply absent. */
+function validateHealthCardFields(parsed) {
+  const fields = {};
+
+  const name = String(parsed.full_name || '').trim();
+  // Two characters is the same floor the patients table enforces, and a name
+  // of pure digits is a misread card number rather than a person.
+  if (name.length >= 2 && name.length <= 120 && !/^\d+$/.test(name)) {
+    fields.full_name = name;
+  }
+
+  const gender = String(parsed.gender || '').trim().toLowerCase();
+  if (['male', 'female', 'other'].includes(gender)) fields.gender = gender;
+
+  const dob = String(parsed.date_of_birth || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const d = new Date(`${dob}T00:00:00Z`);
+    const now = new Date();
+    const oldest = new Date();
+    oldest.setUTCFullYear(oldest.getUTCFullYear() - 120);
+    // The same window the patients table checks. A card read as being born
+    // tomorrow is a misread, not a newborn.
+    if (!Number.isNaN(d.getTime()) && d <= now && d >= oldest) fields.date_of_birth = dob;
+  }
+
+  // A year on its own is genuinely useful — most Indian cards print only that
+  // — but it is never turned into a date here. The form asks the operator.
+  const year = String(parsed.year_of_birth || '').trim();
+  if (/^\d{4}$/.test(year)) {
+    const y = Number(year);
+    const thisYear = new Date().getUTCFullYear();
+    if (y >= thisYear - 120 && y <= thisYear) fields.year_of_birth = year;
+  }
+
+  const card = String(parsed.card_number || '').replace(/[^\d-]/g, '');
+  if (card.length >= 8 && card.length <= 24) fields.card_number = card;
+
+  return fields;
 }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadDocument, verifyDocumentExtraction, listDocuments } from '../controllers/document.controller.js';
+import { uploadDocument, verifyDocumentExtraction, listDocuments, scanHealthCard } from '../controllers/document.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
@@ -39,6 +39,11 @@ router.get('/', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), listDocume
 
 // Every upload spends money at an external model provider.
 router.post('/upload', authorizeRoles(ROLES.CLINIC_ASSISTANT), aiRateLimiter, anyFiles, uploadDocument);
+
+// Reading a health card during registration. Stores nothing: there is no
+// patient record yet, and the output is a proposal the operator accepts field
+// by field rather than an extraction attached to a visit.
+router.post('/health-card', authorizeRoles(ROLES.CLINIC_ASSISTANT), aiRateLimiter, anyFiles, scanHealthCard);
 router.post('/:id/verify', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), verifyDocumentExtraction);
 
 export default router;

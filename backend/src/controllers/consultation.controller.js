@@ -33,7 +33,13 @@ const FIELDS = `
   assistant:assistant_id ( id, full_name )
 `;
 
-/** A doctor may only ever see their own rows; an assistant only theirs (§7). */
+/**
+ * A doctor may only ever see their own rows; an assistant only theirs (§7).
+ *
+ * Both sides of a consultation are recorded on it, including when the doctor
+ * books the call — `assistant_id` is inherited from the visit in that case, so
+ * one list serves both portals rather than each seeing only what it created.
+ */
 const scopeToCaller = (q, user) =>
   user.role === ROLES.DOCTOR ? q.eq('doctor_id', user.id) : q.eq('assistant_id', user.id);
 
@@ -113,7 +119,7 @@ export const createConsultation = async (req, res) => {
   // The visit must belong to this clinic.
   const { data: visit } = await supabaseAdmin
     .from('visits')
-    .select('id, patient_id, district_id')
+    .select('id, patient_id, district_id, assistant_id')
     .eq('id', visit_id)
     .eq('district_id', req.user.districtId)
     .maybeSingle();
@@ -146,7 +152,7 @@ export const createConsultation = async (req, res) => {
       visit_id,
       patient_id: visit.patient_id,
       doctor_id,
-      assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : null,
+      assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : (visit.assistant_id || null),
       consultation_type: 'SCHEDULED',
       status: 'SCHEDULED',
       scheduled_start_time: start.toISOString(),
@@ -203,7 +209,7 @@ export const createInstantConsultation = async (req, res) => {
 
   const { data: visit } = await supabaseAdmin
     .from('visits')
-    .select('id, patient_id, district_id')
+    .select('id, patient_id, district_id, assistant_id')
     .eq('id', visit_id)
     .eq('district_id', req.user.districtId)
     .maybeSingle();
@@ -228,7 +234,7 @@ export const createInstantConsultation = async (req, res) => {
         visit_id,
         patient_id: visit.patient_id,
         doctor_id: candidate.id,
-        assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : null,
+        assistant_id: req.user.role === ROLES.CLINIC_ASSISTANT ? req.user.id : (visit.assistant_id || null),
         consultation_type: 'INSTANT',
         status: 'ACTIVE',
         scheduled_start_time: now.toISOString(),

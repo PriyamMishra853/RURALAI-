@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ClinicalUseNotice from '../components/ClinicalUseNotice';
+import HealthCardScanner from '../components/HealthCardScanner';
 import {
   GENDERS, digitsOnly, formatAadhaar, ageDisplay, validatePatient, toPayload, AADHAAR_RE
 } from '../config/patientFields';
@@ -232,6 +233,12 @@ export default function PatientRegistrationPage() {
       {step === 'details' && (
         <form onSubmit={submit} className="bg-surface-raised rounded-field border border-line p-5 space-y-5">
           <h2 className="text-sm font-bold text-ink">2. Patient details</h2>
+
+          {/* Sits above the fields, after the Aadhaar step, so it can fill them
+              in — but it only ever proposes. `set` marks the field touched the
+              same way typing does, so validation behaves identically whether a
+              value was typed or accepted from a card. */}
+          <HealthCardScanner form={form} onApply={set} />
 
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Patient name" required error={showError('full_name')}>
