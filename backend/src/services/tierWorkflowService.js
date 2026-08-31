@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '../config/supabase.js';
-import { selectMedications } from './formularyService.js';
-import { getMedicineAvailability, getPrecautions } from './aiInferenceClient.js';
+// The formulary and medicine-availability lookups are deliberately not imported
+// here any more: this workflow renders in the assistant's portal, and nothing
+// in it may name a medicine. Prescribing lives with the doctor.
+import { getPrecautions } from './aiInferenceClient.js';
 import { buildReferral } from './referralService.js';
 import { ageFromDob } from './patientFields.js';
 
@@ -127,59 +129,31 @@ const precautionsFor = async (assessment) => {
   };
 };
 
-/** Medication — LOW only, signed formulary only, never model-authored. */
-const medicationFor = async (tier, { assessment, patient, visit }) => {
-  if (tier !== WORKFLOW_TIER.LOW) {
-    return {
-      emitted: false,
-      reason: tier === WORKFLOW_TIER.MEDIUM
-        ? 'Medication is withheld until the doctor has seen the patient on video.'
-        : 'Medication is withheld — this patient is being referred to hospital.',
-      items: []
-    };
-  }
-
-  const selection = selectMedications({
-    tier: 'LOW',
-    symptoms: [visit?.chief_complaint, assessment?.patient_summary].filter(Boolean).join(' '),
-    history: visit?.medical_history || '',
-    allergies: visit?.known_allergies || '',
-    patient: {
-      age_years: ageFromDob(patient?.date_of_birth),
-      gender: patient?.gender
-    }
-  });
-
-  // Enrich with real Indian product availability and price. Availability never
-  // influences WHICH medicine is selected — the formulary already decided that.
-  const items = [];
-  for (const med of selection.medications || []) {
-    const molecule = String(med.drug || '').split(/[\s(]/)[0].toLowerCase();
-    const availability = await getMedicineAvailability(molecule);
-    items.push({
-      ...med,
-      availability: availability?.ok
-        ? {
-            products: availability.total_products,
-            cheapest_inr: Object.values(availability.strengths || {})[0]?.price_min ?? null,
-            examples: Object.values(availability.strengths || {})[0]?.examples?.slice(0, 2) || []
-          }
-        : null
-    });
-  }
-
-  return {
-    emitted: items.length > 0,
-    reason: items.length
-      ? null
-      : (selection.suppressed?.[0]?.reason || 'No formulary entry matched this presentation.'),
-    // Surfaced so the PDF and the UI can print the unsigned warning. A
-    // formulary that is not signed must say so wherever it is shown.
-    signature_status: selection.medications?.[0]?.signature?.status || null,
-    notices: selection.notices || [],
-    items
-  };
-};
+/**
+ * Medication — never emitted to the clinic assistant, at any tier.
+ *
+ * Prescribing is the doctor's decision. This workflow is rendered in the
+ * assistant's portal, so no medicine may appear in it: not a model's
+ * suggestion, and not a signed formulary entry either. The distinction that
+ * used to be drawn here — LOW tier may carry medication, MEDIUM and HIGH may
+ * not — put a dose in front of a health worker for exactly the cases nobody
+ * was going to look at again, which is the wrong way round.
+ *
+ * The formulary engine is untouched and still governs what a doctor may
+ * prescribe. What changed is who is shown its output.
+ *
+ * The returned shape is unchanged, so the tier screen and the PDF both render
+ * the reason where they used to render a list.
+ */
+const medicationFor = async (tier) => ({
+  emitted: false,
+  reason: tier === WORKFLOW_TIER.HIGH
+    ? 'No medication is issued — this patient is being referred to hospital.'
+    : 'Medication is prescribed by the doctor after review. None is suggested here.',
+  signature_status: null,
+  notices: [],
+  items: []
+});
 
 /**
  * Build the tier-specific output bundle.
@@ -191,7 +165,7 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
 
   const [precautions, medication] = await Promise.all([
     precautionsFor(assessment),
-    medicationFor(tier, { assessment, patient, visit })
+    medicationFor(tier)
   ]);
 
   const base = {

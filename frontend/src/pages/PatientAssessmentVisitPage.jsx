@@ -1150,22 +1150,23 @@ export default function PatientAssessmentVisitPage() {
                   </div>
                 )}
 
-                {/* Supportive medication guidance (doctor approval pending) */}
-                {aiAssessment.supportive_medication_guidance && aiAssessment.supportive_medication_guidance.length > 0 && (
-                  <div className="p-4 rounded-field bg-sky-50/60 border border-sky-200 space-y-2">
-                    <div className="font-bold text-xs text-sky-800 flex items-center gap-1.5">
-                      <Pill className="w-4 h-4 text-sky-600" /> Supportive Medication Guidance — pending doctor approval
-                    </div>
-                    <ul className="space-y-1.5 text-xs text-ink list-disc list-inside">
-                      {aiAssessment.supportive_medication_guidance.map((med, idx) => (
-                        <li key={idx}>{med}</li>
-                      ))}
-                    </ul>
-                    <p className="text-[11px] text-sky-700 font-medium">
-                      This is not a prescription. Do not administer any medicine until the doctor approves it.
-                    </p>
+                {/*
+                  Medication is the doctor's decision and is never listed here.
+                  This panel used to print formulary lines under a "pending
+                  doctor approval" caption, which still put drug names in front
+                  of a health worker standing with the patient — the caption
+                  asked them not to act on something they could already read.
+                  The boundary is now stated instead of the medicines.
+                */}
+                <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-1">
+                  <div className="font-bold text-xs text-ink-muted flex items-center gap-1.5">
+                    <Pill className="w-4 h-4" /> Medication
                   </div>
-                )}
+                  <p className="text-xs text-ink-muted">
+                    {aiAssessment.medication_withheld_reason
+                      || 'Medication is prescribed by the doctor after review. This assessment does not suggest any.'}
+                  </p>
+                </div>
 
                 {/* Warning signs to monitor */}
                 {aiAssessment.warnings && aiAssessment.warnings.length > 0 && (

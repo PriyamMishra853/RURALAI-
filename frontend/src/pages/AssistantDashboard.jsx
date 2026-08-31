@@ -9,7 +9,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { TierBadge } from '../components/TierSystem';
-import { maskAadhaar, digitsOnly } from '../config/patientFields';
+import { maskAadhaar } from '../config/patientFields';
 import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
 
 /**
@@ -36,6 +36,19 @@ export default function AssistantDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  /**
+   * Search results, from the server.
+   *
+   * This screen used to filter the `patients` array it had already loaded —
+   * the first page, fifty rows. Anyone registered before those fifty simply
+   * could not be found, and the search silently reported no match rather than
+   * saying it had only looked at part of the register. The endpoint has always
+   * accepted `?query=` and searched the whole table; it was never called.
+   */
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searching, setSearching] = useState(false);
 
   const fetchData = useCallback(async (opts = {}) => {
     if (opts.silent) setRefreshing(true);
@@ -76,17 +89,40 @@ export default function AssistantDashboard() {
   /** The recency stack — most recently registered first. */
   const recent = useMemo(() => patients.slice(0, RECENT_LIMIT), [patients]);
 
-  const searchResults = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return null;
-    const digits = digitsOnly(q);
-    return patients.filter((p) =>
-      (p.full_name || '').toLowerCase().includes(q) ||
-      (digits && (p.aadhaar_number || '').includes(digits)) ||
-      (digits && (p.phone || '').includes(digits)) ||
-      (p.village_line1 || '').toLowerCase().includes(q)
-    );
-  }, [patients, query]);
+  // Debounced so typing a name is one request when the typing stops, not one
+  // per keystroke. The abort controller drops a slow earlier response that
+  // would otherwise land after a newer one and overwrite it.
+  useEffect(() => {
+    const term = query.trim();
+    if (!term) {
+      setSearchResults(null);
+      setSearchTotal(0);
+      setSearching(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setSearching(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get('/patients', {
+          params: { query: term, pageSize: 50 },
+          signal: controller.signal
+        });
+        setSearchResults(res.data?.patients ?? []);
+        setSearchTotal(res.data?.total ?? 0);
+      } catch (err) {
+        if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+        setSearchResults([]);
+        setSearchTotal(0);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query]);
 
   const startVisit = (aadhaar) => navigate(`/assistant/assessment/${aadhaar}`);
 
@@ -201,9 +237,14 @@ export default function AssistantDashboard() {
       {/* ---- Search ---- */}
       <Card>
         <CardHeader
-          title={searchResults ? `Search results (${searchResults.length})` : 'Recently handled'}
+          title={searchResults ? `Search results (${searchTotal})` : 'Recently handled'}
           subtitle={searchResults
-            ? 'Matching name, Aadhaar, phone or village'
+            // The total comes from the server, so a search that matches more
+            // than one page says so rather than quietly showing the first 50
+            // as if they were everything.
+            ? searchTotal > searchResults.length
+              ? `Showing ${searchResults.length} of ${searchTotal} matches — narrow the search to see the rest`
+              : 'Matching name, Aadhaar, phone or village across the whole register'
             : `The last ${RECENT_LIMIT} patients registered at this sub-centre`}
           icon={searchResults ? Search : History}
           action={
@@ -224,6 +265,8 @@ export default function AssistantDashboard() {
         <div className="p-4 sm:p-5">
           {loading ? (
             <Spinner label="Loading your patients…" />
+          ) : searching && !searchResults ? (
+            <Spinner label="Searching the register…" />
           ) : (searchResults ?? recent).length === 0 ? (
             <EmptyState
               icon={Inbox}

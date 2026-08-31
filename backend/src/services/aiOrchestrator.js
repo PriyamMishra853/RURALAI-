@@ -3,7 +3,9 @@ import { getDiseaseCandidates } from './aiInferenceClient.js';
 import { GROQ_TEXT_MODEL } from '../config/models.js';
 import { retrieveClinicalProtocols } from './ragEngine.js';
 import { calculateRiskLevel } from './riskEngine.js';
-import { assertRuleSourced, formatMedicationLine, selectMedications } from './formularyService.js';
+// formularyService is deliberately not imported. This orchestrator builds the
+// assessment the clinic assistant reads, and that assessment names no medicine
+// — see §7 below. The formulary still governs the doctor's prescribing.
 
 /**
  * Full AI Patient Assessment Pipeline:
@@ -286,27 +288,28 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
         ? 'DOCTOR_REVIEW'
         : 'PROTOCOL_CARE_DOCTOR_OPTIONAL';
 
-  // ---- 7. Medication: formulary only, never the model ----
+  // ---- 7. Medication: reserved for the doctor ----
   //
-  // Whatever the model returned on this subject is discarded rather than
-  // merged. A model that ignores its instructions must not be able to reach a
-  // health worker with a dose, so the field is overwritten unconditionally.
+  // This assessment is read by a clinic assistant, so it names no medicine at
+  // all. Prescribing is the doctor's decision, taken after they have reviewed
+  // the case — a health worker acting on a drug name from an automated summary
+  // is the specific outcome this boundary exists to prevent.
+  //
+  // Both sources are refused, not just the model. Whatever the model returned
+  // on this subject is discarded rather than merged, because a model that
+  // ignores its instructions must not be able to reach a health worker with a
+  // dose; and the signed formulary is withheld too, because "the rules chose
+  // it" does not make it the assistant's decision to act on.
+  //
+  // The formulary engine itself is untouched and still governs what a doctor
+  // may prescribe. What changed is who is shown its output.
   delete finalAssessment.supportive_medication_guidance;
+  delete finalAssessment.medications;
 
-  const formulary = selectMedications({
-    tier: finalRiskLevel,
-    patient,
-    symptoms: combinedSymptoms,
-    history: combinedHistory,
-    allergies: combinedAllergies
-  });
-  assertRuleSourced(formulary.medications);
-
-  finalAssessment.medications = formulary.medications;
-  finalAssessment.supportive_medication_guidance = formulary.medications.map(formatMedicationLine);
-  finalAssessment.medication_suppressed = formulary.suppressed;
-  finalAssessment.medication_notices = formulary.notices;
-  finalAssessment.medication_source = 'formulary-rules-engine';
+  finalAssessment.medication_withheld = true;
+  finalAssessment.medication_withheld_reason =
+    'Medication is prescribed by the doctor after review. This assessment does not suggest any.';
+  finalAssessment.medication_source = null;
 
   // ---- 8. Attach immutable safety metadata ----
   finalAssessment.rule_tier = ruleTier;

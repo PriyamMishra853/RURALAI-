@@ -184,22 +184,40 @@ describe('medication is never model-authored', () => {
     const rendered = (result.supportive_medication_guidance || []).join(' ');
     expect(rendered).not.toMatch(/Amoxicillin/i);
     expect(rendered).not.toMatch(/Prednisolone/i);
-    expect(result.medication_source).toBe('formulary-rules-engine');
   });
 
-  it('stamps every surviving medication with a formulary rule id', async () => {
+  /**
+   * The guarantee is now stronger than "not model-authored".
+   *
+   * This assessment is read by a clinic assistant, and medication is the
+   * doctor's decision, so it carries no medicine from any source — the signed
+   * formulary included. The earlier contract let rule-sourced entries through
+   * and asserted they were stamped with a FORM- rule id; that stamp is no
+   * longer what protects the health worker, because nothing is emitted to
+   * stamp. The formulary itself is unchanged and still governs prescribing.
+   */
+  it('emits no medication at all, from any source', async () => {
     const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
     const result = await runFullPatientAssessment({
       ...CONTEXT,
       visit: { chief_complaint: 'fever', symptom_duration: '1 day' }
     });
 
-    for (const med of result.medications) {
-      expect(med.rule_source_id).toMatch(/^FORM-/);
-    }
+    expect(result.medications).toBeUndefined();
+    expect(result.supportive_medication_guidance).toBeUndefined();
+    expect(result.medication_withheld).toBe(true);
+    expect(result.medication_source).toBeNull();
   });
 
-  it('emits no medication at all for a HIGH-risk case', async () => {
+  it('says why medication is absent, rather than leaving it unexplained', async () => {
+    const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
+    const result = await runFullPatientAssessment(CONTEXT);
+
+    expect(typeof result.medication_withheld_reason).toBe('string');
+    expect(result.medication_withheld_reason).toMatch(/doctor/i);
+  });
+
+  it('withholds medication for a HIGH-risk case too', async () => {
     const { runFullPatientAssessment } = await loadOrchestrator(groqReturning(ROGUE_LLM_RESPONSE));
     const result = await runFullPatientAssessment({
       ...CONTEXT,
@@ -207,7 +225,7 @@ describe('medication is never model-authored', () => {
     });
 
     expect(result.risk_level).toBe('HIGH');
-    expect(result.medications).toEqual([]);
-    expect(result.supportive_medication_guidance).toEqual([]);
+    expect(result.medications).toBeUndefined();
+    expect(result.supportive_medication_guidance).toBeUndefined();
   });
 });

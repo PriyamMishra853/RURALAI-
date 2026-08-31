@@ -71,21 +71,21 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
               </div>
             )}
 
-            {/* Supportive Protocol Medication Guidance (AI Prescription) */}
-            {aiAssessment.supportive_medication_guidance && aiAssessment.supportive_medication_guidance.length > 0 && (
-              <div className="p-4 rounded-field bg-gov-50/50 border border-gov-200 space-y-2">
-                <div className="font-bold text-blue-800 flex items-center gap-1.5">
-                  <Pill className="w-4 h-4 text-gov-600" /> Protocol Supportive Care & Allowed OTC Medication Guidance
-                </div>
-                <div className="space-y-1 text-ink">
-                  {aiAssessment.supportive_medication_guidance.map((med, idx) => (
-                    <div key={idx} className="p-2 rounded-md bg-surface-raised border border-line text-xs">
-                      • {med}
-                    </div>
-                  ))}
-                </div>
+            {/*
+              This panel exists to show what the AI produced as distinct from
+              what the doctor decided — so it is exactly the wrong place to
+              print medicines. The AI side names none; medication appears only
+              under the doctor's own decision below.
+            */}
+            <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-1">
+              <div className="font-bold text-ink-muted flex items-center gap-1.5">
+                <Pill className="w-4 h-4" /> Medication — not suggested by the AI
               </div>
-            )}
+              <p className="text-xs text-ink-muted">
+                {aiAssessment.medication_withheld_reason
+                  || 'Medication is a clinical decision reserved for the doctor.'}
+              </p>
+            </div>
 
             {/* Scanned Document OCR Data */}
             {documents && documents.length > 0 && (
