@@ -256,6 +256,19 @@ export const deactivateUser = async (req, res) => {
  * Deliberately returns no patient-identifying field: an admin may see that a
  * district has 40 high-risk cases, never who they are.
  */
+/**
+ * GET /api/admin/analytics — operational figures, not a headcount.
+ *
+ * This used to return five totals and a risk tally: how many doctors exist,
+ * how many patients are registered. Those are inventory. An administrator
+ * needs to know what the network is *doing* — how many visits came through,
+ * how many reached a decision, who is waiting, and who is being seen.
+ *
+ * Everything is scoped through applyScope, so a district admin sees their
+ * district and a state admin sees their state. Withdrawn visits are excluded
+ * throughout: they were accidental entries, and counting them would inflate
+ * every figure on this page.
+ */
 export const getAnalytics = async (req, res) => {
   const scopeFilter = (q) => applyScope(q, req.scope);
 
@@ -266,24 +279,56 @@ export const getAnalytics = async (req, res) => {
     return count ?? 0;
   };
 
-  const [doctors, assistants, patients, states, districts] = await Promise.all([
-    countOf('staff_profiles', (q) => q.eq('role', 'doctor')),
-    countOf('staff_profiles', (q) => q.eq('role', 'clinic_assistant')),
-    countOf('patients'),
-    supabaseAdmin.from('states').select('*', { count: 'exact', head: true }).then((r) => r.count ?? 0),
-    supabaseAdmin.from('districts').select('*', { count: 'exact', head: true }).then((r) => r.count ?? 0)
+  /*
+   * The operational figures are aggregated by admin_analytics() in Postgres.
+   *
+   * They were computed here first, by selecting patient and visit rows and
+   * counting them in Node. PostgREST caps a response at 1,000 rows whatever
+   * limit is asked for, so the demographics quietly described the first
+   * thousand of 1,876 patients and every "busiest district" came back as
+   * exactly 25 — figures that were wrong and entirely plausible at the same
+   * time. Counting where the rows live removes the cap and the round trips
+   * together.
+   */
+  const scopeState = req.scope?.kind === 'state' ? req.scope.stateId : null;
+  const scopeDistrict = req.scope?.kind === 'district' ? req.scope.districtId : null;
+
+  const [staffCounts, ops] = await Promise.all([
+    Promise.all([
+      countOf('staff_profiles', (q) => q.eq('role', 'doctor').eq('status', 'active')),
+      countOf('staff_profiles', (q) => q.eq('role', 'clinic_assistant').eq('status', 'active')),
+      supabaseAdmin.from('states').select('*', { count: 'exact', head: true }).then((r) => r.count ?? 0),
+      supabaseAdmin.from('districts').select('*', { count: 'exact', head: true }).then((r) => r.count ?? 0)
+    ]),
+    supabaseAdmin.rpc('admin_analytics', {
+      scope_state: scopeState,
+      scope_district: scopeDistrict
+    })
   ]);
 
-  const risk = {};
-  for (const tier of ['low', 'moderate', 'high', 'emergency']) {
-    risk[tier] = await countOf('visits', (q) => q.eq('risk_level', tier));
+  const [doctors, assistants, states, districts] = staffCounts;
+
+  if (ops.error) {
+    console.error('admin_analytics failed:', ops.error.message);
+    return res.status(500).json({ error: 'Could not load the dashboard figures.' });
   }
 
+  const a = ops.data || {};
+  const patients = Object.values(a.demographics?.gender || {}).reduce((n, v) => n + Number(v || 0), 0);
+
   return res.json({
-    scope: req.scope.kind,
-    doctors, clinic_assistants: assistants, patients,
-    states_total: states, districts_total: districts,
-    risk_distribution: risk
+    scope: req.scope?.kind || 'national',
+    generated_at: new Date().toISOString(),
+    doctors,
+    clinic_assistants: assistants,
+    patients,
+    states_total: states,
+    districts_total: districts,
+    visits: a.visits || {},
+    risk_distribution: a.risk_distribution || {},
+    trend: a.trend || [],
+    demographics: a.demographics || { gender: {}, age_bands: [] },
+    top_districts: a.top_districts || []
   });
 };
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserCog, Database, Plus, Stethoscope, BarChart3, PieChart, Users, AlertCircle, Loader2 } from 'lucide-react';
+import { UserCog, Database, Plus, Stethoscope, BarChart3, Users, AlertCircle, Loader2 } from 'lucide-react';
+import { TrendChart, RiskChart, BarList, VisitFunnel } from '../components/admin/Charts';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ROLES } from '../config/roles';
@@ -94,8 +95,6 @@ export default function AdminDashboard({ auditOnly = false }) {
     }
   };
 
-  const risk = analytics?.risk_distribution || {};
-  const riskTotal = Object.values(risk).reduce((a, b) => a + b, 0) || 1;
 
   const tabs = [
     ...(isAuditor ? [] : [
@@ -154,50 +153,63 @@ export default function AdminDashboard({ auditOnly = false }) {
       </div>
 
       {activeTab === 'analytics' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="space-y-5">
+          {/* Network inventory — what exists. Stat tiles, because five
+              unrelated totals share no scale worth plotting against. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
             {[
-              { label: 'Patients', value: analytics?.patients, tone: 'text-gov-600' },
-              { label: 'Doctors', value: analytics?.doctors, tone: 'text-tier-low' },
-              { label: 'Clinic Assistants', value: analytics?.clinic_assistants, tone: 'text-gov-600' },
-              { label: 'States / UTs', value: analytics?.states_total, tone: 'text-ink' },
-              { label: 'Districts', value: analytics?.districts_total, tone: 'text-ink' }
+              { label: 'Patients', value: analytics?.patients, hint: 'Registered' },
+              { label: 'Doctors', value: analytics?.doctors, hint: 'Active' },
+              { label: 'Clinic assistants', value: analytics?.clinic_assistants, hint: 'Active' },
+              { label: 'Districts', value: analytics?.districts_total, hint: 'Covered' },
+              { label: 'States / UTs', value: analytics?.states_total, hint: 'In the register' }
             ].map((s) => (
-              <div key={s.label} className="bg-surface-raised p-5 rounded-field border border-line shadow-sm">
-                <span className="text-xs text-ink-muted font-medium block">{s.label}</span>
-                <h3 className={`text-2xl font-bold mt-1 ${s.tone}`}>{s.value ?? '—'}</h3>
+              <div key={s.label} className="bg-surface-raised rounded-card border border-line shadow-sm p-3">
+                <div className="text-xl font-bold text-ink tabular-nums">
+                  {s.value === undefined || s.value === null ? '—' : new Intl.NumberFormat('en-IN').format(s.value)}
+                </div>
+                <div className="text-[11px] font-semibold text-ink mt-0.5">{s.label}</div>
+                <div className="text-[10px] text-ink-subtle">{s.hint}</div>
               </div>
             ))}
           </div>
 
-          <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-ink flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-gov-600" /> Case triage distribution
-            </h3>
-            <p className="text-[11px] text-ink-muted">
-              Aggregate counts only. No admin role can open a patient record — that restriction is enforced in the API and in the database.
-            </p>
-            <div className="space-y-3">
-              {['emergency', 'high', 'moderate', 'low'].map((level) => {
-                const count = risk[level] ?? 0;
-                const pct = Math.round((count / riskTotal) * 100);
-                const color = level === 'emergency' ? 'bg-tier-emergency'
-                  : level === 'high' ? 'bg-orange-500'
-                  : level === 'moderate' ? 'bg-tier-moderate' : 'bg-tier-low';
-                return (
-                  <div key={level} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs font-semibold text-ink">
-                      <span className="capitalize">{level} — {count} case(s)</span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-surface-sunken overflow-hidden">
-                      <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          {/* What the network is doing, as opposed to what it contains. */}
+          <VisitFunnel visits={analytics?.visits || {}} />
+
+          <TrendChart data={analytics?.trend || []} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <RiskChart distribution={analytics?.risk_distribution || {}} />
+            <BarList
+              title="Busiest districts"
+              subtitle="Visits recorded, highest first"
+              valueLabel="Visits"
+              items={analytics?.top_districts || []}
+            />
           </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <BarList
+              title="Patients by age"
+              subtitle="Derived from date of birth, never stored"
+              valueLabel="Patients"
+              items={analytics?.demographics?.age_bands || []}
+            />
+            <BarList
+              title="Patients by sex"
+              valueLabel="Patients"
+              items={Object.entries(analytics?.demographics?.gender || {})
+                .map(([label, count]) => ({ label: label[0].toUpperCase() + label.slice(1), count }))
+                .filter((g) => g.count > 0)}
+            />
+          </div>
+
+          <p className="text-[11px] text-ink-muted">
+            Aggregate counts only. No admin role can open a patient record — that
+            restriction is enforced in the API and in the database. Withdrawn
+            visits are excluded from every figure on this page.
+          </p>
         </div>
       )}
 
