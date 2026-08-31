@@ -130,19 +130,38 @@ export const analyzePatientCase = async (req, res) => {
       }
     } catch (e) {}
 
-    // Attach stored wound photos (public URLs). Their vision analysis arrives
-    // via the vision_observation request field, since the live patient_images
-    // table stores only the file reference.
+    // Attach stored wound photos, with the observation recorded when each was
+    // taken. This used to read `image_type` and `uploaded_at`, neither of which
+    // exists on the table — the same mismatch that stopped the rows being
+    // written in the first place.
     let storedImages = [];
     try {
-      const { data: images } = await supabaseAdmin.from('patient_images').select('*').eq('visit_id', visit_id);
-      if (images && images.length > 0) {
+      const { data: images } = await supabaseAdmin
+        .from('patient_images')
+        .select('id, storage_bucket, storage_path, image_url, observation, severity_impression, engine, created_at')
+        .eq('visit_id', visit_id);
+
+      if (images?.length) {
         storedImages = images.map((img) => {
-          const { data: pub } = supabaseAdmin.storage.from(img.storage_bucket).getPublicUrl(img.storage_path);
-          return { image_type: img.image_type, image_url: pub?.publicUrl || null, uploaded_at: img.uploaded_at };
+          // Prefer the URL captured at upload; fall back to resolving the path,
+          // which covers rows written before image_url was stored.
+          let url = img.image_url;
+          if (!url && img.storage_bucket && img.storage_path) {
+            const { data: pub } = supabaseAdmin.storage.from(img.storage_bucket).getPublicUrl(img.storage_path);
+            url = pub?.publicUrl || null;
+          }
+          return {
+            image_url: url,
+            observation: img.observation || null,
+            severity_impression: img.severity_impression || null,
+            engine: img.engine || null,
+            created_at: img.created_at
+          };
         });
       }
-    } catch (e) {}
+    } catch (err) {
+      console.warn('stored wound photos could not be loaded:', err.message);
+    }
 
     // Run Full AI Orchestrator Pipeline (Groq LLM + Qdrant RAG + Risk Safety Engine)
     const aiResult = await runFullPatientAssessment({
@@ -287,17 +306,42 @@ export const analyzeImageAI = async (req, res) => {
         console.warn('Supabase Storage injury-photos upload warning:', stgErr.message);
       }
 
-      // Persist the file reference (live schema stores only file metadata;
-      // the vision analysis JSON travels with the AI assessment record)
+      /*
+       * Persist the photograph AND the reading of it.
+       *
+       * This insert had been failing on every wound photo ever taken. It wrote
+       * `image_type`, a column the live table does not have, so Postgres
+       * rejected the row — and the failure was a console.warn, so the request
+       * still returned the analysis, the screen still showed it, and the table
+       * stayed empty. The doctor's case view had nothing to display, which read
+       * as the images "not reaching the doctor" rather than never being stored.
+       *
+       * The observation is stored alongside the file rather than left to travel
+       * with the assessment. It is what the doctor actually reads, and
+       * re-running the vision model on an old photo would cost money and could
+       * return something different.
+       */
       const { error: imgErr } = await supabaseAdmin.from('patient_images').insert([{
         patient_id,
         visit_id: visit_id || null,
         storage_bucket: 'injury-photos',
         storage_path: storagePath,
-        image_type: 'INJURY',
-        mime_type: file.mimetype
+        image_url: finalImageUrl || null,
+        mime_type: file.mimetype,
+        observation: observation || {},
+        severity_impression: ['LOW', 'MEDIUM', 'HIGH'].includes(observation?.severity_impression)
+          ? observation.severity_impression
+          : null,
+        engine: observation?.engine || null,
+        uploaded_by: req.user?.id || null
       }]);
-      if (imgErr) console.warn('patient_images insert failed:', imgErr.message);
+
+      // Loud, not a warning. A photograph the doctor cannot see is the whole
+      // point of having taken it, and the previous warning hid this for the
+      // lifetime of the feature.
+      if (imgErr) {
+        console.error('patient_images insert FAILED — the doctor will not see this photo:', imgErr.message);
+      }
     }
 
     return res.json({

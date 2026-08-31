@@ -1,0 +1,22 @@
+# Inference service dependencies.
+#
+# Pinned to the versions this service was developed and evaluated against. The
+# symptom model is a scikit-learn estimator loaded from a joblib file, and
+# joblib unpickles it by importing the classes it was trained with — a
+# different scikit-learn major version can refuse to load the artifact, or load
+# it and behave differently. That artifact is committed to the repo, so the
+# version that reads it is pinned alongside it.
+#
+# scikit-learn and scipy are not imported by app.py directly. They are required
+# at runtime all the same: joblib.load reconstructs the estimator, which pulls
+# them in. Removing them because nothing references them by name breaks
+# startup, not the tests.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.4
+numpy==2.5.2
+joblib==1.5.3
+scikit-learn==1.9.0
+scipy==1.18.1
+RapidFuzz==3.14.5
