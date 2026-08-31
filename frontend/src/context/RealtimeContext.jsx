@@ -38,6 +38,41 @@ const MAX_RECONNECT_MS = 15000;
 const OUTBOX_LIMIT = 50;
 const OUTBOX_TTL_MS = 10000;
 
+/**
+ * Where the realtime socket lives.
+ *
+ * The API and the socket are served by the same process, so the socket's host
+ * is derivable from the API's and does not need to be configured twice. It was,
+ * and the two drifted: a deployment moved the backend to a new host, VITE_API_URL
+ * was updated and VITE_REALTIME_URL was not, so every API call succeeded while
+ * the socket dialled a decommissioned service. Nothing surfaced that as an
+ * error — consultations just never connected, because signalling had nowhere to
+ * go.
+ *
+ * Order of preference:
+ *   1. VITE_REALTIME_URL, if set — an explicit override still wins, for a
+ *      deployment that genuinely splits the two.
+ *   2. Derived from VITE_API_URL — the normal case, and impossible to desync.
+ *   3. The page's own origin — correct when one service serves UI and API.
+ */
+const resolveRealtimeUrl = () => {
+  const explicit = import.meta.env.VITE_REALTIME_URL;
+  if (explicit) return explicit;
+
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl) {
+    try {
+      const { protocol, host } = new URL(apiUrl, window.location.origin);
+      return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/realtime`;
+    } catch {
+      // Malformed VITE_API_URL — fall through to the page's own origin.
+    }
+  }
+
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${scheme}://${window.location.host}/realtime`;
+};
+
 export function RealtimeProvider({ children }) {
   const { token, user } = useAuth();
   const [connected, setConnected] = useState(false);
@@ -118,10 +153,13 @@ export function RealtimeProvider({ children }) {
     refresh();
 
     const connect = () => {
-      const base = import.meta.env.VITE_REALTIME_URL;
-      const url = base
-        ? `${base}?token=${encodeURIComponent(token)}`
-        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/realtime?token=${encodeURIComponent(token)}`;
+      const base = resolveRealtimeUrl();
+      const url = `${base}?token=${encodeURIComponent(token)}`;
+
+      // Logged once per attempt, without the token. A socket that silently
+      // dials the wrong host is otherwise invisible from the browser: the app
+      // keeps working, and only calls quietly stop connecting.
+      console.info('[realtime] connecting to', base);
 
       const ws = new WebSocket(url);
       wsRef.current = ws;

@@ -439,11 +439,27 @@ export default function CallPage() {
           {phase !== 'live' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-ink-subtle">
               {phase === 'joining' && <><Loader2 className="w-8 h-8 animate-spin" /><p className="text-sm">Joining…</p></>}
-              {phase === 'waiting' && (
+              {phase === 'waiting' && connected && (
                 <>
                   <Loader2 className="w-8 h-8 animate-spin" />
                   <p className="text-sm">Waiting for the {user?.role === 'DOCTOR' ? 'clinic assistant' : 'doctor'} to join…</p>
                   <p className="text-xs text-ink-muted">They have been notified.</p>
+                </>
+              )}
+
+              {/* Without the socket there is no signalling, so neither side can
+                  ever be told the other arrived. Saying "waiting for the
+                  doctor" here blames the other person for what is actually a
+                  connection failure — and it is the state a misconfigured
+                  realtime URL leaves you in, indefinitely. */}
+              {phase === 'waiting' && !connected && (
+                <>
+                  <WifiOff className="w-8 h-8 text-tier-moderate" />
+                  <p className="text-sm text-tier-moderate">Not connected to the consultation server</p>
+                  <p className="text-xs text-ink-muted max-w-sm text-center">
+                    Reconnecting… Nobody can join until this succeeds. If it persists, the
+                    realtime address is likely misconfigured for this deployment.
+                  </p>
                 </>
               )}
               {phase === 'ended' && (
