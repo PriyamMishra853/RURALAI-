@@ -269,7 +269,86 @@ the only item whose scope could grow once real cards are tested.
 
 ---
 
-## Phases 2–3 — planned
+## Phase 2 — Doctor portal & clinical workflows
+
+Discovery against the deployed system. Half the phase is already done, and the
+half that remains has two concrete root causes rather than vague quality work.
+
+### Already complete
+
+- **Video consultation pipeline** — Phase 0.
+- **Doctor's decision reaches the patient** — Phase 0.4: `GET /visits/:id/review`,
+  the `DOCTOR_REVIEW_COMPLETED` notification, and `DoctorReviewPanel` on the
+  assistant's screen.
+- **Traceability** — the verifying assistant's name and email are on the case
+  view and in the handoff notification.
+- **OCR and wound images reaching the doctor** — the query and the case screen
+  now carry `patient_images`. **Unproven:** the table still holds 0 rows, so
+  the capture-and-store half has never been exercised. See 2.4.
+
+### 2.1 The AI inference service is unreachable in production — root cause
+
+`aiInferenceClient` reads `AI_SERVICE_URL` and falls back to
+`http://127.0.0.1:8001`. That variable is not set anywhere, and Railway's start
+command runs only `cd backend && npm start` — the Python service in `AI/LLM/`
+is never started and has no host. In production every call to it fails.
+
+It fails *quietly*, which is why this looks like model quality rather than a
+deployment gap: a circuit breaker opens after the first failure, each call
+returns `null`, and the callers correctly treat `null` as "no candidates". The
+assessment still renders, so nothing appears broken.
+
+Two features are running degraded as a result:
+
+- `getDiseaseCandidates` — the retrieval step feeding the assessment. This is
+  the "preprocessing, retrieval, parsing" the brief asks to debug.
+- `getPrecautions` — precaution guidance, a Phase 1 requirement.
+
+The fix is deployment, not code: the service needs a host and
+`AI_SERVICE_URL` set. Only then is it worth judging the model's output.
+
+### 2.2 Deterministic daily workload
+
+`getDoctorQueue` already filters `visit_date = today` and orders worst-first,
+so the *query* is deterministic. The data is not: today has 263 visits spread
+across 201 doctors, so a typical doctor has one or two cases rather than a
+day's work, and the severity mix is whatever the seed produced
+(low 113, moderate 77, emergency 41, high 32).
+
+This is a data-shape problem, and it is the same generator Phase 3 asks for. It
+should be built once, in Phase 3, rather than twice.
+
+### 2.3 Five patients per doctor, controlled severity
+
+The brief wants each doctor to see exactly five cases spanning easy, medium,
+hard, referral and emergency. This needs a decision before any code: whether
+that distribution is a **seeding property** for demonstration, or a **runtime
+assignment rule** the platform enforces when an assistant hands a case over.
+
+They are different systems. A runtime rule would mean refusing a handoff to a
+doctor who already has five, or auto-balancing across doctors — which changes
+who treats a patient, and is a clinical governance decision rather than a
+display one.
+
+### 2.4 Wound images: prove the capture path
+
+`patient_images` is empty. The read path is fixed and rendering, but nothing
+has ever been written. Either no photograph has been captured since the table
+existed, or the write is still failing — `ai.controller` catches and warns on
+that insert, which is exactly how it went unnoticed before. Needs one real
+capture to tell the two apart.
+
+### 2.5 Assessment quality, once 2.1 is deployed
+
+Only meaningful after the service is reachable. The maintainer's own in-progress
+work on this sits in `stash@{0}`: `AI/LLM/service/app.py` (+250 lines),
+`riskEngine.js` (+137), `aiInferenceClient.js`, `aiOrchestrator.js`, and a new
+`clinical_aliases.json`. That work should be reviewed and landed before any
+fresh attempt at the same problem, rather than duplicated.
+
+---
+
+## Phase 3 — planned
 - **Phase 2 — Doctor portal.** Deterministic daily workload, controlled severity
   distribution, clinical AI and OCR reaching the doctor, doctor's decision as
   final authority, verifying-assistant traceability.
