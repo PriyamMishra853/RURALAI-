@@ -6,7 +6,8 @@ import {
   analyzePatientCase,
   getRiskAssessment,
   analyzeImageAI,
-  interpretReport
+  interpretReport,
+  getAiServiceStatus
 } from '../controllers/ai.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
@@ -21,6 +22,12 @@ const upload = multer({
 const router = Router();
 
 router.use(authenticateUser);
+
+// Deployment diagnostic, placed above the AI rate limiter on purpose: it costs
+// nothing at an external provider, and an operator checking whether the
+// inference service is up must not be throttled by the very calls that are
+// failing because it is down.
+router.get('/service-status', getAiServiceStatus);
 // Admins have no clinical access — plan §C.2. Fails closed for any route
 // added below, including one that forgets its own role list.
 router.use(denyAdminClinicalAccess);

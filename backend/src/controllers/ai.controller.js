@@ -1,3 +1,4 @@
+import { probeInferenceService } from '../services/aiInferenceClient.js';
 import { runFullPatientAssessment } from '../services/aiOrchestrator.js';
 import { transcribeAndExtractSymptoms } from '../services/speechService.js';
 import { processMedicalDocument } from '../services/ocrService.js';
@@ -402,4 +403,28 @@ export const interpretReport = async (req, res) => {
     console.error('Lab interpretation error:', error.message);
     return res.status(500).json({ error: 'Lab report interpretation failed.' });
   }
+};
+
+/**
+ * GET /api/ai/service-status — is the inference service actually up?
+ *
+ * The service listens on loopback inside the API container, which is correct —
+ * it has no authentication of its own — but it also means nothing outside can
+ * tell whether it is running. Until this existed, confirming a deploy meant
+ * reading container logs, and a silent failure looked exactly like a working
+ * system producing worse answers.
+ *
+ * Authenticated, because it names internal addresses. Returns no patient data.
+ */
+export const getAiServiceStatus = async (req, res) => {
+  const probe = await probeInferenceService();
+
+  return res.json({
+    ...probe,
+    // Said plainly, because the whole point is that the degraded mode is
+    // otherwise invisible: assessments still render without it.
+    retrieval: probe.reachable
+      ? 'Symptom retrieval and precautions are active.'
+      : 'Unavailable — assessments are running on the rule engine alone.'
+  });
 };

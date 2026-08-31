@@ -70,3 +70,40 @@ export const getPrecautions = async (disease) =>
   call(`/precautions/${encodeURIComponent(disease)}`);
 
 export const aiServiceConfigured = () => Boolean(BASE_URL);
+
+/**
+ * Diagnostic probe — deliberately ignores the circuit breaker.
+ *
+ * `call()` short-circuits for 30s after a failure, which is right for the
+ * clinical path and wrong for a health check: an operator asking "is it up?"
+ * during that window would be told nothing, and would be told the same thing
+ * whether the service was down or had merely failed once a moment ago.
+ *
+ * Returns the service's own health payload, the URL it was asked for, and how
+ * long it took. No patient data is involved.
+ */
+export const probeInferenceService = async () => {
+  const startedAt = Date.now();
+  try {
+    const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const latencyMs = Date.now() - startedAt;
+
+    if (!res.ok) {
+      return { reachable: false, url: BASE_URL, latency_ms: latencyMs, error: `HTTP ${res.status}` };
+    }
+
+    const body = await res.json();
+    return {
+      reachable: true,
+      url: BASE_URL,
+      latency_ms: latencyMs,
+      status: body?.status ?? null,
+      models: body?.models ?? null,
+      model_meta: body?.meta
+        ? { model: body.meta.model, trained_at: body.meta.trained_at, diseases: body.meta.diseases_kept }
+        : null
+    };
+  } catch (err) {
+    return { reachable: false, url: BASE_URL, latency_ms: Date.now() - startedAt, error: err.message };
+  }
+};
