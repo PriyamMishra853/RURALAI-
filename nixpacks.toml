@@ -4,6 +4,18 @@
 [phases.setup]
 nixPkgs = ['nodejs_20', 'python311']
 
+# NumPy, SciPy and scikit-learn ship manylinux wheels containing compiled
+# extensions that link against the system C++ runtime. A Nix-provided Python
+# does not put that runtime on the loader path, so the wheels install perfectly
+# and then fail at import with:
+#
+#   libstdc++.so.6: cannot open shared object file: No such file or directory
+#
+# which reads as a broken NumPy rather than a missing library. nixLibs adds
+# these to LD_LIBRARY_PATH for the built image. zlib is included for the same
+# class of reason — SciPy links it.
+nixLibs = ['stdenv.cc.cc.lib', 'zlib']
+
 [phases.install]
 cmds = [
   'cd backend && npm install',

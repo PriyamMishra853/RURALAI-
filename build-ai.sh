@@ -39,6 +39,30 @@ if ! "$VENV"/bin/pip install --no-cache-dir -r AI/LLM/requirements.txt; then
   exit 0
 fi
 
-echo "--- Inference service dependencies installed ---"
-"$VENV"/bin/python -c "import sklearn, numpy, scipy, fastapi; print('resolved:', 'scikit-learn', sklearn.__version__, '| numpy', numpy.__version__, '| scipy', scipy.__version__)" || true
+# Installing is not the same as working.
+#
+# The first deploy of this installed every wheel successfully and then failed
+# at runtime with "libstdc++.so.6: cannot open shared object file" — NumPy's
+# compiled extension could not load, because a Nix-provided Python does not put
+# the C++ runtime on the loader path. pip reported success throughout, so the
+# build was green and the service was dead.
+#
+# Importing them here is what tells those apart, at the point where the output
+# is still being read.
+echo "--- Verifying the installed packages actually import ---"
+if ! "$VENV"/bin/python -c "
+import sklearn, numpy, scipy, fastapi, joblib, rapidfuzz
+print('resolved: scikit-learn', sklearn.__version__, '| numpy', numpy.__version__, '| scipy', scipy.__version__)
+"; then
+  echo ""
+  echo "WARNING: the dependencies installed but cannot be imported."
+  echo "         This is usually a missing system library rather than a bad"
+  echo "         wheel — see nixLibs in nixpacks.toml. The API will start"
+  echo "         WITHOUT symptom retrieval; assessments fall back to the rule"
+  echo "         engine. Confirm with GET /api/ai/service-status after deploy."
+  rm -rf "$VENV"
+  exit 0
+fi
+
+echo "--- Inference service ready ---"
 exit 0
