@@ -392,3 +392,86 @@ Discovery found most of it already built.
 - **Phase 3 — Admin platform.** Operational metrics, staff CRUD with role
   authorisation, responsive 3D element, deterministic seed generator
   (75 districts → 375 doctors → 1,875 patients) and a demo mode.
+
+
+---
+
+# Version 3 — two 5-hour sessions
+
+## Read this before allocating the GPU
+
+Three findings from the codebase change what these ten hours are worth spending on.
+
+### The LLM does not make clinical decisions, so fine-tuning it cannot improve accuracy
+
+The pipeline is deliberately built the other way round:
+
+- **Triage** comes from `riskEngine`, a deterministic rule engine. `aiOrchestrator`
+  states it plainly: *"the deterministic rule engine always overrides the LLM's
+  risk output"*. A tier the model proposes can only ever be raised by vision
+  severity, never substituted.
+- **Candidate diseases** come from the Bernoulli NB model — 244,938 labelled
+  symptom vectors, 582 diseases, **top-1 0.85 / top-5 0.97**.
+- **Medication** comes from a signed formulary, and as of Phase 1.1 is not shown
+  to the assistant at all.
+
+The LLM writes the prose around those decisions. Fine-tuning it would produce
+better *phrasing* and would not move diagnosis accuracy, because the model is
+not what determines the diagnosis. Presenting a fine-tune as an accuracy
+improvement to a technical audience invites exactly the question that exposes
+it.
+
+### DeepSeek-R1 does not fit in 35 GB
+
+The published R1 is 671B parameters — hundreds of gigabytes in any precision.
+What fits are the **distilled** variants (1.5B / 7B / 8B / 14B / 32B). On a
+35 GB card: 7B–8B trains comfortably with LoRA, 14B with QLoRA, 32B only at
+4-bit and tightly. Any plan that says "fine-tune R1" needs to say which distill.
+
+### Kubernetes is not needed here, and learning it this week would cost the week
+
+Kubernetes orchestrates many containers across many machines. A single-node
+fine-tune over SSH needs `tmux`, `conda`/`uv`, and `nvidia-smi`. Learning it now
+would consume both sessions and produce no demo. It is worth learning later,
+when this is served to real districts.
+
+## What the ten hours should buy instead
+
+Accuracy that is **measured** rather than asserted, and a demo that cannot fail.
+
+### Session 1 (5h) — measurement, then targeted improvement
+
+| # | Work | Time |
+|---|------|------|
+| 1.1 | **Held-out evaluation harness.** There is none today — `AI/LLM/eval/` holds one unit test. Carve a stratified held-out split from the 246,945 rows, and score the *whole path* (symptom text → alias resolution → candidates) rather than the classifier alone. This is the artefact that turns "assessment quality" from a claim into a number. | 2h |
+| 1.2 | **Alias and preprocessing improvements, measured against 1.1.** `clinical_aliases.json` has 280 entries; the gap between what a health worker types and the model's 377-symptom vocabulary is where accuracy is actually lost. Each change is accepted or rejected on the harness. | 2h |
+| 1.3 | **Record the numbers.** Before/after on the same split, written into the repo. | 1h |
+
+### Session 2 (5h) — handwriting, and the demo
+
+| # | Work | Time |
+|---|------|------|
+| 2.1 | **Handwritten prescription OCR with confidence.** This is a genuine vision problem and the right use of the GPU. Gemini already handles print; handwriting needs a confidence score and a mandatory confirmation step — a low-confidence read must ask, never guess. The existing `OCRVerificationModal` is the place it lands. | 2.5h |
+| 2.2 | **Error handling across the AI and OCR paths.** Today several failures are `console.warn` and invisible — the wound-photo bug survived the entire life of the feature that way. | 1h |
+| 2.3 | **Demo rehearsal against the deterministic dataset.** `npm run preflight`, then the full path end to end, twice. | 1.5h |
+
+## Presentation materials
+
+These are writing, not GPU work, and should not consume either session. Ready to
+draft on request:
+
+0. **Video script** — the three-act structure for the SIH demo recording.
+1. **Speech** — spoken narration for the live presentation.
+2. **Project summary** — one page.
+3. **Technical Q&A** — the questions a VC or a technical judge actually asks,
+   including the uncomfortable ones this codebase should expect: *"is the AI
+   diagnosing?"*, *"what happens when it is wrong?"*, *"why is medication not
+   shown to the health worker?"*, *"what is your evidence for the accuracy
+   number?"*
+
+The strongest answer to most of those is already true of this system and is
+worth leading with: **the AI prepares the case, the doctor makes the decision.**
+The rule engine overrides the model, medication is withheld from the health
+worker entirely, and every clinical output is traceable to a signed formulary
+rule or a labelled dataset. That is a safety story most competing entries
+cannot tell.
