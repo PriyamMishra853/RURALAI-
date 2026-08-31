@@ -19,9 +19,10 @@ const RISK_ORDER = { emergency: 0, high: 1, moderate: 2, low: 3 };
 const QUEUE_FIELDS = `
   id, visit_code, status, risk_level, chief_complaint, symptom_duration,
   medical_history, known_allergies, current_medications,
-  visit_date, created_at,
+  visit_date, created_at, assigned_at,
   patients ( aadhaar_number, full_name, gender, date_of_birth, village_line1, village_line2, address_district, phone ),
-  ai_assessments ( risk_level, patient_summary, first_aid_steps, protocol_matches, warnings, missing_information, recommended_next_action, generated_by, created_at )
+  ai_assessments ( risk_level, patient_summary, first_aid_steps, protocol_matches, warnings, missing_information, recommended_next_action, generated_by, created_at ),
+  assistant:assistant_id ( id, full_name, email )
 `;
 
 /**
@@ -117,6 +118,14 @@ export const getQueueDates = async (req, res) => {
  *
  * Ownership is checked in the query itself rather than after the fetch, so a
  * doctor cannot read another doctor's case by guessing a visit id.
+ *
+ * `patient_images` carries the wound photographs and the vision model's
+ * reading of them. They were being captured, analysed and stored all along,
+ * but this query never asked for them — so the one part of a case that cannot
+ * be reconstructed from text was the part that never reached the doctor.
+ *
+ * Note: the select below is a PostgREST query string, not JavaScript. It
+ * cannot carry `//` comments.
  */
 export const getDoctorCaseDetails = async (req, res) => {
   const { data, error } = await supabaseAdmin
@@ -126,7 +135,8 @@ export const getDoctorCaseDetails = async (req, res) => {
       visit_vitals ( temperature_f, blood_pressure_systolic, blood_pressure_diastolic,
                      pulse_bpm, spo2_percent, respiratory_rate, blood_glucose_mgdl, recorded_at ),
       visit_symptoms ( description, source, created_at ),
-      patient_documents ( id, document_type, ocr_text, extracted_data, verified_at )
+      patient_documents ( id, document_type, ocr_text, extracted_data, verified_at, created_at ),
+      patient_images ( id, image_url, storage_path, observation, severity_impression, engine, created_at )
     `)
     .eq('id', req.params.id)
     .eq('assigned_doctor_id', req.user.id)

@@ -1,0 +1,22 @@
+-- ============================================================================
+-- Case handoff notification.
+--
+-- Handing a case to a doctor was a bare column update: the visit's
+-- assigned_doctor_id changed and nothing else happened. The doctor learned
+-- about it only by refreshing their queue, so an assistant standing with a
+-- patient had no way to know whether the case had actually landed.
+--
+-- CASE_ASSIGNED makes the handoff an event like every other one in the system:
+-- persisted first so it survives a doctor being offline, then pushed over the
+-- realtime socket. The doctor's queue already refreshes on any notification,
+-- so nothing else has to change for the case to appear.
+--
+-- No new columns. The visit already records assistant_id (who took it) and
+-- assigned_at (when it was handed over), which is the whole traceability
+-- requirement — it was simply never surfaced to the doctor.
+-- ============================================================================
+
+-- ALTER TYPE ... ADD VALUE cannot run inside a transaction, so this stands
+-- alone. It is idempotent, and safe to re-run against a database that already
+-- has the value.
+ALTER TYPE notification_event ADD VALUE IF NOT EXISTS 'CASE_ASSIGNED';

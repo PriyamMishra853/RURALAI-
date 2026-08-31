@@ -69,6 +69,11 @@ export default function DoctorCaseViewPage() {
   const assessment = Array.isArray(visit?.ai_assessments) ? visit.ai_assessments[0] : visit?.ai_assessments;
   const symptoms = visit?.visit_symptoms || [];
   const documents = visit?.patient_documents || [];
+  const images = visit?.patient_images || [];
+  // Who verified this case at the clinic. The doctor is acting on data someone
+  // else collected, so being able to see — and contact — that person is part
+  // of the record, not a nicety.
+  const assistant = Array.isArray(visit?.assistant) ? visit.assistant[0] : visit?.assistant;
 
   /**
    * A case from a previous day is history, not work. The queue already hides
@@ -249,6 +254,7 @@ export default function DoctorCaseViewPage() {
           <span className="text-[11px] text-ink-muted font-medium">Attachments</span>
           <p className="text-sm font-semibold text-ink mt-1">{documents.length} document(s)</p>
           <p className="text-[11px] text-ink-muted">{symptoms.length} symptom note(s)</p>
+          <p className="text-[11px] text-ink-muted">{images.length} wound photo(s)</p>
         </div>
       </div>
 
@@ -317,6 +323,76 @@ export default function DoctorCaseViewPage() {
                   <li key={i}>• {s.description} <span className="text-ink-subtle">({s.source})</span></li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* Wound photographs. These were captured and analysed at the clinic
+              but never requested by the case query, so the only evidence a
+              doctor cannot reconstruct from text was also the only evidence
+              that never arrived. */}
+          {images.length > 0 && (
+            <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-3">
+                Wound photographs ({images.length})
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {images.map((img) => {
+                  const obs = img.observation || {};
+                  return (
+                    <figure key={img.id} className="border border-line rounded-field overflow-hidden bg-surface-sunken">
+                      {img.image_url ? (
+                        <img
+                          src={img.image_url}
+                          alt={obs.body_region ? `Clinical photograph — ${obs.body_region}` : 'Clinical photograph'}
+                          className="w-full max-h-56 object-contain bg-black"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-24 flex items-center justify-center text-[11px] text-ink-subtle">
+                          Image unavailable
+                        </div>
+                      )}
+                      <figcaption className="p-2.5 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {img.severity_impression && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                              img.severity_impression === 'HIGH'
+                                ? 'bg-tier-emergencyBg text-tier-emergency border-tier-emergency/30'
+                                : img.severity_impression === 'MEDIUM'
+                                  ? 'bg-tier-moderateBg text-tier-moderate border-tier-moderate/30'
+                                  : 'bg-tier-lowBg text-tier-low border-tier-low/30'
+                            }`}>
+                              {img.severity_impression}
+                            </span>
+                          )}
+                          {obs.body_region && (
+                            <span className="text-[10px] text-ink-muted">{obs.body_region}</span>
+                          )}
+                        </div>
+                        {obs.description && <p className="text-[11px] text-ink-muted">{obs.description}</p>}
+                        <p className="text-[10px] text-ink-subtle">
+                          Observation only, from {img.engine || 'the vision model'} — not a diagnosis.
+                        </p>
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {assistant && (
+            <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">Verified by</h3>
+              <p className="text-xs font-semibold text-ink">{assistant.full_name}</p>
+              {assistant.email && (
+                <a href={`mailto:${assistant.email}`} className="text-[11px] text-gov-600 hover:underline break-all">
+                  {assistant.email}
+                </a>
+              )}
+              <p className="text-[10px] text-ink-subtle mt-1">
+                Clinic assistant who recorded and sent this case.
+              </p>
             </div>
           )}
         </div>

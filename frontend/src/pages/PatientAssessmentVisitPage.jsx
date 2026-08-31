@@ -41,6 +41,8 @@ export default function PatientAssessmentVisitPage() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [pushingToDoctor, setPushingToDoctor] = useState(false);
   const [pushSuccess, setPushSuccess] = useState(false);
+  /** The server's manifest of what the doctor received. */
+  const [handoffResult, setHandoffResult] = useState(null);
   // Doctor selected by the assistant for case handoff / calls (core feature)
   const [selectedDoctor, setSelectedDoctor] = useState(null);
 
@@ -359,9 +361,16 @@ export default function PatientAssessmentVisitPage() {
   /**
    * Hand the case to a doctor.
    *
-   * The doctor queue filters on `assigned_doctor_id`, so assigning the visit
-   * IS the handoff — there is no separate push endpoint. (/consultations/push-case
-   * was part of the removed unauthenticated router.)
+   * This used to PATCH the visit directly and send the assessment's risk tier
+   * back with it. The rule engine spells that tier MEDIUM and the database
+   * spells it `moderate`, so the update was rejected for every medium-risk
+   * case — the most common kind — and the button did nothing but show an
+   * error. The tier is no longer sent at all: the server already stored the
+   * right one when the assessment ran, and reads it from the visit.
+   *
+   * The response is a manifest of what the doctor will actually see, which is
+   * what gets shown on success. "Case sent" on its own is what let cases with
+   * nothing in them go unnoticed.
    */
   const handlePushCaseToDoctor = async () => {
     if (!selectedDoctor) {
@@ -370,17 +379,22 @@ export default function PatientAssessmentVisitPage() {
     }
     setPushingToDoctor(true);
     setPushSuccess(false);
+    setHandoffResult(null);
     try {
       const vId = await ensureVisit();
-      await api.patch(`/visits/${vId}`, {
-        assigned_doctor_id: selectedDoctor.id,
-        status: 'awaiting_doctor',
-        risk_level: (aiAssessment?.risk_level || 'moderate').toLowerCase()
-      });
+      const res = await api.post(`/visits/${vId}/handoff`, { doctor_id: selectedDoctor.id });
+      setHandoffResult(res.data);
       setPushSuccess(true);
     } catch (err) {
       console.error('Failed to assign case to doctor:', err);
-      alert('Could not send the case to the doctor: ' + formatApiError(err));
+      const data = err.response?.data;
+      // 422 means the case is empty; the server says exactly what is missing,
+      // which is more useful than a generic failure.
+      if (err.response?.status === 422 && data?.missing?.length) {
+        alert(`${data.error}\n\nStill needed: ${data.missing.join(', ')}.`);
+      } else {
+        alert('Could not send the case to the doctor: ' + formatApiError(err));
+      }
     } finally {
       setPushingToDoctor(false);
     }
@@ -1212,10 +1226,40 @@ export default function PatientAssessmentVisitPage() {
                   </button>
                 </div>
 
-                {pushSuccess && (
-                  <div className="p-3 rounded-field bg-tier-lowBg border border-tier-low/30 text-xs text-tier-low font-semibold flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-tier-low" />
-                    Case sent. The doctor can now review the AI summary, verified prescription data and wound photos in their queue.
+                {/* What was actually sent, itemised. The old message asserted
+                    the doctor could see an AI summary and wound photos whether
+                    or not any existed. */}
+                {pushSuccess && handoffResult && (
+                  <div className="p-3 rounded-field bg-tier-lowBg border border-tier-low/30 text-xs space-y-2">
+                    <div className="flex items-center gap-2 text-tier-low font-semibold">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>
+                        Case {handoffResult.visit_code} sent to {handoffResult.doctor?.full_name}
+                        {handoffResult.risk_level && <> · {handoffResult.risk_level} risk</>}
+                      </span>
+                    </div>
+
+                    <ul className="text-ink-muted space-y-0.5 pl-6 list-disc">
+                      <li>{handoffResult.sent?.ai_assessment ? 'AI assessment' : 'No AI assessment'}</li>
+                      <li>{handoffResult.sent?.vitals || 0} vitals record{handoffResult.sent?.vitals === 1 ? '' : 's'}</li>
+                      <li>{handoffResult.sent?.symptoms || 0} symptom entr{handoffResult.sent?.symptoms === 1 ? 'y' : 'ies'}</li>
+                      <li>
+                        {handoffResult.sent?.documents || 0} document{handoffResult.sent?.documents === 1 ? '' : 's'}
+                        {' '}({handoffResult.sent?.verified_documents || 0} verified)
+                      </li>
+                      <li>{handoffResult.sent?.images || 0} wound photo{handoffResult.sent?.images === 1 ? '' : 's'}</li>
+                    </ul>
+
+                    {handoffResult.missing?.length > 0 && (
+                      <p className="text-tier-moderate flex items-start gap-1.5 pt-1">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>Sent without {handoffResult.missing.join(', ')}. Add it and send again if needed.</span>
+                      </p>
+                    )}
+
+                    <p className="text-ink-subtle pt-1">
+                      Verified by {handoffResult.verified_by?.name} · {handoffResult.verified_by?.email}
+                    </p>
                   </div>
                 )}
               </div>

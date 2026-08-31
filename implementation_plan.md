@@ -75,15 +75,50 @@ discards working code for a paid dependency.
    managed provider issues, from env vars so credentials never enter git.
    Surface a missing relay loudly in `npm run check`.
 
-### 0.4 Case handoff — planned, not yet started
+### 0.4 Case handoff — DONE (pending production migration)
 
-6. `POST /api/visits/:id/handoff` replacing the bare PATCH: validates the doctor,
-   **normalises `risk_level` server-side** (the current 400 on any unexpected AI
-   casing is why the button appears broken), records the verifying assistant,
-   audits as `CASE_HANDOFF`, returns a manifest of what was sent.
-7. `CASE_ASSIGNED` notification — needs `database/v2/07_case_handoff.sql` to
-   extend the enum. The doctor queue already refreshes on realtime events.
-8. Readiness check — refuse to hand off an empty case; report what is missing.
+Two defects, both of which made the case file useless in production rather than
+merely imperfect.
+
+**The handoff rejected most cases.** `/ai/assess` returns `{ ...aiResult }`, so
+the browser receives the rule engine's `risk_level` — `MEDIUM` — while the
+database enum is `low | moderate | high | emergency`. The assessment screen
+lowercased it to `"medium"` and PATCHed it back, and `updateVisit` answered 400.
+`medium` is the most common tier, so for most patients the button did nothing
+but raise an alert. The tier is no longer sent by the client at all: the visit
+already carries the correct value, written by `/ai/assess` (which does its own
+`RISK_TO_ENUM` translation before storing), and the server reads it from there.
+`normaliseRiskTier` now accepts either vocabulary anywhere a tier arrives.
+
+**Wound photographs never reached the doctor.** `patient_images` is written by
+`ai.controller`, the table exists in production, and the doctor's case view
+never selected it. The one kind of evidence that cannot be reconstructed from
+text was the only kind that never arrived. Both the query and the case screen
+now carry it, alongside the vision model's observation and severity — labelled
+as an observation, not a diagnosis.
+
+Also landed:
+
+- `POST /api/visits/:id/handoff` — validates the doctor is active and in the
+  same district, refuses a visit with nothing in it (422 naming what is
+  missing), and returns a manifest the assistant can actually read: assessment
+  present, and counts of vitals, symptoms, documents, verified documents and
+  photographs. An incomplete case still goes through, with what is thin
+  reported back — a clinician escalating an urgent patient must not be blocked
+  because the vitals are not typed in yet.
+- `CASE_ASSIGNED` notification to the assigned doctor. Persisted then pushed;
+  the doctor's queue already refreshes on any notification, so the case appears
+  without a reload.
+- Verifying assistant's name and email surfaced on the doctor's case view and
+  carried in the notification payload (Phase 2 traceability). No new columns —
+  `visits.assistant_id` and `assigned_at` already held this.
+- `CASE_HANDOFF` audit event.
+
+**Outstanding:** `database/v2/07_case_handoff.sql` adds `CASE_ASSIGNED` to the
+`notification_event` enum and has NOT been applied to production. Until it is,
+the handoff still succeeds and the case still appears — `notify()` swallows the
+insert failure by design — but the doctor gets no push. The migration is one
+idempotent `ALTER TYPE ... ADD VALUE IF NOT EXISTS`.
 
 ### 0.5 Verification
 

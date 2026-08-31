@@ -21,7 +21,11 @@ export const EVENTS = {
   STARTED: 'CONSULTATION_STARTED',
   CANCELLED: 'CONSULTATION_CANCELLED',
   COMPLETED: 'CONSULTATION_COMPLETED',
-  FAILED: 'CONSULTATION_FAILED'
+  FAILED: 'CONSULTATION_FAILED',
+  // Not a consultation event: a case handed to a doctor for review, with no
+  // call attached. `consultation_id` is null on these rows, which the column
+  // already allows.
+  CASE_ASSIGNED: 'CASE_ASSIGNED'
 };
 
 /**

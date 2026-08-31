@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { AADHAAR_RE, digitsOnly, withAge } from '../services/patientFields.js';
+import { notify, EVENTS } from '../services/notificationService.js';
+import { ROLES } from '../config/roles.js';
 
 /**
  * Clinical visits.
@@ -14,6 +16,41 @@ import { AADHAAR_RE, digitsOnly, withAge } from '../services/patientFields.js';
 
 const RISK_TIERS = ['low', 'moderate', 'high', 'emergency'];
 const DURATION_UNITS = ['days', 'months', 'years'];
+
+/**
+ * The rule engine and the database do not share a vocabulary.
+ *
+ * The engine tiers a case as LOW / MEDIUM / HIGH; the `risk_level` enum is
+ * low / moderate / high / emergency. "medium" is not a value it accepts, and
+ * /ai/assess returns the engine's spelling to the browser — so a screen that
+ * echoed the assessment's risk back on handoff was rejected with a 400 for
+ * every MEDIUM case, which is the most common tier there is. The handoff
+ * looked broken because, for most patients, it was.
+ *
+ * Translating here means callers can pass either vocabulary and get the same
+ * answer, and an unrecognised tier resolves to null rather than being written
+ * through to a constraint violation.
+ */
+const RISK_ALIASES = {
+  LOW: 'low',
+  MILD: 'low',
+  MEDIUM: 'moderate',
+  MODERATE: 'moderate',
+  HIGH: 'high',
+  SEVERE: 'high',
+  CRITICAL: 'emergency',
+  EMERGENCY: 'emergency'
+};
+
+export const normaliseRiskTier = (value) => {
+  if (value === null || value === undefined) return null;
+  const key = String(value).trim().toUpperCase();
+  if (!key) return null;
+  return RISK_ALIASES[key] || (RISK_TIERS.includes(key.toLowerCase()) ? key.toLowerCase() : null);
+};
+
+/** Supabase returns an embedded relation as an array, or null when empty. */
+const related = (value) => (Array.isArray(value) ? value : value ? [value] : []);
 
 /**
  * Render a duration into the phrase the AI prompt expects.
@@ -226,10 +263,13 @@ export const updateVisit = async (req, res) => {
   }
   if (status !== undefined) patch.status = status;
   if (risk_level !== undefined) {
-    if (!RISK_TIERS.includes(risk_level)) {
+    // Accepts the engine's vocabulary as well as the enum's, so a caller
+    // echoing an assessment back is not rejected for spelling.
+    const tier = normaliseRiskTier(risk_level);
+    if (!tier) {
       return res.status(400).json({ error: `risk_level must be one of: ${RISK_TIERS.join(', ')}` });
     }
-    patch.risk_level = risk_level;
+    patch.risk_level = tier;
   }
   if (assigned_doctor_id !== undefined) {
     const { data: doc } = await supabaseAdmin
@@ -255,4 +295,152 @@ export const updateVisit = async (req, res) => {
   });
 
   return res.json(data);
+};
+
+/**
+ * POST /api/visits/:id/handoff  { doctor_id }  — send the case to a doctor.
+ *
+ * The handoff used to be a PATCH that set assigned_doctor_id and trusted
+ * whatever risk tier the browser echoed back. Three things were wrong with
+ * that, and all three are why the button appeared broken:
+ *
+ *   1. The tier came from the client, in the engine's vocabulary, and was
+ *      rejected. The visit already carries a correct tier, written by
+ *      /ai/assess — so it is read here rather than accepted from the caller.
+ *   2. Nothing told the doctor. The case appeared only on the next refresh.
+ *   3. An empty visit could be handed over, giving the doctor a case with
+ *      nothing in it and no indication that anything was missing.
+ *
+ * What actually travels is unchanged — the doctor's case view reads the
+ * vitals, symptoms, documents and images off the visit. This endpoint returns
+ * a manifest of what that will be, because "sent" with no statement of what
+ * was sent is what let empty cases through unnoticed.
+ */
+export const handOffVisit = async (req, res) => {
+  const { doctor_id } = req.body || {};
+  if (!doctor_id) return res.status(400).json({ error: 'doctor_id is required.' });
+
+  const { data: visit } = await supabaseAdmin
+    .from('visits')
+    .select(`
+      id, visit_code, district_id, status, risk_level, chief_complaint, assistant_id,
+      patients ( full_name ),
+      ai_assessments ( id, risk_level, created_at ),
+      visit_vitals ( id ),
+      visit_symptoms ( id ),
+      patient_documents ( id, verified_at ),
+      patient_images ( id )
+    `)
+    .eq('id', req.params.id)
+    .eq('district_id', req.user.districtId)
+    .maybeSingle();
+
+  if (!visit) return res.status(404).json({ error: 'No such visit available to you.' });
+
+  const { data: doctor } = await supabaseAdmin
+    .from('staff_profiles')
+    .select('id, full_name, email')
+    .eq('id', doctor_id).eq('role', 'doctor').eq('status', 'active')
+    .eq('district_id', visit.district_id)
+    .maybeSingle();
+
+  if (!doctor) return res.status(404).json({ error: 'That doctor is not available in this district.' });
+
+  const assessments = related(visit.ai_assessments);
+  const vitals = related(visit.visit_vitals);
+  const symptoms = related(visit.visit_symptoms);
+  const documents = related(visit.patient_documents);
+  const images = related(visit.patient_images);
+
+  const missing = [];
+  if (!assessments.length) missing.push('an AI assessment');
+  if (!vitals.length) missing.push('recorded vitals');
+  if (!symptoms.length && !visit.chief_complaint) missing.push('a chief complaint or symptoms');
+
+  // Refuse only a case with nothing in it at all. An incomplete case still
+  // gets through, with `missing` reported back — a clinician escalating an
+  // urgent patient must not be blocked because the vitals are not typed in
+  // yet, and they are better served by being told what is thin than by being
+  // stopped.
+  if (!assessments.length && !vitals.length && !symptoms.length && !visit.chief_complaint) {
+    return res.status(422).json({
+      error: 'There is nothing for the doctor to review yet. Record the visit before sending it.',
+      missing
+    });
+  }
+
+  const latest = assessments
+    .slice()
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
+
+  // The visit's own tier first — /ai/assess already stored the correct enum
+  // value, including the emergency promotion for an immediate referral.
+  const tier = normaliseRiskTier(visit.risk_level)
+    || normaliseRiskTier(latest?.risk_level)
+    || 'moderate';
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('visits')
+    .update({
+      assigned_doctor_id: doctor.id,
+      assigned_at: new Date().toISOString(),
+      status: 'awaiting_doctor',
+      risk_level: tier
+    })
+    .eq('id', visit.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('case handoff failed:', error.message);
+    return res.status(500).json({ error: 'The case could not be sent to the doctor.' });
+  }
+
+  const manifest = {
+    ai_assessment: Boolean(latest),
+    vitals: vitals.length,
+    symptoms: symptoms.length,
+    documents: documents.length,
+    verified_documents: documents.filter((d) => d.verified_at).length,
+    images: images.length
+  };
+
+  // Persisted first, then pushed — a doctor who was offline still finds the
+  // case waiting. The doctor's queue refreshes on any notification, so this is
+  // also what makes the case appear without a manual reload.
+  await notify({
+    recipients: [{ id: doctor.id, role: ROLES.DOCTOR }],
+    event: EVENTS.CASE_ASSIGNED,
+    payload: {
+      visit_id: visit.id,
+      visit_code: visit.visit_code,
+      patient_name: visit.patients?.full_name || null,
+      risk_level: tier,
+      chief_complaint: visit.chief_complaint || null,
+      // Who verified the case, carried with the notification so the doctor can
+      // see it without opening anything.
+      assistant_name: req.user.name,
+      assistant_email: req.user.email,
+      contents: manifest,
+      case_url: `/doctor/cases/${visit.id}`
+    }
+  });
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'CASE_HANDOFF', entityType: 'VISITS', entityId: visit.id,
+    metadata: { doctor_id: doctor.id, risk_level: tier, contents: manifest, missing },
+    ip: req.ip
+  });
+
+  return res.json({
+    visit_id: updated.id,
+    visit_code: updated.visit_code,
+    status: updated.status,
+    risk_level: updated.risk_level,
+    doctor: { id: doctor.id, full_name: doctor.full_name },
+    verified_by: { id: req.user.id, name: req.user.name, email: req.user.email },
+    sent: manifest,
+    missing
+  });
 };
