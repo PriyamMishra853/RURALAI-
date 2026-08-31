@@ -187,6 +187,9 @@ export const getPatientDetail = async (req, res) => {
     .from('visits')
     .select('id, visit_code, chief_complaint, symptom_duration, status, risk_level, visit_date, created_at')
     .eq('patient_id', aadhaar)
+    // A withdrawn entry was opened on the wrong patient. Leaving it in this
+    // history is precisely the harm withdrawing it was meant to undo.
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(100);
 

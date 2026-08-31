@@ -221,7 +221,8 @@ export const getVisitById = async (req, res) => {
       visit_symptoms ( description, source, created_at ),
       ai_assessments ( * )
     `)
-    .eq('id', req.params.id);
+    .eq('id', req.params.id)
+    .is('deleted_at', null);
 
   q = req.user.role === 'DOCTOR'
     ? q.eq('assigned_doctor_id', req.user.id)
@@ -241,7 +242,10 @@ export const updateVisit = async (req, res) => {
     medical_history, known_allergies, current_medications
   } = req.body || {};
 
-  let q = supabaseAdmin.from('visits').select('id, district_id').eq('id', req.params.id);
+  let q = supabaseAdmin
+    .from('visits').select('id, district_id')
+    .eq('id', req.params.id)
+    .is('deleted_at', null);   // a withdrawn case is not editable
   q = req.user.role === 'DOCTOR'
     ? q.eq('assigned_doctor_id', req.user.id)
     : q.eq('district_id', req.user.districtId);
@@ -298,6 +302,96 @@ export const updateVisit = async (req, res) => {
 };
 
 /**
+ * DELETE /api/visits/:id  { reason }  — withdraw an accidental entry.
+ *
+ * A soft delete: the row stays, stops being visible, and records who withdrew
+ * it and why. The record being removed is clinical, and an operator who
+ * withdraws the wrong case needs a remedy — a hard DELETE offers none.
+ *
+ * The guards are the substance of this endpoint, not the button. A case may be
+ * withdrawn only while it is still the assistant's own work in progress:
+ *
+ *   - it must be in their district;
+ *   - no doctor may have been assigned, because a case can otherwise vanish
+ *     from a doctor's queue while they are reading it;
+ *   - no consultation may exist against it, for the same reason;
+ *   - no doctor review may exist, which would make it a clinical record of a
+ *     decision rather than a mistyped entry.
+ *
+ * Anything past those points is not an accidental entry any more, and the
+ * refusal says which one applied rather than a flat "not allowed".
+ */
+export const deleteVisit = async (req, res) => {
+  const { reason } = req.body || {};
+
+  const { data: visit } = await supabaseAdmin
+    .from('visits')
+    .select('id, visit_code, status, assigned_doctor_id, deleted_at, patient_id')
+    .eq('id', req.params.id)
+    .eq('district_id', req.user.districtId)
+    .maybeSingle();
+
+  if (!visit) return res.status(404).json({ error: 'No such visit available to you.' });
+
+  // Withdrawing twice is not an error worth failing on — the caller wanted it
+  // gone and it is gone.
+  if (visit.deleted_at) return res.json({ visit_id: visit.id, already_deleted: true });
+
+  if (visit.assigned_doctor_id) {
+    return res.status(409).json({
+      error: 'This case has already been sent to a doctor and cannot be withdrawn. Ask the doctor to close it instead.'
+    });
+  }
+
+  const { count: consultations } = await supabaseAdmin
+    .from('consultations')
+    .select('id', { count: 'exact', head: true })
+    .eq('visit_id', visit.id);
+
+  if (consultations) {
+    return res.status(409).json({
+      error: 'A consultation has been booked against this case, so it cannot be withdrawn.'
+    });
+  }
+
+  const { count: reviews } = await supabaseAdmin
+    .from('doctor_reviews')
+    .select('id', { count: 'exact', head: true })
+    .eq('visit_id', visit.id);
+
+  if (reviews) {
+    return res.status(409).json({
+      error: 'A doctor has already recorded a decision on this case, so it cannot be withdrawn.'
+    });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('visits')
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: req.user.id,
+      deletion_reason: reason || null,
+      status: 'cancelled'
+    })
+    .eq('id', visit.id)
+    .is('deleted_at', null);   // compare-and-set: two clicks produce one delete
+
+  if (error) {
+    console.error('visit withdrawal failed:', error.message);
+    return res.status(500).json({ error: 'The case could not be withdrawn.' });
+  }
+
+  await logAuditEvent({
+    actorId: req.user.id, actorRole: req.user.role,
+    action: 'VISIT_WITHDRAWN', entityType: 'VISITS', entityId: visit.id,
+    metadata: { visit_code: visit.visit_code, patient_id: visit.patient_id, reason: reason || null },
+    ip: req.ip
+  });
+
+  return res.json({ visit_id: visit.id, visit_code: visit.visit_code, deleted: true });
+};
+
+/**
  * POST /api/visits/:id/handoff  { doctor_id }  — send the case to a doctor.
  *
  * The handoff used to be a PATCH that set assigned_doctor_id and trusted
@@ -333,6 +427,7 @@ export const handOffVisit = async (req, res) => {
     `)
     .eq('id', req.params.id)
     .eq('district_id', req.user.districtId)
+    .is('deleted_at', null)   // a withdrawn case cannot be handed to a doctor
     .maybeSingle();
 
   if (!visit) return res.status(404).json({ error: 'No such visit available to you.' });

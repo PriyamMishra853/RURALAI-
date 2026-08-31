@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mic, Upload, FileText, Camera, Bot, ShieldCheck, ArrowRight, CheckCircle2, AlertTriangle, Activity, User, HeartPulse, RefreshCw, BookOpen, AlertOctagon, Download, Pill, PhoneCall, ArrowLeft, MicOff, Globe, Video, Send, ShieldAlert, Printer, Calendar } from 'lucide-react';
+import { Mic, Upload, FileText, Camera, Bot, ShieldCheck, ArrowRight, CheckCircle2, AlertTriangle, Activity, User, HeartPulse, RefreshCw, BookOpen, AlertOctagon, Download, Pill, PhoneCall, ArrowLeft, MicOff, Globe, Video, Send, ShieldAlert, Printer, Calendar, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import RiskBadge from '../components/RiskBadge';
 import OCRVerificationModal from '../components/OCRVerificationModal';
@@ -44,6 +44,7 @@ export default function PatientAssessmentVisitPage() {
   const [pushSuccess, setPushSuccess] = useState(false);
   /** The server's manifest of what the doctor received. */
   const [handoffResult, setHandoffResult] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   // Doctor selected by the assistant for case handoff / calls (core feature)
   const [selectedDoctor, setSelectedDoctor] = useState(null);
 
@@ -401,6 +402,36 @@ export default function PatientAssessmentVisitPage() {
     }
   };
 
+  /**
+   * Withdraw an accidental entry.
+   *
+   * Confirmed before it is sent, because it removes a clinical record from the
+   * patient's history — and the confirmation names the patient, since the
+   * mistake this exists to correct is having opened the case on the wrong one.
+   */
+  const handleWithdrawVisit = async () => {
+    if (!visitId) return;
+    const name = patient?.full_name || 'this patient';
+    if (!window.confirm(
+      `Withdraw this case for ${name}?\n\n`
+      + 'It will be removed from the patient\'s history. This cannot be done once the case has been sent to a doctor.'
+    )) return;
+
+    const reason = window.prompt('Why is it being withdrawn? (optional)') || '';
+
+    setWithdrawing(true);
+    try {
+      await api.delete(`/visits/${visitId}`, { data: { reason } });
+      navigate('/assistant/dashboard');
+    } catch (err) {
+      // 409 means a doctor is already involved; the server says which case
+      // applies, and that message is more useful than a generic failure.
+      alert(err.response?.data?.error || formatApiError(err));
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   // Starting a consultation lives entirely in ScheduleConsultationModal, which
   // offers both the instant and scheduled paths and then routes to /call/:id.
   // A second entry point used to sit here; it had no button left, and it POSTed
@@ -532,19 +563,36 @@ export default function PatientAssessmentVisitPage() {
           </div>
         </div>
 
-        {patient && (
-          <div className="flex items-center gap-3 bg-surface-sunken px-4 py-2 rounded-field border border-line">
-            <div className="w-8 h-8 rounded-full bg-blue-100 text-gov-700 font-bold text-xs flex items-center justify-center">
-              {patient.full_name?.substring(0, 2) || 'PT'}
-            </div>
-            <div>
-              <div className="font-bold text-xs text-ink">
-                {patient.full_name || patient.name} <DemoBadge patient={patient} />
+        <div className="flex items-center gap-3">
+          {/* Withdrawing an accidental entry. Only offered once a visit exists,
+              and the server refuses it the moment a doctor is involved — so
+              this is for "wrong patient, start again", not for undoing care. */}
+          {visitId && !pushSuccess && (
+            <button
+              type="button"
+              onClick={handleWithdrawVisit}
+              disabled={withdrawing}
+              className="px-3 py-2 rounded-field border border-tier-emergency/30 text-tier-emergency hover:bg-tier-emergencyBg disabled:opacity-50 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              {withdrawing ? 'Withdrawing…' : 'Withdraw case'}
+            </button>
+          )}
+
+          {patient && (
+            <div className="flex items-center gap-3 bg-surface-sunken px-4 py-2 rounded-field border border-line">
+              <div className="w-8 h-8 rounded-full bg-blue-100 text-gov-700 font-bold text-xs flex items-center justify-center">
+                {patient.full_name?.substring(0, 2) || 'PT'}
               </div>
-              <div className="text-[11px] text-ink-muted font-mono">Aadhaar: {maskAadhaar(patient.aadhaar_number)}</div>
+              <div>
+                <div className="font-bold text-xs text-ink">
+                  {patient.full_name || patient.name} <DemoBadge patient={patient} />
+                </div>
+                <div className="text-[11px] text-ink-muted font-mono">Aadhaar: {maskAadhaar(patient.aadhaar_number)}</div>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Navigation Tabs */}

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  createVisit, getVisitById, updateVisit, handOffVisit, getVisitReview
+  createVisit, getVisitById, updateVisit, handOffVisit, getVisitReview, deleteVisit
 } from '../controllers/visit.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
@@ -21,5 +21,10 @@ router.patch('/:id', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), updat
 // reassigning their own cases is a different decision with different rules,
 // and is not this endpoint.
 router.post('/:id/handoff', authorizeRoles(ROLES.CLINIC_ASSISTANT), handOffVisit);
+
+// Withdrawing an accidental entry is the assistant's own correction, and only
+// while the case is still theirs — the controller refuses once a doctor is
+// involved. A doctor closing a case they have seen is a different action.
+router.delete('/:id', authorizeRoles(ROLES.CLINIC_ASSISTANT), deleteVisit);
 
 export default router;
