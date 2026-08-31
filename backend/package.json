@@ -19,7 +19,8 @@
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "check:ai": "node src/scripts/checkAiPipelines.js",
-    "seed:schedules": "node src/scripts/seedSchedules.js"
+    "seed:schedules": "node src/scripts/seedSchedules.js",
+    "seed:daily": "node src/scripts/seedDailyWorkload.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",

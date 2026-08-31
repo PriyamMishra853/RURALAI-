@@ -348,7 +348,44 @@ fresh attempt at the same problem, rather than duplicated.
 
 ---
 
-## Phase 3 — planned
+### 2.2 / 2.3 Deterministic daily workload — DONE
+
+`npm run seed:daily` (optionally with a `YYYY-MM-DD`) gives every doctor exactly
+five cases spanning the whole severity ladder, and the same date always
+produces the same five.
+
+Verified against production: 375 doctors with exactly 5 cases each, severity
+`moderate=750, low=375, high=375, emergency=375` — two moderates per doctor
+because it is the commonest presentation, and a queue implying emergencies are
+as frequent as routine cases would misrepresent the work. Every doctor's day
+reads `emergency, high, moderate, moderate, low`. Re-running against the same
+date reproduces an identical doctor→patient→severity assignment, confirmed by
+fingerprint.
+
+Patients are reused, not created: each district already holds 25 demo patients
+and 5 doctors, which divides exactly. Generating fresh ones daily would add
+1,875 rows a day to a table meant to represent a fixed population.
+
+The delete that makes it re-runnable is filtered on `is_demo`, so a real case an
+assistant handed over is never removed by a reseed. The one doctor beyond
+75×5 is reported rather than silently given a short queue.
+
+---
+
+## Phase 3 — Admin platform
+
+Discovery found most of it already built.
+
+| Item | State |
+|------|-------|
+| Staff CRUD with role authorisation | **Already complete** — `GET/POST/PATCH/DELETE /api/admin/users`, behind `authorizeRoles` and a region scope |
+| Responsive 3D element | **Already complete** — resize handling, `prefers-reduced-motion`, rendering stops on tab hide, full GPU disposal on unmount |
+| Deterministic seed + demo mode | **Done above** — 75 districts, 375 doctors, 1,875 patients, 5 cases per doctor per day, stable per date |
+| Admin dashboard metrics | Endpoints exist (`/api/admin/analytics`, `/api/admin/audit`). Whether the figures they return are the operational ones wanted — visits, treated patients, demographics — was not assessed. |
+
+---
+
+## Phase 3 — original notes
 - **Phase 2 — Doctor portal.** Deterministic daily workload, controlled severity
   distribution, clinical AI and OCR reaching the doctor, doctor's decision as
   final authority, verifying-assistant traceability.
