@@ -130,15 +130,114 @@ to confirm the selected ICE candidate type once TURN is configured.
 
 ---
 
-## Phases 1–3 — planned
+## Phase 0 — closing notes
 
-Deferred until Phase 0 is verified in production. Full requirements are captured
-in the project brief; each phase gets its own section here before any code.
+Three production faults sat behind the video call, none of them in the code
+that was reviewed first:
 
-- **Phase 1 — Clinical Assistant portal.** Case delete, urgent guest
-  registration, whole-database patient search, unified consultation list, health
-  card OCR, structured symptom duration, AI first-aid/precaution/diet guidance
-  with medication recommendations disabled, English/Hindi read-aloud.
+1. **Railway built from the wrong repository.** It deployed
+   `Ashish42-droid/governor` (17 commits stale, no write access) while Vercel
+   built `PriyamMishra853/RURALAI-`. A new frontend spoke `/realtime` to a
+   backend that still served the old `/signal`. Resolved by repointing Railway.
+2. **`VITE_REALTIME_URL` used `ws://` on an HTTPS page.** The browser blocks
+   that as mixed content and the constructor throws before any connection is
+   attempted. The scheme is now taken from the page, never from configuration,
+   and the constructor call is guarded so a throw cannot kill the reconnect
+   loop.
+3. **`doctor_schedules` was empty, twice.** A missing row means "not working",
+   so every date read Closed and instant had nobody to reserve. Re-seeding
+   restored it; note that `seedV2` regenerates `staff_profiles` and the
+   schedules cascade away with it, which is how it emptied the second time.
+
+Lesson worth keeping: *verify what is deployed, not what was pushed.* Comparing
+`GET /api`'s advertised routes against `app.js`, and probing a deliberately
+deleted endpoint (`/signal` still returned `101`), is what exposed all of this.
+
+---
+
+## Phase 1 — Clinical Assistant portal
+
+Discovery against the deployed code. Three items are already done; one is a
+clinical-safety boundary that is currently open.
+
+### Already complete — no work needed
+
+- **Structured symptom duration.** `symptom_duration_value` / `_unit` exist on
+  `visits`, are validated in `updateVisit`, and the assessment screen collects
+  them.
+- **English/Hindi read-aloud.** `SpeakButton` maps Hindi, Awadhi and Bhojpuri to
+  `hi-IN`. Needs verification that it is bound strictly to assessment text, not
+  re-verification of the feature.
+- **Doctor handoff.** Repaired in Phase 0.4.
+
+### 1.1 Disable AI medication recommendations — CRITICAL, do first
+
+`aiOrchestrator` sets `finalAssessment.medications` and
+`supportive_medication_guidance` from the formulary engine, and the assistant's
+screen renders them. Medication is a clinical boundary reserved for the doctor,
+so nothing medicinal may reach the assistant's portal.
+
+The rules engine itself stays. It is rule-sourced and `assertRuleSourced`
+already guards it, and the doctor's prescribing flow depends on the formulary —
+so this is about **who is shown what**, not deleting the capability. Medication
+output is withheld from the assistant-facing assessment while remaining
+available to the doctor.
+
+Smallest, highest-consequence change in the phase, so it goes first.
+
+### 1.2 Patient search hits the database
+
+`getPatients` already supports `?query=` and searches the whole district table
+with pagination. The assistant dashboard never sends it: it fetches `/patients`
+unfiltered and then does `patients.filter(...)` over the loaded page. Anyone
+past the first 50 records is unfindable.
+
+Fix: send the query to the server, debounced, and render server results with
+their total. **District scope is kept.** Every read in this codebase is
+constrained to the caller's district, and widening patient search to the whole
+country would be a privacy regression, not a feature — "entire database" is
+read as "the whole patient table rather than the loaded page".
+
+### 1.3 Delete a patient case
+
+No delete endpoint exists. Needs: assistant-only, own-district, soft-delete or
+hard-delete decision, refusal once a case has reached a doctor or has a
+consultation attached, confirmation in the UI, and an audit entry. Deleting
+clinical records is the one irreversible action in the portal, so the guards
+matter more than the button.
+
+### 1.4 Urgent registration with guest credentials
+
+Not built. Generates a provisional identity (`guest001`-style) and jumps
+straight to Symptoms & Feed, bypassing full registration. Open questions:
+whether the guest record is later reconciled to a real Aadhaar, and what
+`registration_mode` it carries — `patients.registration_mode` already exists.
+
+### 1.5 Open consultations — one unified list
+
+Rework the assistant's consultation panel to show scheduled and active calls
+from both portals. The data is already unified server-side: `GET /consultations`
+scopes by participant and returns `join_action` / `join_label`. This is mostly a
+UI consolidation.
+
+### 1.6 Health card OCR
+
+Largest and least certain. `ocrService` handles `prescription`, `lab_report`,
+`medical_report`, `discharge_summary`, `other` — all clinical documents. A
+health card is an **identity** document, needing a new type and a different
+extraction (name, gender, DOB).
+
+The requirement's own emphasis is validation: extracted values must never
+silently overwrite something typed by hand. Proposed as a proposal/confirm step
+reusing `OCRVerificationModal`, with manual entries always winning unless the
+operator explicitly accepts the OCR value.
+
+Sequenced last: OCR accuracy on Indian health cards is unpredictable, and it is
+the only item whose scope could grow once real cards are tested.
+
+---
+
+## Phases 2–3 — planned
 - **Phase 2 — Doctor portal.** Deterministic daily workload, controlled severity
   distribution, clinical AI and OCR reaching the doctor, doctor's decision as
   final authority, verifying-assistant traceability.
