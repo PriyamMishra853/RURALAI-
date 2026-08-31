@@ -4,7 +4,6 @@ import { Mic, Upload, FileText, Camera, Bot, ShieldCheck, ArrowRight, CheckCircl
 import api from '../services/api';
 import RiskBadge from '../components/RiskBadge';
 import OCRVerificationModal from '../components/OCRVerificationModal';
-import WebRTCVideoCallModal from '../components/WebRTCVideoCallModal';
 import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
 import DoctorSelectGrid from '../components/DoctorSelectGrid';
 import { useAuth } from '../context/AuthContext';
@@ -39,7 +38,6 @@ export default function PatientAssessmentVisitPage() {
   const [detectedLanguage, setDetectedLanguage] = useState('Auto-detect');
 
   // Video call & scheduling
-  const [activeVideoRoom, setActiveVideoRoom] = useState(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [pushingToDoctor, setPushingToDoctor] = useState(false);
   const [pushSuccess, setPushSuccess] = useState(false);
@@ -388,32 +386,10 @@ export default function PatientAssessmentVisitPage() {
     }
   };
 
-  /**
-   * Start a video consultation now.
-   *
-   * The room id is issued by the server (an unguessable UUID) and re-verified
-   * by the signaling socket against the consultation's participant list. It is
-   * never constructed here — the old `room_PAT_<code>_<timestamp>` scheme was
-   * guessable and handed out by an unauthenticated endpoint.
-   */
-  const handleExplicitStartVideoCall = async () => {
-    if (!selectedDoctor) {
-      alert('Select a doctor first — a consultation room is created for that doctor.');
-      return;
-    }
-    try {
-      const vId = await ensureVisit();
-      const res = await api.post('/consultations', {
-        visit_id: vId,
-        doctor_id: selectedDoctor.id
-      });
-      const joined = await api.post(`/consultations/${res.data.id}/join`);
-      setActiveVideoRoom({ room_id: joined.data.meeting_room_id });
-    } catch (err) {
-      console.error('Could not start the consultation:', err);
-      alert('Could not start the video consultation: ' + formatApiError(err));
-    }
-  };
+  // Starting a consultation lives entirely in ScheduleConsultationModal, which
+  // offers both the instant and scheduled paths and then routes to /call/:id.
+  // A second entry point used to sit here; it had no button left, and it POSTed
+  // /consultations without scheduled_start_time, which the API rejects.
 
   const generateCompletePDFReport = () => {
     const printWindow = window.open('', '_blank');
@@ -1279,18 +1255,6 @@ export default function PatientAssessmentVisitPage() {
           visitId={visitId}
           patientName={patient?.full_name || 'Patient'}
           onClose={() => setShowScheduleModal(false)}
-        />
-      )}
-
-      {/* Pure WebRTC Video Call Modal */}
-      {activeVideoRoom && (
-        <WebRTCVideoCallModal
-          roomId={activeVideoRoom.room_id}
-          userName={activeVideoRoom.user_name || 'Sunita Devi (Clinical Assistant)'}
-          userId={user?.id || `ast_${Date.now()}`}
-          role="CLINIC_ASSISTANT"
-          peerName="Doctor"
-          onClose={() => setActiveVideoRoom(null)}
         />
       )}
 

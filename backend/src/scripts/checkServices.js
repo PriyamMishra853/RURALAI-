@@ -105,8 +105,8 @@ await check('Qdrant — protocol corpus', false, async () => {
   return names.length ? `collections: ${names.join(', ')}` : 'reachable, no collections yet';
 });
 
-await check('Signaling — WebRTC /signal', true, async () => {
-  // Video is peer-to-peer WebRTC signalled over this app's own WebSocket.
+await check('Realtime — notifications + call signalling', true, async () => {
+  // Notifications and WebRTC signalling share this one authenticated socket.
   //
   // An unauthenticated connection MUST be refused: the socket admits a caller
   // into a live consultation, so anyone who could open it without a token
@@ -116,7 +116,7 @@ await check('Signaling — WebRTC /signal', true, async () => {
   const { WebSocket } = await import('ws');
   const port = config.port || 5000;
   return await new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/signal?roomId=healthcheck`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/realtime`);
     const timer = setTimeout(() => {
       ws.terminate();
       reject(new Error('no response within 5s — is the server running?'));
@@ -125,7 +125,7 @@ await check('Signaling — WebRTC /signal', true, async () => {
     ws.on('open', () => {
       clearTimeout(timer);
       ws.close();
-      reject(new Error('SECURITY: /signal accepted a connection with no token'));
+      reject(new Error('SECURITY: /realtime accepted a connection with no token'));
     });
     ws.on('error', (e) => {
       clearTimeout(timer);
@@ -136,10 +136,17 @@ await check('Signaling — WebRTC /signal', true, async () => {
 });
 
 await check('TURN relay', false, async () => {
-  if (!process.env.VITE_TURN_URL && !process.env.TURN_URL) {
-    throw new Error('no TURN server configured — calls between different networks may carry no media');
+  // Not fatal, because the server falls back to a free public relay — but a
+  // shared free tier is not something to run a clinic on unknowingly, so an
+  // unset TURN_URL is still reported.
+  const configured = process.env.TURN_URL || process.env.VITE_TURN_URL;
+  if (!configured) {
+    throw new Error(
+      'no dedicated TURN server configured — falling back to the free public Open Relay. '
+      + 'Cross-network calls will connect, but on a shared tier with no capacity guarantee.'
+    );
   }
-  return process.env.VITE_TURN_URL || process.env.TURN_URL;
+  return configured.split(',').map((u) => u.trim()).filter(Boolean).join(', ');
 });
 
 await check('Model availability', true, async () => {

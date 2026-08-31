@@ -1,7 +1,6 @@
 import http from 'http';
 import app from './app.js';
 import { config } from './config/env.js';
-import { setupSignalingServer } from './services/signalingService.js';
 import { setupRealtimeHub } from './services/realtimeHub.js';
 import { startConsultationSweeper } from './services/consultationSweeper.js';
 import { getVideoProvider } from './services/video/index.js';
@@ -32,12 +31,13 @@ process.on('unhandledRejection', (reason) => {
 
 const server = http.createServer(app);
 
-// Two upgrade handlers on one HTTP server, each claiming its own path:
-//   /realtime — notifications + consultation call signalling (the new hub)
-//   /signal   — the legacy direct-call path, kept while the older assessment
-//               screen still uses it
+// One WebSocket surface: /realtime carries notifications and consultation call
+// signalling together. A second server on /signal used to sit alongside it,
+// serving an assessment-screen call path that had become unreachable — its
+// entry point could no longer be triggered from the UI, and it booked
+// consultations with a payload the API rejects. It has been removed rather than
+// left mounted as an unused way into live consultations.
 setupRealtimeHub(server);
-setupSignalingServer(server);
 
 // Resolve the video provider at boot, not at call time: finding out the SFU
 // cannot start while a doctor waits to join is the worst moment to learn it.
@@ -52,7 +52,7 @@ server.listen(PORT, '0.0.0.0', () => {
 ======================================================================
 🚀 API Endpoint: ${BACKEND_URL}/api
 🏥 Health Check: ${BACKEND_URL}/api/health
-📡 WebRTC Signal: ${WS_URL}/signal
+📡 Realtime + Call: ${WS_URL}/realtime
 ⚡ Groq LLM: ${config.groq.apiKey ? 'CONNECTED' : 'MOCK/FALLBACK'}
 🔍 Qdrant RAG: ${config.qdrant.url ? 'CONNECTED' : 'MOCK/FALLBACK'}
 📊 Supabase DB: ${config.supabase.url ? 'CONNECTED' : 'MOCK/FALLBACK'}

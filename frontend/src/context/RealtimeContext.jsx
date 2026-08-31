@@ -20,6 +20,24 @@ const RealtimeContext = createContext(null);
 const RECONNECT_BASE_MS = 1000;
 const MAX_RECONNECT_MS = 15000;
 
+/**
+ * Outbound buffering.
+ *
+ * The socket authenticates by looking the caller up in staff_profiles, so it is
+ * open for a few hundred milliseconds *after* the page starts working. A call
+ * screen that navigates straight to /call/:id would send `call:join` into a
+ * CONNECTING socket and have it silently dropped — the peer then waited forever
+ * for someone the server never knew had arrived.
+ *
+ * Anything sent before the socket is ready is held and flushed on open. The TTL
+ * is what keeps that safe across a genuine outage: the startup race resolves in
+ * well under a second, so real messages survive it, while SDP and ICE queued
+ * against a peer connection that has since been renegotiated are stale by the
+ * time the socket returns and are dropped rather than replayed.
+ */
+const OUTBOX_LIMIT = 50;
+const OUTBOX_TTL_MS = 10000;
+
 export function RealtimeProvider({ children }) {
   const { token, user } = useAuth();
   const [connected, setConnected] = useState(false);
@@ -32,18 +50,35 @@ export function RealtimeProvider({ children }) {
   const closedByUsRef = useRef(false);
   /** Feature-specific listeners (the call screen registers one). */
   const listenersRef = useRef(new Set());
+  /** Messages written while the socket was down: [{ payload, at }]. */
+  const outboxRef = useRef([]);
 
   const subscribe = useCallback((fn) => {
     listenersRef.current.add(fn);
     return () => listenersRef.current.delete(fn);
   }, []);
 
+  /**
+   * Send now if the socket is open, otherwise hold it for the next open.
+   *
+   * Returns whether it went out immediately. Callers that care about delivery
+   * should re-declare their intent when `connected` flips true rather than
+   * reading this — that is what makes a reconnect self-healing.
+   */
   const sendMessage = useCallback((payload) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-      return true;
+      try {
+        ws.send(JSON.stringify(payload));
+        return true;
+      } catch {
+        // Socket died between the readyState check and the send; fall through
+        // and queue it for the reconnect.
+      }
     }
+    // Oldest first, so a long outage cannot grow this without bound.
+    if (outboxRef.current.length >= OUTBOX_LIMIT) outboxRef.current.shift();
+    outboxRef.current.push({ payload, at: Date.now() });
     return false;
   }, []);
 
@@ -70,6 +105,9 @@ export function RealtimeProvider({ children }) {
       closedByUsRef.current = true;
       wsRef.current?.close();
       wsRef.current = null;
+      // Never replay the previous user's queued messages onto the next
+      // session's socket.
+      outboxRef.current = [];
       setConnected(false);
       setNotifications([]);
       setUnread(0);
@@ -90,6 +128,17 @@ export function RealtimeProvider({ children }) {
 
       ws.onopen = () => {
         attemptsRef.current = 0;
+
+        // Flush what was written while we were down, dropping anything stale
+        // enough that the peer connection it belonged to has moved on.
+        const cutoff = Date.now() - OUTBOX_TTL_MS;
+        const pending = outboxRef.current;
+        outboxRef.current = [];
+        for (const { payload, at } of pending) {
+          if (at < cutoff) continue;
+          try { ws.send(JSON.stringify(payload)); } catch { /* died again; next open retries nothing */ }
+        }
+
         setConnected(true);
       };
 

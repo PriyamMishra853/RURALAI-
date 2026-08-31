@@ -78,17 +78,61 @@ export class P2PProvider extends VideoProvider {
   }
 }
 
+/**
+ * Open Relay — Metered's free, publicly documented TURN service.
+ *
+ * Used only when no relay is configured. A relay is not optional in this
+ * deployment: a doctor at home and a clinic on a rural mobile ISP are both
+ * behind carrier-grade NAT, which STUN cannot traverse, so without one those
+ * calls simply never connect.
+ *
+ * A TURN server forwards DTLS-SRTP it cannot decrypt, so this does not expose
+ * consultation media to the relay operator. It is still a shared free tier with
+ * no capacity guarantee — set TURN_URL to a dedicated service for production.
+ */
+const PUBLIC_FALLBACK_TURN = {
+  urls: [
+    'turn:openrelay.metered.ca:80',
+    'turn:openrelay.metered.ca:443',
+    'turn:openrelay.metered.ca:443?transport=tcp'
+  ],
+  username: 'openrelayproject',
+  credential: 'openrelayproject'
+};
+
+let warnedAboutFallback = false;
+
 function buildIceServers() {
   const servers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ];
-  if (process.env.TURN_URL) {
+
+  // Providers issue several URLs for one credential — UDP, TCP, and 443 for
+  // networks that only allow HTTPS-looking traffic. Accept them as a
+  // comma-separated list so all three can be offered.
+  const configured = (process.env.TURN_URL || '')
+    .split(',')
+    .map((u) => u.trim())
+    .filter(Boolean);
+
+  if (configured.length) {
     servers.push({
-      urls: process.env.TURN_URL,
+      urls: configured,
       username: process.env.TURN_USERNAME || '',
       credential: process.env.TURN_CREDENTIAL || ''
     });
+  } else {
+    servers.push(PUBLIC_FALLBACK_TURN);
+    if (!warnedAboutFallback) {
+      warnedAboutFallback = true;
+      console.warn(
+        'TURN_URL is not set — falling back to the free public Open Relay service. ' +
+        'Calls will connect across networks, but on a shared free tier with no capacity ' +
+        'guarantee. Set TURN_URL / TURN_USERNAME / TURN_CREDENTIAL for production.'
+      );
+    }
   }
+
   return servers;
 }

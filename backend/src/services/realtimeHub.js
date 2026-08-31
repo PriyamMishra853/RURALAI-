@@ -113,7 +113,12 @@ export const setupRealtimeHub = (httpServer) => {
 
   httpServer.on('upgrade', async (request, socket, head) => {
     const parsed = url.parse(request.url, true);
-    if (parsed.pathname !== '/realtime' && parsed.pathname !== '/realtime/') return;
+    // This is the only WebSocket surface on the server, so an upgrade to any
+    // other path is refused here. Returning silently would leave the socket
+    // open and unowned until the peer gave up on it.
+    if (parsed.pathname !== '/realtime' && parsed.pathname !== '/realtime/') {
+      return refuse(socket, 404, 'Not Found');
+    }
 
     // Browsers do not apply CORS to WebSockets, so this origin check is the
     // only thing standing in for it.
@@ -197,11 +202,14 @@ async function handleMessage(ws, msg) {
       addSocket(callRooms, consultationId, ws);
 
       const peers = [...(callRooms.get(consultationId) || [])].filter((p) => p !== ws);
+      // Who offers is deliberately NOT decided here. This used to elect the
+      // second peer to arrive as the initiator, which cannot survive a rejoin —
+      // on a reconnect both peers are already present, so both would be elected
+      // or neither would. The clients run perfect negotiation with politeness
+      // fixed by role instead, which stays correct however many times either
+      // side comes and goes. The peer list below is for display only.
       send(ws, {
         type: 'call:joined',
-        // Exactly one side creates the offer. The second peer to arrive is the
-        // initiator, which is what prevents SDP offer glare.
-        initiator: peers.length > 0,
         peers: peers.map((p) => ({ name: p.identity.name, role: p.identity.role }))
       });
       relayToCall(consultationId, ws, {

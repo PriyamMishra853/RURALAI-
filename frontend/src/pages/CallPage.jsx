@@ -17,17 +17,33 @@ import { maskAadhaar } from '../config/patientFields';
  * window check, the participant check and the one-active-consultation rule all
  * live server-side, and a stale tab that thinks it can join simply gets a 409.
  *
- * Signalling reuses the app's single realtime socket rather than opening a
- * second one, so a dropped connection reconnects in one place.
+ * Two things make the call survive a bad network, which the first version of
+ * this screen did not:
  *
- * Media path depends on the provider the server selected:
- *   p2p       — direct RTCPeerConnection between the two peers (current host)
- *   mediasoup — SFU; the credentials carry transport parameters instead
- * Both arrive through the same `credentials` object, so this screen does not
- * branch on which one is active beyond choosing how to connect.
+ *   Membership is declarative. The server forgets a socket's call room the
+ *   moment it disconnects, so `call:join` is re-sent on every reconnect rather
+ *   than once at startup. Sending it once was the original bug — the socket
+ *   authenticates against staff_profiles and is therefore still opening when
+ *   this page mounts, so the only join message was routinely dropped and the
+ *   far side waited forever for a peer the server never knew had arrived.
+ *
+ *   Negotiation is symmetric. Both sides use the perfect-negotiation pattern
+ *   with a fixed politeness derived from role, so an offer collision resolves
+ *   itself instead of deadlocking. Election by arrival order could not survive
+ *   a rejoin, where both peers are already present.
+ *
+ * The media path is deliberately NOT rebuilt on a socket reconnect: WebRTC
+ * media flows peer-to-peer and is unaffected by the signalling socket dropping.
+ * Tearing it down would break a call that was still working.
  */
 
 const ROLE_LABEL = { DOCTOR: 'Doctor', CLINIC_ASSISTANT: 'Clinic Assistant' };
+
+/** Does this ICE server list include a relay? Without one, cross-network calls fail. */
+const hasRelay = (iceServers) =>
+  (iceServers || []).some((s) =>
+    [].concat(s.urls || []).some((u) => String(u).startsWith('turn:') || String(u).startsWith('turns:'))
+  );
 
 export default function CallPage() {
   const { id } = useParams();
@@ -43,6 +59,9 @@ export default function CallPage() {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [elapsed, setElapsed] = useState(0);
+  const [relayed, setRelayed] = useState(true);
+  /** True once the HTTP join succeeded, so the reconnect effect has a room to rejoin. */
+  const [inCall, setInCall] = useState(false);
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -50,6 +69,19 @@ export default function CallPage() {
   const localStreamRef = useRef(null);
   const iceBufferRef = useRef([]);
   const startedAtRef = useRef(null);
+
+  // Perfect-negotiation state (kept in refs: the negotiation callbacks read it
+  // synchronously and must never see a stale render's copy).
+  //
+  // Politeness is fixed by role rather than by who arrived first. It has to
+  // agree on both sides and stay agreed across reconnects, and role is the only
+  // thing about a consultation that is guaranteed to be both.
+  const politeRef = useRef(false);
+  const makingOfferRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const settingAnswerRef = useRef(false);
+
+  politeRef.current = user?.role === 'DOCTOR';
 
   // ---- teardown -----------------------------------------------------------
   const teardown = useCallback(() => {
@@ -64,25 +96,51 @@ export default function CallPage() {
 
   // ---- WebRTC peer connection --------------------------------------------
   const buildPeerConnection = useCallback((iceServers) => {
-    const pc = new RTCPeerConnection({ iceServers: iceServers || [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const pc = new RTCPeerConnection({
+      iceServers: iceServers?.length ? iceServers : [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate) sendMessage({ type: 'call:ice', candidate: e.candidate });
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) sendMessage({ type: 'call:ice', candidate });
     };
 
-    pc.ontrack = (e) => {
-      if (remoteVideoRef.current && e.streams[0]) {
-        remoteVideoRef.current.srcObject = e.streams[0];
-        setPhase('live');
-        if (!startedAtRef.current) startedAtRef.current = Date.now();
+    pc.ontrack = ({ streams }) => {
+      if (remoteVideoRef.current && streams[0]) remoteVideoRef.current.srcObject = streams[0];
+    };
+
+    // Fires when local tracks are added and on every later renegotiation. The
+    // whole point of perfect negotiation is that both sides may do this at any
+    // time without coordinating first.
+    pc.onnegotiationneeded = async () => {
+      try {
+        makingOfferRef.current = true;
+        await pc.setLocalDescription();
+        sendMessage({ type: 'call:offer', sdp: pc.localDescription });
+      } catch (err) {
+        console.error('Negotiation failed:', err);
+      } finally {
+        makingOfferRef.current = false;
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      // A dropped route is often recoverable without rebuilding anything.
+      if (pc.iceConnectionState === 'failed') pc.restartIce();
+    };
+
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        setError(null);
+        setRetryable(false);
+        setPhase('live');
+        if (!startedAtRef.current) startedAtRef.current = Date.now();
+      }
       if (pc.connectionState === 'failed') {
-        // Almost always a NAT that STUN cannot traverse. Say the useful thing
-        // rather than "connection failed".
-        setError('The media connection could not be established. This usually needs a TURN relay when the two sides are on different networks.');
+        setError(
+          hasRelay(iceServers)
+            ? 'The media connection failed even through the relay. Check both sides’ network and retry.'
+            : 'The media connection could not be established. This usually needs a TURN relay when the two sides are on different networks.'
+        );
         setRetryable(true);
       }
     };
@@ -94,8 +152,23 @@ export default function CallPage() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localStreamRef.current = stream;
     if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    // Adding tracks is what triggers onnegotiationneeded.
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
   }, []);
+
+  /**
+   * Re-send a local offer that nobody could have answered.
+   *
+   * The first offer is created as soon as local tracks are added, which is
+   * usually before the other side is in the room, so it is relayed to an empty
+   * room and lost. When a peer does appear, this puts it back on the wire.
+   */
+  const resendPendingOffer = useCallback(() => {
+    const pc = pcRef.current;
+    if (!pc || !pc.localDescription) return;
+    if (pc.signalingState !== 'have-local-offer') return;
+    sendMessage({ type: 'call:offer', sdp: pc.localDescription });
+  }, [sendMessage]);
 
   // ---- join ---------------------------------------------------------------
   const join = useCallback(async () => {
@@ -117,74 +190,98 @@ export default function CallPage() {
         return;
       }
 
+      setRelayed(hasRelay(credentials.iceServers));
+
       const pc = buildPeerConnection(credentials.iceServers);
       pcRef.current = pc;
       await attachLocalMedia(pc);
 
-      sendMessage({ type: 'call:join', consultationId: id });
+      // Membership is now the reconnect effect's job, not a one-shot send.
+      setInCall(true);
       setPhase('waiting');
     } catch (err) {
       const data = err.response?.data;
-      setError(data?.error || 'Could not join this consultation.');
+      setError(data?.error || err.message || 'Could not join this consultation.');
       setRetryable(Boolean(data?.retryable));
       setPhase('error');
     }
-  }, [id, buildPeerConnection, attachLocalMedia, sendMessage]);
-
-  useEffect(() => { join(); }, [join]);
+  }, [id, buildPeerConnection, attachLocalMedia]);
 
   // ---- signalling ---------------------------------------------------------
+  // Registered before the join effect below, so no message can arrive before
+  // there is a handler for it.
   useEffect(() => {
     const off = subscribe(async (msg) => {
       const pc = pcRef.current;
 
       switch (msg.type) {
         case 'call:joined': {
-          if (msg.peers?.length) setPeerName(msg.peers[0].name);
-          // Exactly one side creates the offer — the server elects the second
-          // arrival, which is what prevents SDP glare.
-          if (msg.initiator && pc) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            sendMessage({ type: 'call:offer', sdp: offer });
+          if (msg.peers?.length) {
+            setPeerName(msg.peers[0].name);
+            resendPendingOffer();
           }
           break;
         }
 
         case 'call:peer-joined':
           setPeerName(msg.name);
+          resendPendingOffer();
           break;
 
-        case 'call:offer': {
-          if (!pc) break;
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          for (const c of iceBufferRef.current) await pc.addIceCandidate(c).catch(() => {});
-          iceBufferRef.current = [];
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendMessage({ type: 'call:answer', sdp: answer });
-          break;
-        }
-
+        case 'call:offer':
         case 'call:answer': {
           if (!pc) break;
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          for (const c of iceBufferRef.current) await pc.addIceCandidate(c).catch(() => {});
-          iceBufferRef.current = [];
+          const description = msg.sdp;
+          if (!description) break;
+
+          try {
+            // Perfect negotiation: the impolite peer ignores a colliding offer,
+            // the polite peer rolls its own back and accepts. Exactly one side
+            // yields, so the two can never deadlock waiting on each other.
+            const readyForOffer =
+              !makingOfferRef.current &&
+              (pc.signalingState === 'stable' || settingAnswerRef.current);
+            const collision = description.type === 'offer' && !readyForOffer;
+
+            ignoreOfferRef.current = !politeRef.current && collision;
+            if (ignoreOfferRef.current) break;
+
+            settingAnswerRef.current = description.type === 'answer';
+            await pc.setRemoteDescription(new RTCSessionDescription(description));
+            settingAnswerRef.current = false;
+
+            // Candidates that arrived before the remote description could be
+            // applied; drain them now or media connects one-way.
+            for (const c of iceBufferRef.current) await pc.addIceCandidate(c).catch(() => {});
+            iceBufferRef.current = [];
+
+            if (description.type === 'offer') {
+              await pc.setLocalDescription();
+              sendMessage({ type: 'call:answer', sdp: pc.localDescription });
+            }
+          } catch (err) {
+            console.error('Failed to apply remote description:', err);
+          }
           break;
         }
 
         case 'call:ice': {
           if (!pc || !msg.candidate) break;
           const candidate = new RTCIceCandidate(msg.candidate);
-          // Candidates can arrive before the remote description is set; buffer
-          // them rather than dropping them, or the call connects one-way.
-          if (pc.remoteDescription?.type) await pc.addIceCandidate(candidate).catch(() => {});
-          else iceBufferRef.current.push(candidate);
+          if (pc.remoteDescription?.type) {
+            await pc.addIceCandidate(candidate).catch((err) => {
+              // Expected while we are deliberately ignoring a colliding offer.
+              if (!ignoreOfferRef.current) console.warn('addIceCandidate failed:', err.message);
+            });
+          } else {
+            iceBufferRef.current.push(candidate);
+          }
           break;
         }
 
         case 'call:peer-left':
+          // Keep the peer connection: they may come straight back, and the
+          // renegotiation is cheaper than a fresh connection.
           setPeerName(null);
           setPhase('waiting');
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -204,7 +301,22 @@ export default function CallPage() {
       }
     });
     return off;
-  }, [subscribe, sendMessage, teardown]);
+  }, [subscribe, sendMessage, teardown, resendPendingOffer]);
+
+  useEffect(() => { join(); }, [join]);
+
+  /**
+   * Declare call membership on every (re)connect.
+   *
+   * The server drops a socket from its call room as soon as it disconnects, so
+   * this has to run again on each reconnect — that is what makes a dropped
+   * socket self-healing rather than the end of the consultation.
+   */
+  useEffect(() => {
+    if (!inCall || !connected) return;
+    sendMessage({ type: 'call:join', consultationId: id });
+    resendPendingOffer();
+  }, [inCall, connected, id, sendMessage, resendPendingOffer]);
 
   // ---- call timer ---------------------------------------------------------
   useEffect(() => {
@@ -232,6 +344,7 @@ export default function CallPage() {
 
   const endCall = async () => {
     sendMessage({ type: 'call:leave' });
+    setInCall(false);
     teardown();
     try { await api.post(`/consultations/${id}/end`); } catch { /* already ended server-side */ }
     setPhase('ended');
@@ -239,6 +352,7 @@ export default function CallPage() {
 
   const leaveWithoutEnding = () => {
     sendMessage({ type: 'call:leave' });
+    setInCall(false);
     teardown();
     navigate(user?.role === 'DOCTOR' ? '/doctor/queue' : '/assistant/dashboard');
   };
@@ -305,6 +419,19 @@ export default function CallPage() {
         </div>
       )}
 
+      {/* A missing relay only shows up as a call that never connects, and only
+          for the pairs of users who happen to be on different networks. Saying
+          so up front turns that into something an administrator can act on. */}
+      {!relayed && phase !== 'error' && (
+        <div className="p-2.5 rounded-field bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            No TURN relay is configured. Calls will connect on a shared network, but are likely to
+            fail when the doctor and the clinic are on different networks.
+          </span>
+        </div>
+      )}
+
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-[50vh]">
         <div className="lg:col-span-3 relative rounded-card overflow-hidden bg-black border border-white/10">
           <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-contain" />
@@ -366,6 +493,7 @@ export default function CallPage() {
               {consultation.visits?.risk_level && <p>Risk: {consultation.visits.risk_level}</p>}
               <p className="text-ink-muted">
                 Media: {consultation.meeting_provider === 'mediasoup' ? 'SFU' : 'peer-to-peer'}
+                {relayed && ' · relay available'}
               </p>
             </div>
           )}
