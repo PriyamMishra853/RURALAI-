@@ -56,20 +56,33 @@ const OUTBOX_TTL_MS = 10000;
  *   3. The page's own origin — correct when one service serves UI and API.
  */
 const resolveRealtimeUrl = () => {
+  // The page decides the scheme, never the configuration.
+  //
+  // A document served over HTTPS may not open a ws:// socket — the browser
+  // blocks it as mixed content before the connection is attempted, and throws
+  // from the WebSocket constructor. So a VITE_REALTIME_URL of
+  // "ws://host/realtime" cannot work on a deployed site no matter what else is
+  // right, and honouring it just reproduces the failure. Only the host and path
+  // are taken from configuration; the scheme is derived from the page.
+  const secure = window.location.protocol === 'https:';
+  const scheme = secure ? 'wss' : 'ws';
+
   const explicit = import.meta.env.VITE_REALTIME_URL;
-  if (explicit) return explicit;
+  if (explicit) {
+    const hostAndPath = String(explicit).trim().replace(/^(wss?|https?):\/\//i, '');
+    if (hostAndPath) return `${scheme}://${hostAndPath}`;
+  }
 
   const apiUrl = import.meta.env.VITE_API_URL;
   if (apiUrl) {
     try {
-      const { protocol, host } = new URL(apiUrl, window.location.origin);
-      return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/realtime`;
+      const { host } = new URL(apiUrl, window.location.origin);
+      return `${scheme}://${host}/realtime`;
     } catch {
       // Malformed VITE_API_URL — fall through to the page's own origin.
     }
   }
 
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${scheme}://${window.location.host}/realtime`;
 };
 
@@ -161,7 +174,20 @@ export function RealtimeProvider({ children }) {
       // keeps working, and only calls quietly stop connecting.
       console.info('[realtime] connecting to', base);
 
-      const ws = new WebSocket(url);
+      // The constructor itself can throw — a blocked mixed-content URL raises
+      // SecurityError synchronously. Uncaught, that escapes the effect and
+      // takes the reconnect loop with it, so the app never tries again.
+      let ws;
+      try {
+        ws = new WebSocket(url);
+      } catch (err) {
+        console.error('[realtime] could not open socket:', err.message);
+        setConnected(false);
+        const delay = Math.min(RECONNECT_BASE_MS * 2 ** attemptsRef.current, MAX_RECONNECT_MS);
+        attemptsRef.current += 1;
+        timerRef.current = setTimeout(connect, delay);
+        return;
+      }
       wsRef.current = ws;
 
       ws.onopen = () => {
