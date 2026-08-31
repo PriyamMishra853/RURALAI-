@@ -170,7 +170,21 @@ clinical-safety boundary that is currently open.
   re-verification of the feature.
 - **Doctor handoff.** Repaired in Phase 0.4.
 
-### 1.1 Disable AI medication recommendations — CRITICAL, do first
+### Status
+
+| Item | State |
+|------|-------|
+| 1.1 Medication is doctor-only | **Done** |
+| 1.2 Patient search hits the database | **Done** |
+| 1.3 Withdraw an accidental case | **Done** |
+| 1.4 Urgent registration | Not started |
+| 1.5 Unified consultations list | Not started |
+| 1.6 Health card OCR | Not started |
+
+Backend suite 122/122. Migration `08_visit_soft_delete.sql` applied to
+production; 1898 existing visits unaffected.
+
+### 1.1 Disable AI medication recommendations — CRITICAL, do first — DONE
 
 `aiOrchestrator` sets `finalAssessment.medications` and
 `supportive_medication_guidance` from the formulary engine, and the assistant's
