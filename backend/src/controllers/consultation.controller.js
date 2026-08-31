@@ -172,7 +172,21 @@ export const createConsultation = async (req, res) => {
   // §3.5 — the room is created ONCE, now, and reused by every later join.
   await attachMeeting(consultation);
 
-  await supabaseAdmin.from('visits').update({ status: 'consultation_scheduled' }).eq('id', visit_id);
+  /*
+   * The visit stays 'awaiting_doctor' while a consultation is merely booked.
+   *
+   * This wrote 'consultation_scheduled', which is not a value visit_status has
+   * — so Postgres rejected every one of these updates and the result was
+   * discarded, leaving the visit silently untouched. Booking a call does not
+   * change the visit's clinical state anyway: the patient is still waiting for
+   * a doctor, and when the call actually starts the join transition sets
+   * 'in_consultation'. The consultations row is the source of truth for the
+   * booking itself, so duplicating it here would only be a second copy to
+   * disagree with.
+   */
+  const { error: statusErr } = await supabaseAdmin
+    .from('visits').update({ status: 'awaiting_doctor' }).eq('id', visit_id);
+  if (statusErr) console.error('visit status update failed after booking:', statusErr.message);
 
   await notify({
     consultationId: consultation.id,

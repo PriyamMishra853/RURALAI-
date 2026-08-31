@@ -7,6 +7,7 @@
  */
 
 import 'dotenv/config';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { makeClient, runSqlFile } from './lib/db.js';
@@ -14,7 +15,23 @@ import { makeClient, runSqlFile } from './lib/db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const V2_DIR = path.resolve(__dirname, '../../../database/v2');
 
-const FILES = ['01_reset.sql', '02_schema.sql', '03_rls.sql', '04_visit_history.sql', '05_consultations.sql', '06_patient_images.sql'];
+/*
+ * Every numbered migration in database/v2, in order, read from disk.
+ *
+ * This was a hand-maintained list and it had drifted four migrations behind:
+ * 07 (case handoff), 08 (visit withdrawal), 09 (emergency registration) and
+ * 10 (admin analytics) all existed and none of them ran. Anyone rebuilding
+ * from this script got a database where handing a case to a doctor,
+ * withdrawing an accidental entry, registering an emergency patient and the
+ * whole admin dashboard were broken — and nothing said so, because the script
+ * reported success for the files it did know about.
+ *
+ * Reading the directory means adding a migration is enough to have it applied.
+ */
+const FILES = fs
+  .readdirSync(V2_DIR)
+  .filter((f) => /^\d{2}_.*\.sql$/.test(f))
+  .sort();
 
 const main = async () => {
   if (!process.argv.includes('--confirm')) {
