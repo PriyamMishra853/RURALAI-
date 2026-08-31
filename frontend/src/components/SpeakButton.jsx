@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Volume2, Square, AlertCircle } from 'lucide-react';
+import { Volume2, Square, AlertCircle, Loader2 } from 'lucide-react';
+import api from '../services/api';
 import { cn } from './ui';
 
 /**
@@ -11,10 +12,15 @@ import { cn } from './ui';
  *   - it costs nothing per play, so an assistant can replay it freely
  *   - the patient's clinical text never leaves the device to be synthesised
  *
- * Language follows the patient's recorded preference where a voice exists for
- * it. Hindi voices are common on Android; if none is installed the browser
- * falls back to its default voice rather than failing silently, and the button
- * says so.
+ * Either language, on demand. The assessment is generated in English, so
+ * Hindi playback needs the text translated first — a Hindi voice reading
+ * English words produces something neither the assistant nor the patient can
+ * follow. Each passage is translated once and kept, so replaying costs
+ * nothing.
+ *
+ * Which language to use is not a preference to guess at: the assistant is
+ * standing with the patient and knows. The recorded language only decides
+ * which button starts selected.
  */
 
 const LANG_TAG = {
@@ -33,7 +39,12 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState(null);
   const [voices, setVoices] = useState([]);
+  const [spokenLang, setSpokenLang] = useState(language === 'English' ? 'English' : 'Hindi');
+  const [translating, setTranslating] = useState(false);
   const utteranceRef = useRef(null);
+  // Keyed on the passage as well as the language, so a new assessment does not
+  // replay the previous case's translation.
+  const cacheRef = useRef({ source: null, byLang: {} });
 
   useEffect(() => {
     if (!supported()) return undefined;
@@ -57,7 +68,32 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
     setSpeaking(false);
   }, []);
 
-  const speak = useCallback(() => {
+  /** The passage in `target`, reusing anything already translated. */
+  const textFor = useCallback(async (target) => {
+    const source = String(text || '').trim();
+    if (target === 'English') return source;
+
+    if (cacheRef.current.source !== source) cacheRef.current = { source, byLang: {} };
+    if (cacheRef.current.byLang[target]) return cacheRef.current.byLang[target];
+
+    setTranslating(true);
+    try {
+      const res = await api.post('/voice/translate', { text: source, target });
+      const out = res.data?.text || source;
+      cacheRef.current.byLang[target] = out;
+      // The server returns the original with a reason rather than an error, so
+      // the button still reads something usable. Say why it stayed English.
+      if (res.data?.ok === false && res.data?.reason) setError(res.data.reason);
+      return out;
+    } catch {
+      setError('Could not translate — reading the English text.');
+      return source;
+    } finally {
+      setTranslating(false);
+    }
+  }, [text]);
+
+  const speak = useCallback(async (target) => {
     if (!supported()) {
       setError('This browser cannot read text aloud.');
       return;
@@ -67,8 +103,15 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
     window.speechSynthesis.cancel();
     setError(null);
 
-    const tag = LANG_TAG[language] || 'en-IN';
-    const utterance = new SpeechSynthesisUtterance(text);
+    const spoken = await textFor(target);
+    if (!spoken) return;
+
+    // If translation failed the passage is still English, so read it with an
+    // English voice rather than mispronouncing it with a Hindi one.
+    const translated = target !== 'English' && spoken !== String(text || '').trim();
+    const tag = translated ? (LANG_TAG[target] || 'hi-IN') : 'en-IN';
+
+    const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = tag;
     // Slower than default: this is clinical instruction being read to someone
     // who may be writing it down or repeating it to a patient.
@@ -94,31 +137,56 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
     setSpeaking(true);
-  }, [text, language, voices]);
+  }, [text, voices, textFor]);
 
   if (!supported()) return null;
 
-  const hasVoiceForLanguage = voices.some((v) => v.lang?.startsWith((LANG_TAG[language] || 'en-IN').split('-')[0]));
+  const LANGS = [
+    { key: 'English', label: 'English' },
+    { key: 'Hindi', label: 'हिन्दी' }
+  ];
+  const hasVoiceFor = (lang) =>
+    voices.some((v) => v.lang?.startsWith((LANG_TAG[lang] || 'en-IN').split('-')[0]));
+
+  const press = (lang) => {
+    if (speaking && lang === spokenLang) { stop(); return; }
+    setSpokenLang(lang);
+    speak(lang);
+  };
 
   return (
     <div className={cn('inline-flex flex-col items-start gap-1', className)}>
-      <button
-        type="button"
-        onClick={speaking ? stop : speak}
-        disabled={!text?.trim()}
-        aria-label={speaking ? 'Stop reading' : `${label} in ${language}`}
-        className={cn(
-          'inline-flex items-center gap-2 rounded-field font-semibold transition-colors disabled:opacity-40',
-          size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2.5 text-xs min-h-[2.5rem]',
-          speaking
-            ? 'bg-tier-emergency text-white hover:opacity-90'
-            : 'bg-gov-600 hover:bg-gov-700 dark:bg-gov-500 dark:hover:bg-gov-400 dark:text-gov-950 text-white shadow-sm'
-        )}
-      >
-        {speaking
-          ? <><Square className="w-3.5 h-3.5 fill-current" /> Stop</>
-          : <><Volume2 className="w-4 h-4" /> {label}</>}
-      </button>
+      {/* Both languages are offered as buttons rather than a toggle plus a
+          play control: it is one press either way, and the assistant can see
+          which languages exist without opening anything. */}
+      <div className="inline-flex flex-wrap items-center gap-2">
+        {LANGS.map((l) => {
+          const active = speaking && spokenLang === l.key;
+          const busy = translating && spokenLang === l.key;
+          return (
+            <button
+              key={l.key}
+              type="button"
+              onClick={() => press(l.key)}
+              disabled={!text?.trim() || (translating && spokenLang !== l.key)}
+              aria-label={active ? `Stop reading in ${l.label}` : `${label} in ${l.label}`}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-field font-semibold transition-colors disabled:opacity-40',
+                size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2.5 text-xs min-h-[2.5rem]',
+                active
+                  ? 'bg-tier-emergency text-white hover:opacity-90'
+                  : 'bg-gov-600 hover:bg-gov-700 dark:bg-gov-500 dark:hover:bg-gov-400 dark:text-gov-950 text-white shadow-sm'
+              )}
+            >
+              {busy
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Translating…</>
+                : active
+                  ? <><Square className="w-3.5 h-3.5 fill-current" /> Stop</>
+                  : <><Volume2 className="w-4 h-4" /> {l.label}</>}
+            </button>
+          );
+        })}
+      </div>
 
       {error && (
         <span className="text-[10px] text-tier-emergency flex items-center gap-1">
@@ -128,9 +196,9 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
 
       {/* Said plainly rather than silently reading Hindi text in an English
           voice, which is close to unintelligible. */}
-      {!error && !hasVoiceForLanguage && language !== 'English' && (
+      {!error && !hasVoiceFor('Hindi') && (
         <span className="text-[10px] text-ink-subtle">
-          No {language} voice installed — will read in the default voice.
+          No Hindi voice installed on this device — Hindi will read in the default voice.
         </span>
       )}
     </div>

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { probeInferenceService } from '../services/aiInferenceClient.js';
 import { runFullPatientAssessment } from '../services/aiOrchestrator.js';
-import { transcribeAndExtractSymptoms } from '../services/speechService.js';
+import { transcribeAndExtractSymptoms, translateForSpeech } from '../services/speechService.js';
 import { processMedicalDocument } from '../services/ocrService.js';
 import { analyzeInjuryImage } from '../services/visionService.js';
 import { calculateRiskLevel } from '../services/riskEngine.js';
@@ -491,4 +491,21 @@ export const getAiServiceStatus = async (req, res) => {
       ? 'Symptom retrieval and precautions are active.'
       : 'Unavailable — assessments are running on the rule engine alone.'
   });
+};
+
+/**
+ * POST /api/voice/translate  { text, target }
+ *
+ * Translates generated assessment text so the read-aloud control can play it
+ * back in the patient's language. Never a general translation endpoint — see
+ * translateForSpeech for why the prompt is written the way it is.
+ *
+ * A failure returns 200 with the original text and a reason, because the
+ * assistant should still be able to read something aloud. An error here would
+ * leave them with a silent button and no explanation.
+ */
+export const translateSpeechText = async (req, res) => {
+  const { text, target = 'Hindi' } = req.body || {};
+  const result = await translateForSpeech(text, target);
+  return res.json(result);
 };

@@ -1138,15 +1138,6 @@ export default function PatientAssessmentVisitPage() {
             buttons. Rendered above the older detail blocks, which remain for
             the protocol/vision breakdown.
           */}
-          {/* The doctor's decision, arriving live. Rendered above the AI
-              result once a visit exists: the assistant is waiting on this. */}
-          {visitId && (
-            <DoctorReviewPanel
-              visitId={visitId}
-              language={patient?.preferred_language || 'Hindi'}
-            />
-          )}
-
           {aiAssessment?.workflow && (
             <TierResult
               workflow={aiAssessment.workflow}

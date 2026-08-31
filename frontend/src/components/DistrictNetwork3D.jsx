@@ -186,7 +186,10 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
 
     // ------------------------------------------------------------- raycasting
     const raycaster = new THREE.Raycaster();
-    raycaster.params.Points = { threshold: 0.1 };
+    // A generous pick radius. These markers are a few pixels across on a
+    // phone, and an exact-hit test makes them effectively unhoverable.
+    raycaster.params.Points = { threshold: 0.35 };
+    raycaster.params.Mesh = {};
     const pointerNdc = new THREE.Vector2(-2, -2);
     const parallax = { x: 0, y: 0, tx: 0, ty: 0 };
 
@@ -212,6 +215,17 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
     const clock = new THREE.Clock();
     let raf;
     let hoveredMesh = null;
+    /*
+     * How long a label survives the ray missing everything.
+     *
+     * The markers are small, and the camera drifts with the pointer, so the
+     * ray misses on a great many frames while the cursor is travelling between
+     * two districts. Clearing on the first miss made the label flicker out the
+     * instant the mouse moved — it read as the panel closing itself. Holding
+     * the last district briefly means only a deliberate move away clears it.
+     */
+    const HOVER_GRACE_MS = 260;
+    let lastHitAt = 0;
 
     const frame = () => {
       const t = clock.getElapsedTime();
@@ -248,11 +262,17 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
       if (hit) {
         hit.scale.setScalar(1.9);
         hoveredMesh = hit;
+        lastHitAt = performance.now();
         handleHover(hit.userData.district);
         mount.style.cursor = 'pointer';
       } else {
         mount.style.cursor = 'default';
-        if (pointerNdc.x > -1.5) handleHover(null);
+        // Pointer genuinely outside the canvas clears at once (pointerleave
+        // parks it at -2); otherwise wait out the grace period.
+        const pointerInside = pointerNdc.x > -1.5;
+        if (!pointerInside || performance.now() - lastHitAt > HOVER_GRACE_MS) {
+          handleHover(null);
+        }
       }
 
       renderer.render(scene, camera);

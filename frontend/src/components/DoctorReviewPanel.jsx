@@ -4,6 +4,7 @@ import {
   Stethoscope, Clock, CheckCircle2, Pill, FileDown, Siren, RefreshCw
 } from 'lucide-react';
 import api from '../services/api';
+import { downloadVisitReport } from '../services/reportDownload';
 import { useRealtime } from '../context/RealtimeContext';
 import { Card, CardHeader, Badge, Button, Alert, Spinner, cn } from './ui';
 import SpeakButton from './SpeakButton';
@@ -39,7 +40,6 @@ const DECISION_TONE = {
   no_action_needed: 'neutral'
 };
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export default function DoctorReviewPanel({ visitId, language = 'Hindi', className }) {
   const { subscribe } = useRealtime();
@@ -222,14 +222,11 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => {
-                  const token = localStorage.getItem('vvc_token');
-                  fetch(`${API_BASE}/reports/visits/${visitId}/summary.pdf`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                  })
-                    .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('PDF failed'))))
-                    .then((b) => window.open(URL.createObjectURL(b), '_blank'))
-                    .catch((e) => alert(e.message));
+                onClick={async () => {
+                  const { ok, error } = await downloadVisitReport(visitId, 'summary', {
+                    patientName: data?.patient_name
+                  });
+                  if (!ok) alert(error);
                 }}
               >
                 <FileDown className="w-3.5 h-3.5" /> Print for the patient

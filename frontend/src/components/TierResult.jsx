@@ -17,7 +17,6 @@ import SpeakButton, { assessmentToSpeech } from './SpeakButton';
  * entirely and points at a hospital.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 function Section({ icon: Icon, title, children, tone = 'default', className }) {
   return (
@@ -49,17 +48,9 @@ function NumberedList({ items }) {
 }
 
 function PdfButtons({ visitId, tier }) {
-  const open = (type) => {
-    // The route streams a PDF and requires the bearer token, so it is fetched
-    // and opened as a blob rather than linked directly — a plain <a href> would
-    // arrive unauthenticated.
-    const token = localStorage.getItem('vvc_token');
-    fetch(`${API_BASE}/reports/visits/${visitId}/${type}.pdf`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then((r) => (r.ok ? r.blob() : r.json().then((j) => Promise.reject(new Error(j.error)))))
-      .then((blob) => window.open(URL.createObjectURL(blob), '_blank'))
-      .catch((err) => alert(`Could not generate the PDF: ${err.message}`));
+  const open = async (type) => {
+    const { ok, error } = await downloadVisitReport(visitId, type);
+    if (!ok) alert(error);
   };
 
   return (

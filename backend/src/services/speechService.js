@@ -208,3 +208,59 @@ Return strictly:
     warnings
   };
 };
+
+/**
+ * Translate assessment text for the read-aloud control.
+ *
+ * Scoped deliberately narrowly. This exists so a health worker can play the
+ * assessment back to a patient in Hindi, and the text it receives is text the
+ * system generated — a summary, first-aid steps, precautions. It is not a
+ * general translation service and must never invent clinical content: the
+ * prompt forbids adding, removing or "improving" anything, because a
+ * translation that helpfully adds a dose is a fabricated instruction that
+ * nobody proofread.
+ *
+ * Returns the original text on failure rather than an error. The read-aloud
+ * button should still read something the assistant can use.
+ */
+export const translateForSpeech = async (text, target = 'Hindi') => {
+  const source = String(text || '').trim();
+  if (!source) return { ok: false, text: '', reason: 'Nothing to translate.' };
+  if (source.length > 6000) {
+    return { ok: false, text: source, reason: 'That passage is too long to translate.' };
+  }
+
+  const LANGS = { Hindi: 'Hindi (Devanagari script)', English: 'English' };
+  const targetName = LANGS[target];
+  if (!targetName) return { ok: false, text: source, reason: `Unsupported language: ${target}` };
+
+  try {
+    const completion = await groqChat({
+      model: GROQ_TEXT_MODEL,
+      temperature: 0,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'system',
+          content: `You translate clinical guidance for a rural health worker in India into ${targetName}.
+
+RULES:
+- Translate faithfully. Do NOT add, remove, summarise or improve anything.
+- Never introduce a medicine, a dose, a diagnosis or advice that is not in the source. The source has been through clinical safety checks; anything you add has not.
+- Keep numbers, units, times and measurements exactly as written.
+- Keep an English clinical term in English if there is no everyday equivalent a patient would recognise.
+- Use simple everyday language a patient can follow, not formal or literary register.
+- Reply with the translation only. No preamble, no notes, no quotes.`
+        },
+        { role: 'user', content: source }
+      ]
+    });
+
+    const out = completion?.choices?.[0]?.message?.content?.trim();
+    if (!out) return { ok: false, text: source, reason: 'The translation came back empty.' };
+    return { ok: true, text: out, target };
+  } catch (err) {
+    console.warn('translation failed:', err.message);
+    return { ok: false, text: source, reason: 'Translation is unavailable right now.' };
+  }
+};

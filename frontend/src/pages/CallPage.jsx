@@ -365,7 +365,7 @@ export default function CallPage() {
   // every control on this screen is white-on-dark. The theme sweep briefly
   // made this surface light, which left all of those controls invisible.
   return (
-    <div className="min-h-[85vh] bg-gov-950 dark:bg-gov-50 -m-4 sm:-m-6 p-4 sm:p-6 flex flex-col gap-4">
+    <div className="relative min-h-[85vh] overflow-x-hidden bg-gov-950 dark:bg-gov-50 -m-4 sm:-m-6 p-4 sm:p-6 flex flex-col gap-4">
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -432,9 +432,26 @@ export default function CallPage() {
         </div>
       )}
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-[50vh]">
-        <div className="lg:col-span-3 relative rounded-card overflow-hidden bg-black border border-white/10">
-          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-contain" />
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+        {/*
+          A definite box, not a stretched grid cell.
+          
+          This cell had no height of its own, so `h-full` on the video resolved
+          to auto and the element took its intrinsic size — a portrait phone
+          stream rendered at the full width of a laptop became several
+          viewports tall, pushed the page into horizontal scroll, and showed a
+          hugely magnified crop of whoever was calling. Fixing the aspect ratio
+          and capping the height gives object-contain something to letterbox
+          against, so a portrait caller appears upright with pillarboxing
+          instead of being blown up.
+        */}
+        <div className="lg:col-span-3 relative w-full aspect-video max-h-[68vh] rounded-card overflow-hidden bg-black border border-white/10">
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="absolute inset-0 w-full h-full object-contain"
+          />
 
           {phase !== 'live' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-ink-subtle">
@@ -485,8 +502,10 @@ export default function CallPage() {
           )}
         </div>
 
-        <div className="space-y-4">
-          <div className="relative rounded-card overflow-hidden bg-black border border-white/10 aspect-video">
+        {/* On a phone the self-view sits over the stage rather than under it:
+            stacked, it pushed the person you are talking to off the screen. */}
+        <div className="space-y-4 absolute right-6 top-28 w-28 sm:w-36 z-10 lg:static lg:w-auto lg:z-auto">
+          <div className="relative rounded-card overflow-hidden bg-black border border-white/10 aspect-video shadow-lg">
             <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/60 text-white text-[10px] font-semibold">
               You · {ROLE_LABEL[user?.role] || 'Participant'}

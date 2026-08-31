@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { transcribeSpeech } from '../controllers/ai.controller.js';
+import { transcribeSpeech , translateSpeechText } from '../controllers/ai.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
@@ -23,5 +23,9 @@ router.use(aiRateLimiter);
 
 // Voice routes matching /api/voice/transcribe
 router.post('/transcribe', upload.single('audio'), transcribeSpeech);
+
+// Read-aloud translation. Same rate limiter as the rest of this router: it is
+// a model call and costs money per request.
+router.post('/translate', translateSpeechText);
 
 export default router;

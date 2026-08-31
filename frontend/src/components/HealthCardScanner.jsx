@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Camera, Loader2, CheckCircle2, AlertTriangle, X, ScanLine } from 'lucide-react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { Camera, Loader2, CheckCircle2, AlertTriangle, X, ScanLine, Upload, Aperture } from 'lucide-react';
 import api from '../services/api';
 
 /**
@@ -36,10 +36,70 @@ const CONFIDENCE_TONE = {
 
 export default function HealthCardScanner({ form, onApply }) {
   const fileRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [applied, setApplied] = useState({});
+  const [cameraOn, setCameraOn] = useState(false);
+
+  /*
+   * A live camera, not just the file picker's capture hint.
+   *
+   * `capture="environment"` on an <input type=file> opens the camera on a
+   * phone and does nothing at all on a laptop, where it falls back to browsing
+   * for a file — so on the desktop the clinic actually uses, there was no way
+   * to photograph a card at all. getUserMedia works on both.
+   */
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+  }, []);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  const startCamera = async () => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        // The rear camera where there is one; a laptop simply ignores this.
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 } }
+      });
+      streamRef.current = stream;
+      setCameraOn(true);
+      // The <video> only exists once cameraOn has rendered it.
+      requestAnimationFrame(() => {
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      });
+    } catch (err) {
+      setError(
+        err.name === 'NotAllowedError'
+          ? 'Camera permission was refused. Allow it in the browser, or upload a photo instead.'
+          : 'No camera is available on this device. Upload a photo instead.'
+      );
+    }
+  };
+
+  /** Grab the current frame at full sensor resolution and read it. */
+  const captureFrame = async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    const blob = await new Promise((resolve) =>
+      // JPEG at 0.92: a card is flat printed text, and PNG would treble the
+      // upload size for no legibility gain over a link that may be very slow.
+      canvas.toBlob(resolve, 'image/jpeg', 0.92)
+    );
+    stopCamera();
+    if (blob) await scan([new File([blob], 'health-card.jpg', { type: 'image/jpeg' })]);
+  };
 
   const scan = async (files) => {
     if (!files?.length) return;
@@ -84,25 +144,55 @@ export default function HealthCardScanner({ form, onApply }) {
             Nothing is filled in until you accept it.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-          className="shrink-0 px-3 py-2 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
-        >
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-          {busy ? 'Reading…' : 'Scan card'}
-        </button>
+        <div className="shrink-0 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={cameraOn ? captureFrame : startCamera}
+            disabled={busy}
+            className="px-3 py-2 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
+          >
+            {busy
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Reading…</>
+              : cameraOn
+                ? <><Aperture className="w-4 h-4" /> Capture</>
+                : <><Camera className="w-4 h-4" /> Use camera</>}
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            title="Upload a photo or PDF instead"
+            className="px-3 py-2 rounded-field border border-line text-ink-muted hover:bg-surface-raised disabled:opacity-50 text-xs font-semibold flex items-center gap-1.5"
+          >
+            <Upload className="w-4 h-4" /> Upload
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
           accept="image/*,application/pdf"
-          capture="environment"
           multiple
           hidden
           onChange={(e) => scan(Array.from(e.target.files || []))}
         />
       </div>
+
+      {cameraOn && (
+        <div className="space-y-2">
+          <div className="relative rounded-field overflow-hidden bg-black border border-line">
+            <video ref={videoRef} autoPlay playsInline muted className="w-full max-h-64 object-contain" />
+            {/* A frame guide: a card photographed at an angle reads far worse
+                than one held square to the lens. */}
+            <div className="absolute inset-6 border-2 border-dashed border-white/40 rounded pointer-events-none" />
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-ink-muted">Hold the card inside the frame, then press Capture.</p>
+            <button type="button" onClick={stopCamera} className="text-[11px] text-ink-subtle hover:text-ink">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="p-2.5 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-[11px] text-tier-emergency flex items-start gap-1.5">
