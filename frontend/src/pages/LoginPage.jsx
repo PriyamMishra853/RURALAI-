@@ -38,7 +38,24 @@ export default function LoginPage() {
       const profile = await loginUser(email, password);
       navigate(profile.home || homeFor(profile.role), { replace: true });
     } catch (err) {
-      setError(err.response?.data?.error || 'Sign-in failed. Check your email and password.');
+      /*
+       * A request that never arrived is not a wrong password.
+       *
+       * `err.response` is absent when the browser blocked the request before it
+       * reached the API — the usual cause being the page opened on a Vercel
+       * deployment URL rather than the production domain, which the backend's
+       * CORS list does not include. Reporting that as "check your email and
+       * password" sends someone to re-check credentials that were correct all
+       * along, which has already cost real time here.
+       */
+      if (!err.response) {
+        setError(
+          'Could not reach the server. Check the connection — and make sure you are on the '
+          + 'main site address rather than a preview or deployment link.'
+        );
+        return;
+      }
+      setError(err.response.data?.error || `Sign-in failed (HTTP ${err.response.status}).`);
     }
   };
 
