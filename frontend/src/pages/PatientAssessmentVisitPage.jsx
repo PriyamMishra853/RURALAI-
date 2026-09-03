@@ -15,6 +15,7 @@ import {
 } from '../config/vitals';
 import TierResult from '../components/TierResult';
 import DoctorReviewPanel from '../components/DoctorReviewPanel';
+import ReferralPanel from '../components/ReferralPanel';
 
 export default function PatientAssessmentVisitPage() {
   const { id: patientId } = useParams();
@@ -1150,6 +1151,17 @@ export default function PatientAssessmentVisitPage() {
                 Retry Assessment
               </button>
             </div>
+          )}
+
+          {/* Referral first for the tiers that need one. When a case is an
+              emergency, where to take the patient outranks everything else on
+              this screen — including the assessment that produced the tier. */}
+          {visitId && (
+            <ReferralPanel
+              visitId={visitId}
+              riskLevel={aiAssessment?.risk_level}
+              language={patient?.preferred_language || 'Hindi'}
+            />
           )}
 
           {/* The doctor's decision, arriving live. Rendered first, above the AI

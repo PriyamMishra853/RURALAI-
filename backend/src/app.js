@@ -17,6 +17,7 @@ import aiRoutes from './routes/ai.routes.js';
 import doctorRoutes from './routes/doctor.routes.js';
 import consultationRoutes from './routes/consultation.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import referralRoutes from './routes/referral.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import visionRoutes from './routes/vision.routes.js';
@@ -89,6 +90,7 @@ app.get(HAS_FRONTEND ? '/api' : ['/', '/api'], (req, res) => {
       voice: '/api/voice',
       doctor: '/api/doctor',
       consultations: '/api/consultations',
+      referral: '/api/referral',
       notifications: '/api/notifications'
     }
   });
@@ -116,6 +118,7 @@ app.use('/api/voice', voiceRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/consultations', consultationRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/referral', referralRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
 

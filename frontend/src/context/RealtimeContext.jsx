@@ -73,10 +73,19 @@ const resolveRealtimeUrl = () => {
     if (hostAndPath) return `${scheme}://${hostAndPath}`;
   }
 
+  /*
+   * The API base can be a same-origin path now, and a websocket cannot.
+   *
+   * vercel.json proxies /api/* to the backend, but Vercel rewrites do not
+   * carry a websocket upgrade — so deriving the socket host from a relative
+   * "/api" would resolve it against the Vercel origin and dial a host that
+   * serves no socket at all. Only an absolute API URL can tell us where the
+   * backend actually lives.
+   */
   const apiUrl = import.meta.env.VITE_API_URL;
-  if (apiUrl) {
+  if (apiUrl && /^https?:\/\//i.test(String(apiUrl).trim())) {
     try {
-      const { host } = new URL(apiUrl, window.location.origin);
+      const { host } = new URL(apiUrl);
       return `${scheme}://${host}/realtime`;
     } catch {
       // Malformed VITE_API_URL — fall through to the page's own origin.

@@ -17,25 +17,62 @@ const DEPLOYED_API = 'https://ruralai-production-220.up.railway.app/api';
  * instead, so a misconfigured variable degrades to "the app still works" rather
  * than "nothing works and the reason is invisible".
  */
+/**
+ * Same-origin when the app is served from Vercel, absolute otherwise.
+ *
+ * vercel.json proxies /api/* through to the backend, so on the deployed site
+ * the browser can talk to its own origin instead of a second domain. That
+ * removes, from every single request: a DNS lookup, a TLS handshake, and — for
+ * anything that is not a simple GET — a CORS preflight round trip.
+ *
+ * On a laptop those cost about a second and nobody notices. On a phone on a
+ * weak rural link they are three more things that can fail before the request
+ * carrying the password has even started, and a failure there is reported as
+ * "could not reach the server" with nothing to distinguish it from the backend
+ * being down. The page itself had already loaded over this exact connection,
+ * which is the point: reuse the path that is demonstrably working.
+ *
+ * Only for *.vercel.app, because that is where the rewrite is deployed
+ * alongside this bundle and the two therefore cannot drift apart. Anywhere
+ * else — localhost, a custom domain, a preview — keeps the explicit URL.
+ */
+const sameOriginProxyAvailable = () =>
+  typeof window !== 'undefined'
+  && window.location.protocol === 'https:'
+  && /\.vercel\.app$/i.test(window.location.hostname);
+
 const resolveApiBase = () => {
+  /*
+   * The best base available when configuration cannot be used.
+   *
+   * Computed once and returned from every rejection branch below. Returning
+   * the absolute backend URL here instead was a real bug: VITE_API_URL is set
+   * on the deployed site — to the websocket address — so every request took a
+   * rejection branch, and the same-origin path was never reached in the one
+   * environment it was written for.
+   */
+  const fallback = sameOriginProxyAvailable() ? '/api' : DEPLOYED_API;
+
   const configured = String(import.meta.env.VITE_API_URL || '').trim();
-  if (!configured) return DEPLOYED_API;
+  if (!configured) return fallback;
+
+  // An explicitly relative base is same-origin and needs no validation — the
+  // checks below exist to catch a websocket URL, which cannot be relative.
+  if (configured.startsWith('/')) return configured.replace(/\/+$/, '') || '/api';
 
   if (!/^https?:\/\//i.test(configured)) {
     console.error(
       `[api] VITE_API_URL is "${configured}", which is not an http(s) address. `
-      + `Ignoring it and using ${DEPLOYED_API}. `
+      + `Ignoring it and using ${fallback}. `
       + `The websocket address belongs in VITE_REALTIME_URL, not here.`
     );
-    return DEPLOYED_API;
+    return fallback;
   }
 
   // A base ending in /realtime is the socket endpoint, not the API root.
   if (/\/realtime\/?$/i.test(configured)) {
-    console.error(
-      `[api] VITE_API_URL points at the realtime endpoint. Using ${DEPLOYED_API} instead.`
-    );
-    return DEPLOYED_API;
+    console.error(`[api] VITE_API_URL points at the realtime endpoint. Using ${fallback} instead.`);
+    return fallback;
   }
 
   return configured.replace(/\/+$/, '');
@@ -70,6 +107,11 @@ const api = axios.create({
  */
 export const describeTransportFailure = (error) => {
   const host = (() => {
+    // A same-origin base has no host of its own; name the site instead, which
+    // is what the person is actually looking at.
+    if (API_BASE.startsWith('/')) {
+      return typeof window !== 'undefined' ? window.location.host : 'this site';
+    }
     try { return new URL(API_BASE).host; } catch { return API_BASE; }
   })();
 

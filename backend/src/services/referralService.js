@@ -43,6 +43,45 @@ export const hospitalForDistrict = (districtName) =>
   HOSPITALS.find((h) => h.district.toLowerCase() === String(districtName || '').toLowerCase()) || null;
 
 /**
+ * Is this a plausible position in India?
+ *
+ * A browser geolocation fix can be wildly wrong — a stale cache, a VPN, a
+ * desktop guessing from an IP block — and a referral computed from a bad fix
+ * names a hospital in the wrong part of the country with total confidence.
+ * Rejecting the fix and falling back to the clinic's own district is always
+ * better than routing a critical patient off the map.
+ *
+ * Bounds are mainland India plus a margin, not UP: a health worker near a
+ * state border legitimately sits outside UP while the nearest district
+ * hospital is still the right answer.
+ */
+export const withinIndia = (lat, lon) =>
+  Number.isFinite(lat) && Number.isFinite(lon)
+  && lat >= 6.0 && lat <= 37.5
+  && lon >= 68.0 && lon <= 97.5;
+
+/**
+ * A link that hands off to whatever maps app the device already has.
+ *
+ * Deliberately a URL and not an embedded map. On a phone this opens the native
+ * Maps application with navigation already running, which is what someone
+ * needs while standing next to a critical patient; an embedded widget would
+ * need a key, a map SDK download over a rural link, and would still leave them
+ * to start navigation themselves.
+ */
+export const directionsUrl = (fromLat, fromLon, toLat, toLon) => {
+  if (!Number.isFinite(toLat) || !Number.isFinite(toLon)) return null;
+  const destination = `${toLat},${toLon}`;
+  const params = new URLSearchParams({ api: '1', destination, travelmode: 'driving' });
+  // Origin is omitted when unknown, which makes Maps start from the device's
+  // own position — better than sending it from a coordinate we do not trust.
+  if (Number.isFinite(fromLat) && Number.isFinite(fromLon)) {
+    params.set('origin', `${fromLat},${fromLon}`);
+  }
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+};
+
+/**
  * Nearest hospitals to a point, closest first.
  *
  * @param {number} lat
@@ -70,8 +109,10 @@ export const buildReferral = async ({ districtName, lat, lon }) => {
   const originLat = Number.isFinite(lat) ? lat : home?.lat;
   const originLon = Number.isFinite(lon) ? lon : home?.lon;
 
-  const options = nearestHospitals(originLat, originLon, 3);
-  const primary = options[0] || home || null;
+  const withRoute = (h) => (h ? { ...h, directions_url: directionsUrl(originLat, originLon, h.lat, h.lon) } : null);
+
+  const options = nearestHospitals(originLat, originLon, 3).map(withRoute);
+  const primary = options[0] || withRoute(home) || null;
 
   const referral = {
     primary,
@@ -112,6 +153,7 @@ export const buildReferral = async ({ districtName, lat, lon }) => {
           road_distance_km: Number((element.distance.value / 1000).toFixed(1)),
           driving_time_text: element.duration.text
         };
+        // primary already carries directions_url; spreading keeps it.
         referral.distance_source = 'google-driving';
       }
     } catch (err) {
