@@ -318,6 +318,32 @@ console.log('   database rows cleared\n');
       ['staff_id', 'registration_number', 'specialization', 'qualification', 'years_of_experience'],
       doctorMeta
     );
+
+    /*
+     * Working hours, written here rather than left to a separate script.
+     *
+     * doctor_schedules references staff_profiles ON DELETE CASCADE, so step 1
+     * of this seed destroys every schedule row — and nothing put them back.
+     * A missing row means "not working that day", so the result is an entirely
+     * correct scheduling engine reporting that all 376 doctors are off, every
+     * date showing Closed, and no consultation bookable. It looks exactly like
+     * the video call being broken, and it has now happened three times, each
+     * time costing hours to rediscover.
+     *
+     * The script that removes them is the right place to restore them.
+     */
+    const scheduleRows = [];
+    for (const d of staff.filter((s) => s.role === 'doctor')) {
+      for (let day = 0; day <= 6; day += 1) {
+        scheduleRows.push([d.id, day, '09:00:00', '17:00:00', false]);
+      }
+    }
+    await bulkInsert(
+      client, 'doctor_schedules',
+      ['doctor_id', 'day_of_week', 'start_time', 'end_time', 'is_off'],
+      scheduleRows
+    );
+    console.log(`   ${scheduleRows.length} schedule rows (09:00-17:00, all 7 days)`);
     console.log('');
 
     // -- patients + visits --------------------------------------------------

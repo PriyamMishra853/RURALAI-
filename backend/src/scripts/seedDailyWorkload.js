@@ -195,15 +195,22 @@ const main = async () => {
       }
     }
 
-    // Clear only this date's demo visits for the doctors being refilled. A real
-    // case an assistant handed over today is not demo data and must survive.
+    /*
+     * Clear this date's demo visits.
+     *
+     * `is_demo` is the guard that matters: a real case an assistant handed over
+     * today is not demo data and must survive a reseed. The doctor list is
+     * deliberately NOT part of this any more — matching 375 ids with
+     * `assigned_doctor_id = ANY($2::uuid[])` made Postgres abandon the
+     * visit_date index and the statement timed out on the server, so the
+     * workload could not be rebuilt at all. Every doctor being refilled is in
+     * that list regardless, which makes the extra clause a much more expensive
+     * way to express the same set.
+     */
     console.log(`Clearing demo visits for ${date} …`);
     await client.query(
-      `DELETE FROM visits
-        WHERE is_demo
-          AND visit_date = $1::date
-          AND assigned_doctor_id = ANY($2::uuid[])`,
-      [date, filledDoctors]
+      `DELETE FROM visits WHERE is_demo AND visit_date = $1::date`,
+      [date]
     );
 
     await bulkInsert(client, 'visits',

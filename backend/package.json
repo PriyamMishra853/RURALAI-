@@ -22,7 +22,8 @@
     "seed:schedules": "node src/scripts/seedSchedules.js",
     "seed:daily": "node src/scripts/seedDailyWorkload.js",
     "rotate:demo": "node src/scripts/rotateDemoPassword.js",
-    "preflight": "node src/scripts/preflight.js"
+    "preflight": "node src/scripts/preflight.js",
+    "verify:call": "node src/scripts/verifyCallPipeline.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",
