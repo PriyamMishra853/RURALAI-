@@ -41,10 +41,46 @@ const resolveApiBase = () => {
   return configured.replace(/\/+$/, '');
 };
 
+const API_BASE = resolveApiBase();
+
+/*
+ * A request that never finishes is worse than one that fails.
+ *
+ * There was no timeout at all, so on a weak mobile connection a request could
+ * hang indefinitely: the spinner never stopped and the user was told nothing.
+ * Twenty seconds is generous for this API — the slowest endpoint is an AI
+ * assessment, and even that answers well inside it — while still failing fast
+ * enough that a retry is worth attempting.
+ */
 const api = axios.create({
-  baseURL: resolveApiBase(),
+  baseURL: API_BASE,
+  timeout: 20000,
   headers: { 'Content-Type': 'application/json' }
 });
+
+/**
+ * Describe a transport failure in terms someone can act on.
+ *
+ * axios leaves `response` undefined when the request never reached the server,
+ * and every such case previously surfaced as the same opaque sentence. On a
+ * phone that is the common failure — a dropped packet on a train, a captive
+ * portal, a carrier hiccup — and "could not reach the server" gives no way to
+ * tell that from a genuinely misconfigured address. Naming the host and the
+ * cause is what makes it reportable.
+ */
+export const describeTransportFailure = (error) => {
+  const host = (() => {
+    try { return new URL(API_BASE).host; } catch { return API_BASE; }
+  })();
+
+  if (error?.code === 'ECONNABORTED' || /timeout/i.test(error?.message || '')) {
+    return `The server at ${host} did not answer within 20 seconds. The connection may be weak — try again.`;
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'This device is offline. Reconnect and try again.';
+  }
+  return `Could not reach ${host}. Check the connection, and make sure you are on the main site address rather than a preview link.`;
+};
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('vvc_token');
@@ -58,7 +94,25 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    /*
+     * Retry a transport failure once, for GETs only.
+     *
+     * A single dropped request is the normal texture of a mobile network, and
+     * one retry turns most of them into a slightly slow page rather than an
+     * error the user has to act on. Restricted to GET because a POST that
+     * failed in transit may still have been received — retrying a handoff or a
+     * doctor's review could duplicate a clinical record.
+     */
+    const cfg = error.config;
+    const isTransport = !error.response;
+    const isGet = String(cfg?.method || 'get').toLowerCase() === 'get';
+    if (isTransport && isGet && cfg && !cfg.__retried) {
+      cfg.__retried = true;
+      await new Promise((r) => setTimeout(r, 800));
+      return api.request(cfg);
+    }
+
     const status = error.response?.status;
     const message = error.response?.data?.error || '';
 

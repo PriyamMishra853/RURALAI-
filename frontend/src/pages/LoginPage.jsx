@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight, Lock, Eye, EyeOff, ShieldCheck, Info, Activity } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { describeTransportFailure } from '../services/api';
 import { homeFor } from '../config/roles';
 import { Button, Input, Alert, Card } from '../components/ui';
 
@@ -48,11 +49,12 @@ export default function LoginPage() {
        * password" sends someone to re-check credentials that were correct all
        * along, which has already cost real time here.
        */
+      // A request that never arrived is not a wrong password. The client
+      // names the host and distinguishes a timeout from being offline, which
+      // is the difference between "your network dropped" and "this build is
+      // pointed at the wrong address".
       if (!err.response) {
-        setError(
-          'Could not reach the server. Check the connection — and make sure you are on the '
-          + 'main site address rather than a preview or deployment link.'
-        );
+        setError(describeTransportFailure(err));
         return;
       }
       setError(err.response.data?.error || `Sign-in failed (HTTP ${err.response.status}).`);
