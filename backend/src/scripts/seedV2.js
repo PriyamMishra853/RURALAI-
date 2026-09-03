@@ -332,10 +332,24 @@ console.log('   database rows cleared\n');
      *
      * The script that removes them is the right place to restore them.
      */
+    /*
+     * All hours, every day — matching seedSchedules, which chose this window
+     * deliberately.
+     *
+     * I first wrote 09:00-17:00 here as a plausible clinic day, and it broke
+     * the demo at 17:00 IST: every doctor fell outside their window, instant
+     * consultation answered "no doctors are available right now", and the
+     * availability screen labelled all five as "Currently in consultation"
+     * when in fact none of them was in one. A seeded dataset exists to be
+     * demonstrated, and a demonstration does not stop at five o'clock.
+     *
+     * Real working hours belong to a real deployment, set per doctor by an
+     * administrator. They are not a property of demo data.
+     */
     const scheduleRows = [];
     for (const d of staff.filter((s) => s.role === 'doctor')) {
       for (let day = 0; day <= 6; day += 1) {
-        scheduleRows.push([d.id, day, '09:00:00', '17:00:00', false]);
+        scheduleRows.push([d.id, day, '00:00:00', '23:45:00', false]);
       }
     }
     await bulkInsert(
@@ -343,7 +357,7 @@ console.log('   database rows cleared\n');
       ['doctor_id', 'day_of_week', 'start_time', 'end_time', 'is_off'],
       scheduleRows
     );
-    console.log(`   ${scheduleRows.length} schedule rows (09:00-17:00, all 7 days)`);
+    console.log(`   ${scheduleRows.length} schedule rows (00:00-23:45, all 7 days)`);
     console.log('');
 
     // -- patients + visits --------------------------------------------------

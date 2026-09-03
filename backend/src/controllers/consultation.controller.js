@@ -78,6 +78,11 @@ export const getDoctorsAt = async (req, res) => {
   const all = await doctorsForDay(req.user.districtId, istDateString(new Date(at)));
   const freeIds = new Set(free.map((d) => d.id));
 
+  // Actually in a consultation right now, as distinct from simply off duty.
+  const { data: busyRows } = await supabaseAdmin
+    .from('consultations').select('doctor_id').eq('status', 'ACTIVE');
+  const busyIds = new Set((busyRows || []).map((r) => r.doctor_id));
+
   return res.json({
     at,
     doctors: all
@@ -85,7 +90,19 @@ export const getDoctorsAt = async (req, res) => {
       .map((d) => ({
         ...d,
         available: freeIds.has(d.id),
-        label: freeIds.has(d.id) ? 'Available' : 'Currently in consultation'
+        /*
+         * Say which reason applies.
+         *
+         * This reported "Currently in consultation" for every unavailable
+         * doctor, including the far more common case of the request falling
+         * outside their working window. During a demo at 17:01 that produced
+         * five doctors all apparently mid-consultation while the consultations
+         * table was empty — a message that actively misdirects whoever is
+         * trying to work out why nothing can be booked.
+         */
+        label: freeIds.has(d.id)
+          ? 'Available'
+          : (busyIds.has(d.id) ? 'Currently in consultation' : 'Outside working hours')
       }))
   });
 };
