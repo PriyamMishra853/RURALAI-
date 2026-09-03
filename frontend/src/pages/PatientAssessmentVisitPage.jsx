@@ -93,11 +93,42 @@ export default function PatientAssessmentVisitPage() {
     fetchPatientAndVisit();
   }, [patientId]);
 
+  /**
+   * Today in IST, matching the server's generated `visit_date`.
+   *
+   * A UTC date is the wrong day for five and a half hours every evening, which
+   * is exactly when a clinic is still open.
+   */
+  const istToday = () => new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10);
+
   const fetchPatientAndVisit = async () => {
     try {
       // Aadhaar is the key and travels in the body, never the URL.
       const pRes = await api.post('/patients/detail', { aadhaar_number: patientId });
       setPatient(pRes.data);
+
+      /*
+       * Adopt today's visit if the patient already has one.
+       *
+       * This function was named for it but never did it: visitId was only ever
+       * set by ensureVisit(), which *creates* a visit. So opening a patient who
+       * already had a case open left visitId null, and two things followed.
+       *
+       * The doctor's review could never appear — the panel that shows it is
+       * rendered only when a visitId exists, so a decision the doctor had
+       * signed had nowhere on the screen to arrive, and the assistant had to go
+       * and ask. That is precisely the loop this feature exists to close.
+       *
+       * And anything that called ensureVisit() afterwards opened a *second*
+       * visit for the same patient on the same day, so the case the doctor was
+       * reviewing and the case the assistant was filling in were different rows.
+       *
+       * Scoped to today deliberately: adopting an old visit would resurrect a
+       * closed case and show its stale review as if it were current.
+       */
+      const today = istToday();
+      const openToday = (pRes.data.visits || []).find((v) => v.visit_date === today);
+      if (openToday) setVisitId(openToday.id);
     } catch (err) {
       console.error('Error fetching patient:', err);
     }

@@ -575,7 +575,17 @@ export const getVisitReview = async (req, res) => {
   const reviews = Array.isArray(data.doctor_reviews) ? data.doctor_reviews : [];
   const latest = reviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
 
-  if (data.risk_level === 'emergency' || data.status === 'referred') {
+  /*
+   * A referred case is closed here — but only when no review exists.
+   *
+   * This returned `closed` for anything emergency-tier or referred and threw
+   * the review away with it. A doctor can and does record a decision on an
+   * emergency case before referring, and that decision is the most urgent thing
+   * the assistant could be told; discarding it showed them "reviewed offline by
+   * the receiving facility" while the instruction they needed sat in the
+   * database. The closed state is for when there is genuinely nothing to show.
+   */
+  if (!latest && (data.risk_level === 'emergency' || data.status === 'referred')) {
     return res.json({
       visit_id: data.id,
       visit_code: data.visit_code,
