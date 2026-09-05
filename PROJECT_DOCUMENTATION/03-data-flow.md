@@ -26,7 +26,7 @@ flowchart TB
     end
 
     subgraph Data["Supabase"]
-        PG[("Postgres<br/>17 tables + RLS")]
+        PG[("Postgres<br/>18 tables + RLS")]
         AUTH["Auth"]
         STORE["Storage<br/>injury-photos private"]
     end

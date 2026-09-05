@@ -56,25 +56,28 @@ relative to the current schema.
 **Fix:** either create the tables in v2, or delete the fallback and be explicit
 that Qdrant is required for retrieval.
 
-### L3 — `applyV2.js` applies only migrations 01–06 {#l3}
+### L3 — `applyV2.js` applied only migrations 01–06 — **FIXED** {#l3}
 
-**Severity: High** · `backend/src/scripts/applyV2.js:17`
+**Severity: was High** · `backend/src/scripts/applyV2.js`
+
+It carried a hand-maintained `FILES` array that had drifted four migrations
+behind. A fresh `npm run db:apply -- --confirm` produced a database where case
+handoff failed on the enum (07), case withdrawal was impossible (08), emergency
+registration was rejected by NOT NULL constraints (09) and the entire admin
+dashboard returned 500 (10) — and the script reported success, because it had
+applied every file it knew about.
+
+It now reads the migration directory:
 
 ```js
-const FILES = ['01_reset.sql', '02_schema.sql', '03_rls.sql',
-               '04_visit_history.sql', '05_consultations.sql', '06_patient_images.sql'];
+const FILES = fs
+  .readdirSync(V2_DIR)
+  .filter((f) => /^\d{2}_.*\.sql$/.test(f))
+  .sort();
 ```
 
-Files 07–10 exist and are required. A fresh `npm run db:apply -- --confirm`
-produces a database where:
-
-- case handoff fails — `CASE_ASSIGNED` is not in the enum (07)
-- case withdrawal is impossible — no `deleted_at` column (08)
-- emergency registration is rejected by NOT NULL constraints (09)
-- the entire admin dashboard returns 500 — no `admin_analytics()` (10)
-
-**Fix:** add the four files to the array. `07_case_handoff.sql` must run outside a
-transaction, so it needs separate handling.
+Adding a migration file is enough to have it applied, so this class of drift
+cannot recur.
 
 ### L4 — `mediasoup` is not a dependency {#l4}
 
@@ -456,7 +459,7 @@ file that backs it.
 | R7 | The video call carries no media across networks | **High** without TURN | Medium | Public relay fallback with a warning; `npm run check` reports it | **Medium** |
 | R8 | A model decommission silently degrades the pipeline | Medium | Medium | Ids centralised in `config/models.js`; `verifyModelsAvailable()` uses a real call, not a listing; Gemini fallback chain | **Low** |
 | R9 | Rate limits bypassed behind multiple instances | Medium | Medium | `trust proxy` set; limits are per process | **Medium** — L5 |
-| R10 | A fresh install is missing migrations 07–10 | **High** | High | Documented in [01 §6](01-setup-guide.md#6-database-migration-order) | **Medium until `applyV2.js` is fixed** — L3 |
+| R10 | A fresh install is missing recent migrations | was **High** | High | `applyV2.js` now reads the migration directory rather than a hand-maintained list | **Low** — L3 fixed |
 | R11 | Assessment quality is worse than believed | Medium | Medium | Held-out accuracy measured; `confident` flag; candidates shown separately | **Medium** — C4, C5 |
 | R12 | A regression ships because nothing runs the tests | Medium | Medium | 135 tests exist | **Medium** — O3 |
 
@@ -466,8 +469,9 @@ file that backs it.
 
 1. **Rotate every credential that ever appeared in git history or a chat
    transcript.** (O6) Nothing else on this list matters if a key is public.
-2. **Add migrations 07–10 to `applyV2.js`.** (L3) A one-line fix that stops a
-   fresh install being silently broken.
+2. **Rotate the demo staff password and the Maps API key.** Both have appeared
+   in a chat transcript, which is a disclosure like any other. (~~L3 —
+   `applyV2.js` — is fixed: it now reads the migration directory.~~)
 3. **Get the formulary signed and the triage thresholds reviewed by a registered
    practitioner.** (C1, C2) Not code. Start it now — it is the critical path for
    both this system and

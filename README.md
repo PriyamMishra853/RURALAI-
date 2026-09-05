@@ -105,7 +105,7 @@ flowchart TB
     end
 
     subgraph D["Supabase"]
-        PG[("Postgres — 17 tables<br/>~40 RLS policies")]
+        PG[("Postgres — 18 tables<br/>~40 RLS policies")]
         AUTH["Auth"]
         ST["Storage — private"]
     end
@@ -148,7 +148,7 @@ deterministic rules  →  vision severity  →  trained classifier
 | Layer | Choice |
 |---|---|
 | Backend | Node.js 22, Express 4, ESM |
-| Database | PostgreSQL via Supabase — 17 tables, ~40 RLS policies |
+| Database | PostgreSQL via Supabase — 18 tables, ~40 RLS policies |
 | Auth | Supabase Auth for passwords, own 12-hour JWT for sessions |
 | Frontend | React 18, Vite 5, Tailwind 3, Three.js (landing page only) |
 | Realtime | One authenticated WebSocket carrying notifications **and** call signalling |
@@ -240,6 +240,7 @@ it.
 
 | | |
 |---|---|
+| **[Architecture and Workflow](PROJECT_DOCUMENTATION/ARCHITECTURE.md)** | **The whole system as diagrams** — deployment, roles, clinical workflow, AI triage chain, consultation lifecycle, referral path, data model, API surface |
 | [00 — Project Overview](PROJECT_DOCUMENTATION/00-project-overview.md) | Every built feature, the problem-statement coverage table, feasibility, scalability, sustainability, government-integration path |
 | [01 — Setup Guide](PROJECT_DOCUMENTATION/01-setup-guide.md) | Clone to production, followable from zero |
 | [02 — Dependencies](PROJECT_DOCUMENTATION/02-dependencies.md) | Every package, with the reason it is there and what breaks without it |

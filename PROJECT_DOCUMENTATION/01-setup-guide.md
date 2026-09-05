@@ -227,7 +227,9 @@ npm run inspect                  # what is in the target right now
 npm run db:apply -- --confirm    # DESTRUCTIVE
 ```
 
-`applyV2.js` runs these six files:
+`applyV2.js` discovers every `NN_*.sql` file in `database/v2/` and runs them in
+order — it no longer carries a hand-maintained list, so adding a migration file
+is enough to have it applied:
 
 | # | File | What it does |
 |---|---|---|
@@ -238,28 +240,21 @@ npm run db:apply -- --confirm    # DESTRUCTIVE
 | 5 | `database/v2/05_consultations.sql` | `doctor_schedules`, rebuilt `consultations` with the state machine, `notifications`, the two partial unique indexes |
 | 6 | `database/v2/06_patient_images.sql` | `patient_images`; adds `DOCTOR_REVIEW_COMPLETED` to the notification enum; opens review and prescription reads to the visit's assistant |
 
-> ### ⚠️ `applyV2.js` stops at file 06. You must apply 07–10 by hand.
->
-> This is a real gap, tracked as [L3](16-known-limitations-and-risks.md#l3).
-> Without them: case-handoff notifications fail, case withdrawal is impossible,
-> emergency registration is rejected by a NOT NULL constraint, and the entire
-> admin dashboard returns a 500.
-
-Apply the remaining four in the Supabase SQL Editor, or with `psql`, **in order**:
-
-```bash
-psql "$DATABASE_URL" -f database/v2/07_case_handoff.sql
-psql "$DATABASE_URL" -f database/v2/08_visit_soft_delete.sql
-psql "$DATABASE_URL" -f database/v2/09_emergency_registration.sql
-psql "$DATABASE_URL" -f database/v2/10_admin_analytics.sql
-```
+It then continues through the rest of the directory:
 
 | # | File | What it does | Note |
 |---|---|---|---|
-| 7 | `07_case_handoff.sql` | Adds `CASE_ASSIGNED` to the `notification_event` enum | Must run **outside** a transaction — `ALTER TYPE … ADD VALUE` cannot run inside one. The file has no `BEGIN` for this reason |
+| 7 | `07_case_handoff.sql` | Adds `CASE_ASSIGNED` to the `notification_event` enum | Runs **outside** a transaction — `ALTER TYPE … ADD VALUE` cannot run inside one. The file has no `BEGIN` for this reason |
 | 8 | `08_visit_soft_delete.sql` | Adds `deleted_at`, `deleted_by`, `deletion_reason` to `visits`, plus a partial index on live rows | |
 | 9 | `09_emergency_registration.sql` | Makes five identity columns nullable and adds a conditional CHECK so only `emergency_bypass` may omit them | |
 | 10 | `10_admin_analytics.sql` | Creates `admin_analytics(scope_state, scope_district)` | Without it `GET /api/admin/analytics` returns 500 |
+| 11 | `11_referral_audit.sql` | Creates `referrals` with its indexes, RLS and the `referrals_via_district` policy | Without it the emergency referral screen still works, but writes no audit row |
+
+To apply one by hand instead — into an already-built database, say:
+
+```bash
+psql "$DATABASE_URL" -f database/v2/11_referral_audit.sql
+```
 
 ### Do **not** run these
 

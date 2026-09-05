@@ -15,10 +15,14 @@ Virtual Clinic for Rural Healthcare*
 
 If you are evaluating this project and have limited time, read in this order:
 
+0. **[Architecture and Workflow](ARCHITECTURE.md)** — the whole system on one
+   page: deployment topology, the access boundary, the end-to-end clinical
+   journey, the AI triage chain, the consultation state machine and the
+   emergency referral path, as diagrams.
 1. **[00 — Project Overview](00-project-overview.md)** — what it is, every built
    feature, and the requirement-by-requirement coverage table mapping the
    problem statement to code.
-2. **[06 — Database Schema](06-database-schema.md)** — 17 tables, every column,
+2. **[06 — Database Schema](06-database-schema.md)** — 18 tables, every column,
    every constraint, the ER diagram, and which migrations are applied.
 3. **[11 — AI Model Training (built)](11-ai-model-training.md)** — the trained
    classifier, its measured accuracy, and the rule engine that overrides it.
@@ -41,6 +45,7 @@ entirely in future or in-progress tense.
 
 | # | Document | Covers |
 |---|---|---|
+| — | **[Architecture and Workflow](ARCHITECTURE.md)** | **Start here.** Deployment topology, roles and the access boundary, the end-to-end clinical workflow, the AI triage pipeline, consultation lifecycle, emergency referral path, data model, API surface, and what degrades to what |
 | 00 | [Project Overview](00-project-overview.md) | Product principle, built features, PS coverage table, scope, feasibility, scalability with real numbers, revenue model, government-integration path |
 | 01 | [Setup Guide](01-setup-guide.md) | Clone, install, environment variables, migration order, seeding, running all three services, production deployment |
 | 02 | [All Dependencies](02-dependencies.md) | Every backend, frontend and Python package with version and reason; runtime vs dev; external services and what breaks without each |
@@ -60,12 +65,19 @@ entirely in future or in-progress tense.
 | # | Document | Covers |
 |---|---|---|
 | 13 | [API Reference](13-api-reference.md) | All 59 HTTP routes and the WebSocket protocol, with auth, roles, request and response shapes |
-| 14 | [Testing and Quality](14-testing-and-quality.md) | 135 tests across 9 suites, what each asserts, live-service check scripts, current coverage and gaps |
+| 14 | [Testing and Quality](14-testing-and-quality.md) | 171 tests across 12 suites, what each asserts, live-service check scripts, current coverage and gaps |
 | 15 | [Error Handling and Observability](15-error-handling-and-observability.md) | Failure taxonomy, degradation ladder, audit log as the observability spine, diagnostics endpoints |
 | 16 | [Known Limitations and Risks](16-known-limitations-and-risks.md) | Every gap, defect and unproven claim, with severity and what would close it |
 | 17 | [Architecture Decision Record](17-architecture-decision-record.md) | 18 significant decisions, the alternatives, and why each was chosen |
 | 18 | [Glossary](18-glossary.md) | Clinical, Indian health-system and project-specific terms |
 | 19 | [Contributing and Conventions](19-contributing-and-conventions.md) | Coding conventions, invariants that must not be broken, review checklist |
+
+### Regulatory and demonstration
+
+| Document | Covers |
+|---|---|
+| [Regulatory and Legal Compliance](legal/) | The statute that governs the project — Telemedicine Practice Guidelines 2020 cl. 3.7.4 — the full statutory map, the boundaries enforced in code with their file and line, and the Aadhaar residual point stated in full. **Page 1 of the letter is an unsigned template; no practitioner has signed it.** |
+| [Demonstration case pack](../demo/) | Five synthetic cases spanning LOW to EMERGENCY, with paper prescriptions and lab reports (one handwritten) for the OCR path, and a registration sheet keyed to the schema column names |
 
 ---
 

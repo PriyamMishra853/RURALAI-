@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [13 — API Reference](13-api-reference.md) · Next: [15 — Error Handling and Observability](15-error-handling-and-observability.md)
 
-**135 tests across 9 suites, all passing.** Plus a Python regression suite, three
+**171 tests across 12 suites, all passing.** Plus a Python regression suite, three
 live-service check scripts, and a pre-demonstration preflight. This section covers
 what each asserts, what it deliberately does not cover, and the two false passes
 that shaped how the suite is written.
@@ -14,10 +14,10 @@ that shaped how the suite is written.
 ```
 $ cd backend && npm test
 
-Test Suites: 9 passed, 9 total
-Tests:       135 passed, 135 total
+Test Suites: 12 passed, 12 total
+Tests:       171 passed, 171 total
 Snapshots:   0 total
-Time:        8.984 s
+Time:        14.688 s
 ```
 
 Run on the current `feat/case-handoff` branch while writing this documentation.

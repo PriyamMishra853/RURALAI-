@@ -628,7 +628,7 @@ or feature that implements it. Nothing in this table is aspirational.
 | AI-assisted preliminary medicine recommendation | ✅ Built, and deliberately **not shown to the health worker** | `formularyService.js` — 8 gates over a 5-entry practitioner-signable formulary, every emission stamped `rule_source_id`. Every entry is currently `UNSIGNED_PLACEHOLDER`, so `REQUIRE_SIGNED_FORMULARY` suppresses output in production. See §5.3 |
 | First-aid guidance for trained health workers | ✅ Built | `first_aid_steps` on every assessment, sourced from retrieved protocols; `TierResult.jsx` renders it as a numbered list with read-aloud. Wound cleaning and dressing is protocol 101 in `seedQdrant.js` |
 | Remote doctor video/audio consultation | ✅ Built | `P2PProvider.js` + `realtimeHub.js` + `CallPage.jsx`. Instant and scheduled paths |
-| Digital patient records | ✅ Built | 17 tables; append-only clinical rows; soft delete only, with guards |
+| Digital patient records | ✅ Built | 18 tables; append-only clinical rows; soft delete only, with guards |
 | Appointment and queue management | ✅ Built | `schedulingService.js` (7-day strip, 5-minute slots, 15-minute consultations), `getDoctorQueue`, `getQueueDates`, `consultationSweeper.js` |
 | Emergency-risk detection | ✅ Built | `riskEngine.js` immediate-referral branch: SpO₂ < 90, systolic < 90 or ≥ 180, seven red-flag phrases, infant fever, severe dehydration (IMNCI Plan C) |
 | Hospital referral | ✅ Built | `referralService.js` — 75 real UP district hospitals by coordinates, haversine nearest-facility, four national emergency lines, printable referral PDF |

@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [05 — Directory Structure](05-directory-structure.md) · Next: [07 — Tech Stack](07-tech-stack.md)
 
-PostgreSQL, hosted on Supabase. **17 tables**, **10 enum types**, one aggregation
+PostgreSQL, hosted on Supabase. **18 tables**, **10 live enum types**, one aggregation
 function, ~40 row-level-security policies.
 
 Source of truth: `database/v2/`. The files under `database/schema.sql`,
@@ -795,6 +795,45 @@ roles and an INSERT policy for any active staff member, and **no UPDATE or DELET
 policy for any role** — so with RLS on, entries cannot be altered or removed
 through the API at all.
 
+### `referrals` — `11_referral_audit.sql`
+
+One row per referral **shown to a health worker** for an EMERGENCY or HIGH case.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | `UUID` | PK |
+| `visit_id` | `UUID` | FK → `visits(id)` ON DELETE CASCADE |
+| `patient_id` | `VARCHAR(12)` | FK → `patients(aadhaar_number)` ON DELETE SET NULL |
+| `risk_level` | `VARCHAR(12)` | the tier as the engine reported it |
+| `origin_lat` / `origin_lon` | `DOUBLE PRECISION` | where the search started |
+| `origin_source` | `VARCHAR(12)` | NOT NULL, CHECK in `('gps', 'district', 'manual')` |
+| `origin_accuracy_m` | `DOUBLE PRECISION` | |
+| `hospital_name` / `hospital_district` | `TEXT` | |
+| `hospital_lat` / `hospital_lon` | `DOUBLE PRECISION` | |
+| `distance_km` | `NUMERIC(6,1)` | **as displayed**, not as it would be recomputed |
+| `distance_source` | `VARCHAR(20)` | NOT NULL, `DEFAULT 'straight-line'` |
+| `eta_text` | `TEXT` | |
+| `referred_by` | `UUID` | FK → `staff_profiles(id)` ON DELETE SET NULL |
+| `district_id` | `UUID` | FK → `districts(id)` ON DELETE SET NULL |
+| `created_at` | `TIMESTAMPTZ` | NOT NULL, `DEFAULT NOW()` |
+
+`idx_referrals_visit`, `idx_referrals_district ON (district_id, created_at DESC)`
+
+**Why `origin_source` is NOT NULL and constrained.** A referral computed from a
+good GPS fix and one computed from the clinic's district centroid can name
+*different hospitals*. If the wrong patient went to the wrong place, that
+distinction is the whole enquiry.
+
+**Distance and ETA are stored as they were shown.** The question after an
+incident is what the health worker was looking at when they decided; a value
+recomputed from today's road data does not answer it.
+
+**There is no capacity column,** deliberately. No live bed feed exists for UP
+district hospitals, and a column here would invite one to be invented.
+
+RLS `referrals_via_district`: the clinic that made the referral can see it, and
+a doctor can see referrals on cases assigned to them.
+
 ---
 
 ## 7. Triggers and functions
@@ -905,19 +944,22 @@ reference only.
 | 08 | `08_visit_soft_delete.sql` | 2026-08-31 | `visits`: `deleted_at`, `deleted_by`, `deletion_reason`; partial `idx_visits_live`; a column comment | ✅ Yes — `implementation_plan.md` Phase 1 status: *"Migrations 08 and 09 applied to production; existing rows unaffected"* |
 | 09 | `09_emergency_registration.sql` | 2026-08-31 | Drops NOT NULL from 5 identity columns; adds `patients_identity_required_unless_emergency`; partial index for unreconciled emergency records | ✅ Yes — same record |
 | 10 | `10_admin_analytics.sql` | 2026-09-01 | Creates `admin_analytics(scope_state, scope_district)` | ⚠️ **Presumed applied but not recorded.** Committed with the working dashboard in `1b5cd49`, and `GET /api/admin/analytics` returns 500 without it. There is no verification note for it in the repository — verify with `SELECT proname FROM pg_proc WHERE proname = 'admin_analytics';` |
+| 11 | `11_referral_audit.sql` | 2026-09-03 | Creates `referrals` with its two indexes, RLS and the `referrals_via_district` policy | ✅ Yes — applied ahead of the emergency-referral feature in `c2a5b40` |
 
-### ⚠️ `applyV2.js` runs only files 01–06
+### `applyV2.js` reads the directory — fixed
+
+It used to carry a hand-maintained list that had drifted four migrations behind,
+so a fresh `npm run db:apply -- --confirm` silently produced a database missing
+07–10 and reported success. It now discovers migrations instead:
 
 ```js
-const FILES = ['01_reset.sql', '02_schema.sql', '03_rls.sql',
-               '04_visit_history.sql', '05_consultations.sql', '06_patient_images.sql'];
+const FILES = fs
+  .readdirSync(V2_DIR)
+  .filter((f) => /^\d{2}_.*\.sql$/.test(f))
+  .sort();
 ```
 
-A fresh `npm run db:apply -- --confirm` produces a database **missing 07–10**.
-Consequences on a clean install: case-handoff notifications fail on the enum,
-case withdrawal is impossible, emergency registration is rejected by a NOT NULL
-constraint, and the entire admin dashboard returns 500. Apply 07–10 by hand — see
-[01 — Setup Guide §6](01-setup-guide.md#6-database-migration-order). Tracked as
+Adding a migration file is now enough to have it applied. Was tracked as
 [L3](16-known-limitations-and-risks.md#l3).
 
 ### Dead migrations — do not run
