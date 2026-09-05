@@ -8,6 +8,10 @@ frontend/node_modules/
 backend/.env
 frontend/.env
 *.env.local
+# .env.production was tracked once and went stale: it named a backend host and a
+# /signal endpoint that no longer exist, and nothing read it. Ignored so a build
+# never silently inherits a dead address again.
+*.env.production
 
 # Build output
 dist/
