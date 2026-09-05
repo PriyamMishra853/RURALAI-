@@ -10,6 +10,15 @@ presented to a live government service even by accident. Each specimen image
 carries that statement in its own footer, so a page screenshotted out of context
 still declares what it is.
 
+Mobile numbers are placeholders — `9000000001` through `9000000004`. They cannot
+be made non-issuable the way the Aadhaar values were: the registration form
+validates `^[6-9][0-9]{9}$`, and this sheet exists to be typed into that form, so
+an X-masked number would fail the very field it is meant to fill. A transparently
+sequential placeholder is the closest available thing — obviously not a person's
+number, while still valid enough to enter. The facility numbers printed on the
+prescription and lab specimens are masked instead (`9XXXX 41208`), because those
+are read from the page rather than typed into a field.
+
 ## The cases
 
 | # | Presentation | Patient | Expected tier |
