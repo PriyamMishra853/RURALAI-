@@ -373,9 +373,24 @@ export const analyzeImageAI = async (req, res) => {
       }
     }
 
+    /*
+     * The photograph is never echoed back.
+     *
+     * analyzeInjuryImage builds a `data:` URI so it can hand the bytes to the
+     * vision model, and that URI was travelling all the way back to the phone:
+     * of a 1,056,003-byte response, 1,054,346 bytes were the image the device
+     * had just finished uploading. It re-sent a megabyte down a rural link to
+     * show the health worker a picture their own camera roll already holds --
+     * the screen previews the local file and never reads this field.
+     *
+     * A signed URL is returned when the file reached storage, and null when it
+     * did not. Null is honest: it means the doctor's case view will have
+     * nothing to show, which is a real problem worth surfacing rather than
+     * papering over with a copy that lives only in this response.
+     */
     return res.json({
       ...observation,
-      image_url: finalImageUrl || observation.image_url
+      image_url: finalImageUrl || null
     });
 
   } catch (error) {

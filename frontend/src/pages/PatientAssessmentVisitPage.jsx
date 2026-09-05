@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Mic, Upload, FileText, Camera, Bot, ShieldCheck, ArrowRight, CheckCircle2, AlertTriangle, Activity, User, HeartPulse, RefreshCw, BookOpen, AlertOctagon, Download, Pill, PhoneCall, ArrowLeft, MicOff, Globe, Video, Send, ShieldAlert, Printer, Calendar, Trash2 } from 'lucide-react';
-import api from '../services/api';
+import api, { describeTransportFailure } from '../services/api';
 import RiskBadge from '../components/RiskBadge';
 import OCRVerificationModal from '../components/OCRVerificationModal';
 import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
@@ -340,14 +340,30 @@ export default function PatientAssessmentVisitPage() {
     }
   };
 
+  /**
+   * Say what went wrong in words the person holding the phone can act on.
+   *
+   * Every failure that never reached the server used to read "Server did not
+   * respond. Check backend daemon." Two things were wrong with that. It named
+   * the wrong cause — the usual case is this device giving up on a slow uplink,
+   * not a backend that is down — and it handed a village health worker an
+   * instruction they have no way to carry out. One of those failures is worth
+   * retrying where you stand; the other is not, and the message has to tell
+   * them apart.
+   *
+   * The server's own message is used verbatim when there is one. Those are
+   * already written for this reader ("A 12-digit Aadhaar number is required to
+   * attach a document"), and wrapping them in a status code buried the sentence
+   * that actually said what to do.
+   */
   const formatApiError = (err) => {
     if (!err) return 'Unknown error';
     if (err.response) {
-      return `[HTTP ${err.response.status} on ${err.config?.url}]: ${err.response.data?.error || err.response.data?.message || err.response.statusText}`;
+      return err.response.data?.error
+        || err.response.data?.message
+        || `The server could not complete that request (${err.response.status}).`;
     }
-    if (err.request) {
-      return `[Network Error on ${err.config?.url}]: Server did not respond. Check backend daemon.`;
-    }
+    if (err.request) return describeTransportFailure(err);
     return err.message || String(err);
   };
 

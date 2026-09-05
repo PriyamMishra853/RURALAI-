@@ -89,9 +89,34 @@ const API_BASE = resolveApiBase();
  * assessment, and even that answers well inside it — while still failing fast
  * enough that a retry is worth attempting.
  */
+const DEFAULT_TIMEOUT_MS = 20000;
+
+/*
+ * Anything carrying a file gets a far longer deadline than an ordinary request.
+ *
+ * Twenty seconds was chosen when the slowest call was a JSON assessment. It is
+ * nowhere near enough for the endpoints that carry a photograph. Measured
+ * against production: /vision/analyze answers in 41-59s and a document upload
+ * in 30-41s, because the file has to climb a rural uplink and then a vision
+ * model has to read it. Every one of those was aborted at 20s and reported to
+ * the health worker as an unreachable server, while the backend went on to
+ * answer correctly into a socket nobody was listening to. That is what made the
+ * failure intermittent: the request never had a chance, but a smaller photo
+ * occasionally squeaked under the wire, so the feature looked flaky rather than
+ * broken.
+ *
+ * The 20s ceiling was the client's alone. Vercel's proxy passes a 46s call
+ * straight through, so nothing in front of the API imposes a shorter limit.
+ */
+const SLOW_PATHS = [/^\/?(vision|documents|ai|voice)\//];
+const SLOW_TIMEOUT_MS = 120000;
+
+export const timeoutFor = (url = '') =>
+  SLOW_PATHS.some((re) => re.test(url)) ? SLOW_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 20000,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' }
 });
 
@@ -116,7 +141,8 @@ export const describeTransportFailure = (error) => {
   })();
 
   if (error?.code === 'ECONNABORTED' || /timeout/i.test(error?.message || '')) {
-    return `The server at ${host} did not answer within 20 seconds. The connection may be weak — try again.`;
+    const secs = Math.round((error?.config?.timeout || DEFAULT_TIMEOUT_MS) / 1000);
+    return `The server at ${host} did not answer within ${secs} seconds. The connection may be weak — try again.`;
   }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return 'This device is offline. Reconnect and try again.';
@@ -129,6 +155,12 @@ api.interceptors.request.use((config) => {
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Applied here rather than at each call site so a new upload screen cannot
+  // reintroduce the bug by forgetting to ask for more time.
+  if (config.timeout === DEFAULT_TIMEOUT_MS || config.timeout == null) {
+    config.timeout = timeoutFor(config.url || '');
   }
 
   return config;
