@@ -39,7 +39,13 @@ const COPY = {
     straightLine: 'straight-line distance',
     byRoad: 'by road',
     fromDistrict: 'Distance measured from your clinic district — location not available',
-    fromGps: 'Distance from your current location'
+    fromGps: 'Distance from your current location',
+    insecure: 'Location needs a secure (https) connection. Open the main site address rather than a preview link.',
+    denied: 'Location permission is blocked for this site. Allow it in your browser settings, or continue with your clinic district.',
+    noFix: 'No location fix yet — showing distance from your clinic district.',
+    noGeo: 'This device cannot report a location — showing distance from your clinic district.',
+    outOfBounds: 'That location reading looked wrong, so your clinic district was used instead.',
+    loadFailed: 'Could not load hospital details. Call 108 for an ambulance.'
   },
   hi: {
     title: 'अभी अस्पताल भेजें',
@@ -53,7 +59,13 @@ const COPY = {
     straightLine: 'सीधी दूरी',
     byRoad: 'सड़क मार्ग से',
     fromDistrict: 'दूरी आपके ज़िले से मापी गई — लोकेशन उपलब्ध नहीं',
-    fromGps: 'आपकी वर्तमान लोकेशन से दूरी'
+    fromGps: 'आपकी वर्तमान लोकेशन से दूरी',
+    insecure: 'लोकेशन के लिए सुरक्षित (https) कनेक्शन चाहिए। प्रीव्यू लिंक नहीं, मुख्य साइट पता खोलें।',
+    denied: 'इस साइट के लिए लोकेशन की अनुमति बंद है। ब्राउज़र सेटिंग में चालू करें, या ज़िले से दूरी देखें।',
+    noFix: 'अभी लोकेशन नहीं मिली — आपके ज़िले से दूरी दिखाई जा रही है।',
+    noGeo: 'यह डिवाइस लोकेशन नहीं बता सकता — ज़िले से दूरी दिखाई जा रही है।',
+    outOfBounds: 'लोकेशन ठीक नहीं लगी, इसलिए आपके ज़िले से दूरी दिखाई गई है।',
+    loadFailed: 'अस्पताल की जानकारी नहीं मिली। एम्बुलेंस के लिए 108 पर कॉल करें।'
   }
 };
 
@@ -98,37 +110,70 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
       });
       setData(res.data);
       if (res.data?.origin?.rejected_out_of_bounds) {
-        setNote('That location reading looked wrong, so your clinic district was used instead.');
+        setNote(t.outOfBounds);
       }
     } catch {
       // Never leave the screen empty during an emergency: the national
       // ambulance line is the one thing that is always correct.
-      setNote('Could not load hospital details. Call 108 for an ambulance.');
+      setNote(t.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, [visitId]);
+  }, [visitId, t]);
 
   /**
-   * Ask for a position, then route — but never wait indefinitely for one.
+   * Ask for a position, then route — but never wait indefinitely, and never
+   * fail silently.
    *
-   * A denied permission, a phone with no fix, a basement with no sky: all of
-   * them resolve to the district fallback rather than a spinner, because the
-   * patient is waiting either way.
+   * Three things stop a fix arriving and they need different answers, where
+   * before they collapsed into one sentence that fitted none of them:
+   *
+   *   The page is not on a secure origin. Browsers refuse geolocation outright
+   *   over plain http, and that refusal is indistinguishable from a denied
+   *   permission. It is worth naming, because it is fixed by opening the real
+   *   site address — tapping again will never work.
+   *
+   *   Permission was denied. Also not fixed by tapping again; the block has to
+   *   be lifted in the browser's own site settings.
+   *
+   *   No fix yet. The common case, and it was treated as fatal after eight
+   *   seconds. A cold GPS fix indoors — which is where a sub-centre consultation
+   *   happens — routinely takes longer than that, so the timeout fired on
+   *   almost every first attempt and the screen quietly fell back to a district
+   *   centroid. It now waits longer, and on a timeout asks again without the
+   *   satellite requirement: Wi-Fi and cell positioning answer in a second or
+   *   two, and a few hundred metres of error still beats a centroid tens of
+   *   kilometres away.
    */
   const locateAndFetch = useCallback(() => {
-    if (!navigator.geolocation) { fetchReferral(null); return; }
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setNote(t.insecure);
+      fetchReferral(null);
+      return;
+    }
+    if (!navigator.geolocation) {
+      setNote(t.noGeo);
+      fetchReferral(null);
+      return;
+    }
+
     setLocating(true);
+    const done = (pos) => { setLocating(false); setNote(null); fetchReferral(pos.coords); };
+    const giveUp = (msg) => { setLocating(false); setNote(msg); fetchReferral(null); };
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLocating(false); fetchReferral(pos.coords); },
-      () => {
-        setLocating(false);
-        setNote('Location unavailable — showing distance from your clinic district.');
-        fetchReferral(null);
+      done,
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) { giveUp(t.denied); return; }
+        navigator.geolocation.getCurrentPosition(
+          done,
+          (e2) => giveUp(e2.code === e2.PERMISSION_DENIED ? t.denied : t.noFix),
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }
     );
-  }, [fetchReferral]);
+  }, [fetchReferral, t]);
 
   if (!applies) return null;
 
