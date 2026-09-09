@@ -1,0 +1,19 @@
+{
+  "app.name": "Rural Health Grid",
+  "auth.signin": "Rung ha ka staff",
+  "auth.submit": "Rung",
+  "common.cancel": "Bud",
+  "common.close": "Khang",
+  "common.no": "Em",
+  "common.save": "Buh",
+  "common.yes": "Haoid",
+  "lang.continue": "Kdup",
+  "lang.switch": "Ktien",
+  "lang.title": "Jied ka ktien jong phi",
+  "nav.dashboard": "Dashboard",
+  "nav.patients": "Ki briew pang",
+  "nav.signout": "Mihnoh",
+  "role.assistant": "Nongiarap clinic",
+  "role.doctor": "Doctor",
+  "tier.emergency": "Emergency"
+}

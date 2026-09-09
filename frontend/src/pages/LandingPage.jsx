@@ -9,6 +9,8 @@ import DistrictNetwork3D from '../components/DistrictNetwork3D';
 import { Counter, TierExplorer, WorkflowTimeline, RoleCard } from '../components/landing/Interactive';
 import { useTheme } from '../context/ThemeContext';
 import { Button, Card } from '../components/ui';
+import { LanguageSwitcher } from '../components/LanguageGate';
+import { useT, useI18n } from '../i18n/index.jsx';
 
 /**
  * Public landing page.
@@ -18,6 +20,15 @@ import { Button, Card } from '../components/ui';
  * not do. The safety position sits near the top rather than in a footer —
  * for a health system the limits of the tool are part of the case, not a
  * disclaimer to be skimmed.
+ *
+ * ── Why the language control is in this masthead ────────────────────────────
+ *
+ * This page renders outside AppShell (see the `bare` branch there), so it
+ * never inherited the shell's language switcher and the public site had no way
+ * to change language at all. That is backwards for this product: the landing
+ * page is the first thing anyone sees, and a visitor who cannot read it does
+ * not get as far as the sign-in screen where the control used to live. The
+ * switcher is therefore part of this header, next to the theme control.
  */
 
 const reveal = {
@@ -27,35 +38,58 @@ const reveal = {
   transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] }
 };
 
+/*
+ * Every list below pairs a catalogue key with its English text. The English is
+ * the fallback `t()` renders for an untranslated locale, so a half-finished
+ * language shows readable prose here rather than dotted keys — which on a
+ * public page is the difference between "not translated yet" and "broken".
+ */
+
 const STATS = [
-  { value: 75, label: 'Districts covered', suffix: '' },
-  { value: 1880, label: 'Patient records', suffix: '' },
-  { value: 375, label: 'Doctors on the roster', suffix: '' },
-  { value: 4, label: 'Triage tiers', suffix: '' }
+  { key: 'districts', value: 75, label: 'Districts covered', suffix: '' },
+  { key: 'records', value: 1880, label: 'Patient records', suffix: '' },
+  { key: 'doctors', value: 375, label: 'Doctors on the roster', suffix: '' },
+  { key: 'tiers', value: 4, label: 'Triage tiers', suffix: '' }
 ];
 
 const PROBLEM = [
-  { Icon: Stethoscope, text: 'Roughly one allopathic doctor per 10,000 people in rural India. The WHO norm is one per 1,000.' },
-  { Icon: MapPin, text: 'Patients travel hours over difficult terrain to a district hospital that may have no bed free when they arrive.' },
-  { Icon: Scale, text: 'Paper prescriptions are lost between visits, so history restarts from zero and diagnostics are repeated at the patient’s cost.' },
-  { Icon: Languages, text: 'Language and literacy barriers mean the presenting complaint is often recorded wrong at first contact.' }
+  { k: 'doctors', Icon: Stethoscope, text: 'Roughly one allopathic doctor per 10,000 people in rural India. The WHO norm is one per 1,000.' },
+  { k: 'distance', Icon: MapPin, text: 'Patients travel hours over difficult terrain to a district hospital that may have no bed free when they arrive.' },
+  { k: 'records', Icon: Scale, text: 'Paper prescriptions are lost between visits, so history restarts from zero and diagnostics are repeated at the patient’s cost.' },
+  { k: 'language', Icon: Languages, text: 'Language and literacy barriers mean the presenting complaint is often recorded wrong at first contact.' }
 ];
 
 const GUARANTEES = [
-  { Icon: Lock, title: 'Escalation is one-way', body: 'The rules engine sets the tier. The language model may raise it and can never lower it. Missing data escalates rather than reassuring.' },
-  { Icon: ShieldCheck, title: 'Medication is never model-authored', body: 'Every medicine comes from a formulary signed by a registered practitioner. The model formats what the rules engine selected — it never names a drug.' },
-  { Icon: Scale, title: 'A doctor signs every decision', body: 'Prescriptions, referrals and clinical judgements are made by a practitioner registered with the National Medical Commission. Nothing is automatic.' },
-  { Icon: Wifi, title: 'Honest when degraded', body: 'If a model is unavailable the case is floored at moderate and sent to a doctor. An unassessed case is never presented as a low-risk one.' }
+  { k: 'escalation', Icon: Lock, title: 'Escalation is one-way', body: 'The rules engine sets the tier. The language model may raise it and can never lower it. Missing data escalates rather than reassuring.' },
+  { k: 'medication', Icon: ShieldCheck, title: 'Medication is never model-authored', body: 'Every medicine comes from a formulary signed by a registered practitioner. The model formats what the rules engine selected — it never names a drug.' },
+  { k: 'signature', Icon: Scale, title: 'A doctor signs every decision', body: 'Prescriptions, referrals and clinical judgements are made by a practitioner registered with the National Medical Commission. Nothing is automatic.' },
+  { k: 'degraded', Icon: Wifi, title: 'Honest when degraded', body: 'If a model is unavailable the case is floored at moderate and sent to a doctor. An unassessed case is never presented as a low-risk one.' }
+];
+
+const ASSISTANT_BULLETS = [
+  { k: 'register', text: 'Register by Aadhaar and open a visit' },
+  { k: 'voice', text: 'Voice symptom capture in the local dialect' },
+  { k: 'capture', text: 'Prescription, report and wound-photo capture' },
+  { k: 'assess', text: 'Run the AI assessment and act on the tier' }
+];
+
+const DOCTOR_BULLETS = [
+  { k: 'queue', text: 'Day-wise queue, worst risk first' },
+  { k: 'case', text: 'Full case file with AI assistance clearly separated' },
+  { k: 'video', text: 'Video consultation with the assistant and patient' },
+  { k: 'sign', text: 'Sign the diagnosis, prescription or referral' }
 ];
 
 function ThemeSwitch() {
   const { choice, cycle } = useTheme();
+  const t = useT();
   const Icon = choice === 'light' ? Sun : choice === 'dark' ? Moon : Monitor;
+  const name = t('theme.' + choice, choice);
   return (
     <button
       type="button"
       onClick={cycle}
-      aria-label={`Theme: ${choice}. Click to change.`}
+      aria-label={t('theme.switch', 'Theme: {theme}. Click to change.', { theme: name })}
       className="p-2 rounded-field text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors"
     >
       <Icon className="w-5 h-5" />
@@ -65,6 +99,8 @@ function ThemeSwitch() {
 
 export default function LandingPage() {
   const [hoveredDistrict, setHoveredDistrict] = useState(null);
+  const t = useT();
+  const { formatNumber } = useI18n();
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -78,15 +114,24 @@ export default function LandingPage() {
               <Activity className="w-5 h-5" />
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-ink leading-tight truncate">Rural Health Grid</p>
-              <p className="text-[10px] text-ink-subtle uppercase tracking-wider truncate">Village Tele-Clinic Network</p>
+              <p className="text-sm font-bold text-ink leading-tight truncate">
+                {t('app.name', 'Rural Health Grid')}
+              </p>
+              <p className="text-[10px] text-ink-subtle uppercase tracking-wider truncate">
+                {t('app.subtitle', 'Village Tele-Clinic Network')}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/*
+              The whole reason this page exists in this file: without it the
+              public site is readable in exactly one language.
+            */}
+            <LanguageSwitcher />
             <ThemeSwitch />
             <Link to="/login">
               <Button size="sm" className="whitespace-nowrap">
-                <ShieldCheck className="w-4 h-4" /> Staff Sign In
+                <ShieldCheck className="w-4 h-4" /> {t('auth.signin', 'Staff Sign In')}
               </Button>
             </Link>
           </div>
@@ -104,38 +149,45 @@ export default function LandingPage() {
           >
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gov-50 dark:bg-gov-100 text-gov-700 dark:text-gov-600 text-[11px] font-bold uppercase tracking-wider">
               <MapPin className="w-3 h-3" />
-              {hoveredDistrict ? `${hoveredDistrict} district` : 'Uttar Pradesh · 75 districts'}
+              {hoveredDistrict
+                ? t('landing.hero.district', '{name} district', { name: hoveredDistrict })
+                : t('landing.hero.region', 'Uttar Pradesh · {count} districts', { count: formatNumber(75) })}
             </span>
 
+            {/*
+              Two lines, one sentence, split for the colour break. Kept as two
+              keys rather than one with markup inside: a translator can reorder
+              them, and several of these languages put the qualifier first.
+            */}
             <h1 className="mt-4 font-display text-3xl sm:text-4xl lg:text-[3.25rem] font-bold text-ink leading-[1.1]">
-              Specialist care,
-              <span className="block text-gov-600 dark:text-gov-500">without the journey.</span>
+              {t('landing.hero.title1', 'Specialist care,')}
+              <span className="block text-gov-600 dark:text-gov-500">
+                {t('landing.hero.title2', 'without the journey.')}
+              </span>
             </h1>
 
             <p className="mt-4 text-sm sm:text-base text-ink-muted leading-relaxed max-w-xl">
-              A trained health assistant at the village sub-centre captures the case.
-              AI prepares it against approved Ministry of Health protocols. A registered
-              doctor, wherever they are, makes the clinical decision.
+              {t('landing.hero.lede', 'A trained health assistant at the village sub-centre captures the case. AI prepares it against approved Ministry of Health protocols. A registered doctor, wherever they are, makes the clinical decision.')}
             </p>
 
             <div className="mt-6 p-4 rounded-card bg-gov-50 dark:bg-gov-100 border border-gov-200">
               <p className="text-[10px] font-bold uppercase tracking-wider text-gov-600 dark:text-gov-500">
-                Central product principle
+                {t('landing.principle.label', 'Central product principle')}
               </p>
               <p className="text-sm font-bold text-gov-800 dark:text-gov-700 mt-1">
-                AI prepares the case. The doctor makes the medical decision.
+                {t('landing.principle.body', 'AI prepares the case. The doctor makes the medical decision.')}
               </p>
             </div>
 
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Link to="/login">
                 <Button size="lg" className="w-full sm:w-auto">
-                  <ShieldCheck className="w-4 h-4" /> Staff sign in
+                  <ShieldCheck className="w-4 h-4" /> {t('landing.cta.signin', 'Staff sign in')}
                 </Button>
               </Link>
               <a href="#how-it-works">
                 <Button size="lg" variant="secondary" className="w-full sm:w-auto">
-                  How it works <ArrowRight className="w-4 h-4" />
+                  {t('landing.cta.how', 'How it works')} <ArrowRight className="w-4 h-4" />
                 </Button>
               </a>
             </div>
@@ -157,12 +209,12 @@ export default function LandingPage() {
       <section className="bg-gov-600 dark:bg-gov-100 border-b border-line">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-2 lg:grid-cols-4 gap-6">
           {STATS.map((s) => (
-            <div key={s.label} className="text-center">
+            <div key={s.key} className="text-center">
               <p className="font-display text-3xl sm:text-4xl font-bold text-white dark:text-gov-800 tabular-nums">
                 <Counter to={s.value} suffix={s.suffix} />
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-wider text-gov-100 dark:text-gov-600">
-                {s.label}
+                {t('landing.stat.' + s.key, s.label)}
               </p>
             </div>
           ))}
@@ -174,11 +226,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-tier-moderate shrink-0 mt-0.5" />
           <p className="text-xs text-tier-moderate leading-relaxed">
-            <strong>Not for clinical use in its current state.</strong> This is a demonstration
-            system. Its triage thresholds and medication list are drawn from published guidance
-            but have not been reviewed or approved by a registered medical practitioner for this
-            deployment. It does not provide medical advice, diagnosis or treatment. Every clinical
-            decision must be made by a doctor registered with the National Medical Commission.
+            <strong>{t('clinical.noticeLeadLong', 'Not for clinical use in its current state.')}</strong>{' '}
+            {t('clinical.noticeBody', 'This is a demonstration system. Its triage thresholds and medication list are drawn from published guidance but have not been reviewed or approved by a registered medical practitioner for this deployment. It does not provide medical advice, diagnosis, or treatment. Every clinical decision must be made by a doctor registered with the National Medical Commission.')}
           </p>
         </div>
       </section>
@@ -186,17 +235,18 @@ export default function LandingPage() {
       {/* ---------------- Problem ---------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
         <motion.div {...reveal}>
-          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">The gap this closes</h2>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
+            {t('landing.problem.title', 'The gap this closes')}
+          </h2>
           <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
-            None of these are technology problems on their own. Together they mean a treatable
-            condition becomes an emergency between the village and the district hospital.
+            {t('landing.problem.lede', 'None of these are technology problems on their own. Together they mean a treatable condition becomes an emergency between the village and the district hospital.')}
           </p>
         </motion.div>
 
         <div className="mt-6 grid sm:grid-cols-2 gap-4">
           {PROBLEM.map((p, i) => (
             <motion.div
-              key={p.text}
+              key={p.k}
               initial={{ opacity: 0, y: 14 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-60px' }}
@@ -206,7 +256,9 @@ export default function LandingPage() {
                 <span className="w-9 h-9 rounded-field bg-tier-emergencyBg text-tier-emergency flex items-center justify-center shrink-0">
                   <p.Icon className="w-4 h-4" />
                 </span>
-                <p className="text-sm text-ink-muted leading-relaxed">{p.text}</p>
+                <p className="text-sm text-ink-muted leading-relaxed">
+                  {t('landing.problem.' + p.k, p.text)}
+                </p>
               </Card>
             </motion.div>
           ))}
@@ -218,11 +270,10 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
           <motion.div {...reveal}>
             <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
-              Every case gets a tier
+              {t('landing.tiers.title', 'Every case gets a tier')}
             </h2>
             <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
-              The tier decides what happens next — and each one has a different, defined
-              output. Select a tier to see exactly what the assistant and the doctor get.
+              {t('landing.tiers.lede', 'The tier decides what happens next — and each one has a different, defined output. Select a tier to see exactly what the assistant and the doctor get.')}
             </p>
           </motion.div>
 
@@ -236,10 +287,10 @@ export default function LandingPage() {
       <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16 scroll-mt-20">
         <motion.div {...reveal}>
           <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
-            End-to-end clinical journey
+            {t('landing.journey.title', 'End-to-end clinical journey')}
           </h2>
           <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
-            Six steps from a patient arriving at a sub-centre to a signed clinical decision.
+            {t('landing.journey.lede', 'Six steps from a patient arriving at a sub-centre to a signed clinical decision.')}
           </p>
         </motion.div>
 
@@ -253,17 +304,17 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
           <motion.div {...reveal}>
             <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
-              What the system will not do
+              {t('landing.guarantees.title', 'What the system will not do')}
             </h2>
             <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
-              These are enforced in code and covered by tests, not stated as intentions.
+              {t('landing.guarantees.lede', 'These are enforced in code and covered by tests, not stated as intentions.')}
             </p>
           </motion.div>
 
           <div className="mt-6 grid sm:grid-cols-2 gap-4">
             {GUARANTEES.map((g, i) => (
               <motion.div
-                key={g.title}
+                key={g.k}
                 initial={{ opacity: 0, y: 14 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: '-60px' }}
@@ -274,9 +325,13 @@ export default function LandingPage() {
                     <span className="w-8 h-8 rounded-field bg-tier-lowBg text-tier-low flex items-center justify-center shrink-0">
                       <g.Icon className="w-4 h-4" />
                     </span>
-                    <h3 className="text-sm font-bold text-ink">{g.title}</h3>
+                    <h3 className="text-sm font-bold text-ink">
+                      {t('landing.guarantee.' + g.k + '.title', g.title)}
+                    </h3>
                   </div>
-                  <p className="mt-2 text-xs text-ink-muted leading-relaxed">{g.body}</p>
+                  <p className="mt-2 text-xs text-ink-muted leading-relaxed">
+                    {t('landing.guarantee.' + g.k + '.body', g.body)}
+                  </p>
                 </Card>
               </motion.div>
             ))}
@@ -287,11 +342,11 @@ export default function LandingPage() {
       {/* ---------------- Role entry ---------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-16">
         <motion.div {...reveal}>
-          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">Staff access</h2>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink">
+            {t('landing.access.title', 'Staff access')}
+          </h2>
           <p className="mt-2 text-sm text-ink-muted max-w-2xl leading-relaxed">
-            Both roles use the same sign-in. Your dashboard is determined by the role your
-            administrator assigned — roles are government-assigned, not self-selected, so
-            there is no public sign-up.
+            {t('landing.access.lede', 'Both roles use the same sign-in. Your dashboard is determined by the role your administrator assigned — roles are government-assigned, not self-selected, so there is no public sign-up.')}
           </p>
         </motion.div>
 
@@ -299,38 +354,28 @@ export default function LandingPage() {
           <RoleCard
             Icon={ShieldCheck}
             tone="gov"
-            title="Clinic Assistant"
-            description="At the village sub-centre, with the patient in front of you."
-            bullets={[
-              'Register by Aadhaar and open a visit',
-              'Voice symptom capture in the local dialect',
-              'Prescription, report and wound-photo capture',
-              'Run the AI assessment and act on the tier'
-            ]}
+            title={t('role.assistant', 'Clinic Assistant')}
+            description={t('landing.role.assistant.desc', 'At the village sub-centre, with the patient in front of you.')}
+            bullets={ASSISTANT_BULLETS.map((b) => t('landing.role.assistant.' + b.k, b.text))}
             to="/login"
-            cta="Sign in as assistant"
+            cta={t('landing.role.assistant.cta', 'Sign in as assistant')}
           />
           <RoleCard
             Icon={Stethoscope}
             tone="low"
-            title="Doctor"
-            description="Anywhere with a connection, reviewing prepared cases."
-            bullets={[
-              'Day-wise queue, worst risk first',
-              'Full case file with AI assistance clearly separated',
-              'Video consultation with the assistant and patient',
-              'Sign the diagnosis, prescription or referral'
-            ]}
+            title={t('role.doctor', 'Doctor')}
+            description={t('landing.role.doctor.desc', 'Anywhere with a connection, reviewing prepared cases.')}
+            bullets={DOCTOR_BULLETS.map((b) => t('landing.role.doctor.' + b.k, b.text))}
             to="/login"
-            cta="Sign in as doctor"
+            cta={t('landing.role.doctor.cta', 'Sign in as doctor')}
           />
         </div>
       </section>
 
       <footer className="bg-surface-raised border-t border-line">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-ink-subtle">
-          <p>Rural Health Grid · Grounded in MoHFW Standard Treatment &amp; Telemedicine Practice Guidelines</p>
-          <p className="font-mono">Demonstration system — not for clinical use</p>
+          <p>{t('landing.footer.grounding', 'Rural Health Grid · Grounded in MoHFW Standard Treatment & Telemedicine Practice Guidelines')}</p>
+          <p className="font-mono">{t('landing.footer.demo', 'Demonstration system — not for clinical use')}</p>
         </div>
       </footer>
     </div>

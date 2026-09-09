@@ -144,9 +144,14 @@ const precautionsFor = async (assessment) => {
  *
  * The returned shape is unchanged, so the tier screen and the PDF both render
  * the reason where they used to render a list.
+ *
+ * `reason_key` accompanies `reason` — see the note on KEYS below.
  */
 const medicationFor = async (tier) => ({
   emitted: false,
+  reason_key: tier === WORKFLOW_TIER.HIGH
+    ? 'workflow.medication.referred'
+    : 'workflow.medication.doctorDecides',
   reason: tier === WORKFLOW_TIER.HIGH
     ? 'No medication is issued — this patient is being referred to hospital.'
     : 'Medication is prescribed by the doctor after review. None is suggested here.',
@@ -156,7 +161,21 @@ const medicationFor = async (tier) => ({
 });
 
 /**
- * Build the tier-specific output bundle.
+ * ── Why these strings carry a key as well as their English ──────────────────
+ *
+ * The prose in this file is fixed: nine sentences that never vary by case.
+ * That makes it exactly the wrong thing to send through a translation model —
+ * it would cost a request per assessment, add latency to a clinical screen,
+ * and fail on a connection that has already proved itself unreliable.
+ *
+ * So each one is emitted as `<field>` (English, unchanged, still what a log or
+ * an API consumer sees) plus `<field>_key`, and the browser renders
+ * `t(key, english)` from the catalogue it already has. No network, no model,
+ * correct offline, and a locale that has not translated the key yet still
+ * shows the English sentence rather than a blank.
+ *
+ * The AI-generated prose is a different problem and is solved differently —
+ * see languageDirective in aiOrchestrator.js.
  *
  * @returns {Promise<object>} the block attached to the assessment as `workflow`
  */
@@ -189,11 +208,13 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
   if (tier === WORKFLOW_TIER.LOW) {
     return {
       ...base,
+      headline_key: 'workflow.low.headline',
       headline: 'Protocol care — complete plan issued',
       // Reviewed in the daily batch, not as an interruption.
       doctor_action: {
         queue: 'DAILY_REVIEW',
         notify: true,
+        note_key: 'workflow.low.note',
         note: 'Queued for the doctor’s daily review. The assistant may act on this plan now.'
       },
       consultation: null,
@@ -206,10 +227,12 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
     const speciality = specialityFor(candidates);
     return {
       ...base,
+      headline_key: 'workflow.medium.headline',
       headline: 'Video consultation required before treatment',
       doctor_action: {
         queue: 'CONSULTATION',
         notify: true,
+        note_key: 'workflow.medium.note',
         note: 'A doctor must see this patient before any treatment is given.'
       },
       consultation: {
@@ -217,7 +240,12 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
         // Load-balancing happens at booking time in schedulingService; this is
         // the routing hint that narrows the pool to the right speciality.
         speciality,
+        // The candidate list itself is clinical data and stays as it is; only
+        // the label in front of it is a translatable phrase.
+        routing_basis_key: candidates.length ? 'workflow.routing.candidates' : 'workflow.routing.general',
         routing_basis: candidates.length ? `disease candidates: ${candidates.slice(0, 3).join(', ')}` : 'no candidates — general pool',
+        routing_candidates: candidates.slice(0, 3),
+        note_key: 'workflow.medium.consultNote',
         note: 'The doctor’s review returns to this screen when the call ends.'
       },
       referral: null
@@ -233,6 +261,7 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
 
   return {
     ...base,
+    headline_key: 'workflow.high.headline',
     headline: 'Refer immediately — danger zone',
     danger_zone: true,
     doctor_action: {
@@ -240,6 +269,7 @@ export const buildTierWorkflow = async ({ assessment, patient, visit, districtNa
       // message only; the case closes and is reviewed offline.
       queue: 'NONE',
       notify: false,
+      note_key: 'workflow.high.note',
       note: 'No doctor queue entry. A referral notice is recorded and the case is closed for offline review.'
     },
     consultation: null,

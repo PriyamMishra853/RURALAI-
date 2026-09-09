@@ -5,6 +5,7 @@ import {
   AlertTriangle, Loader2, ArrowLeft, RefreshCw
 } from 'lucide-react';
 import api from '../services/api';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * Booking flow — spec §6.3.
@@ -19,9 +20,20 @@ import api from '../services/api';
  * Every list here is server-computed and re-validated at confirm. A 409 with
  * `refresh: true` means someone booked the slot in between, so the slot list is
  * reloaded rather than the booking silently retried.
+ *
+ * ── Dates are formatted here, not on the server ─────────────────────────────
+ *
+ * The availability endpoint sends both the machine value (`date`,
+ * `start_time`) and a pre-rendered English one (`weekday`, `day`, `month`,
+ * `label`). This screen now renders from the machine value through Intl, so a
+ * Tamil user sees Tamil weekday names instead of "Mon" sitting inside an
+ * otherwise translated date strip. The server's English fields are kept as the
+ * fallback for a row that somehow arrives without a parseable date, and the
+ * API is unchanged — nothing else that consumes it has to move.
  */
 
 export default function ScheduleConsultationModal({ visitId, patientName, onClose, onBooked }) {
+  const { t, formatDate, formatNumber } = useI18n();
   const [step, setStep] = useState('choice');   // choice | date | time | doctor | done
   const [dates, setDates] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -45,11 +57,11 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
       setDates(res.data.dates || []);
       setSelectedDate(res.data.today);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not load availability.');
+      setError(err.response?.data?.error || t('book.datesFailed', 'Could not load availability.'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadSlots = useCallback(async (date) => {
     setLoading(true);
@@ -59,12 +71,12 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
       const res = await api.get('/consultations/availability/slots', { params: { date } });
       setSlots(res.data.slots || []);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not load time slots.');
+      setError(err.response?.data?.error || t('book.slotsFailed', 'Could not load time slots.'));
       setSlots([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (step === 'date') loadDates();
@@ -85,7 +97,7 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
       onBooked?.(res.data);
     } catch (err) {
       const data = err.response?.data;
-      setError(data?.error || 'Could not start an instant consultation.');
+      setError(data?.error || t('book.instantFailed', 'Could not start an instant consultation.'));
       // §2.6 — a clear empty state, with the scheduling path offered instead.
       if (data?.fallback === 'schedule') setStep('date');
     } finally {
@@ -116,7 +128,7 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
       onBooked?.(res.data);
     } catch (err) {
       const data = err.response?.data;
-      setError(data?.error || 'The consultation could not be booked.');
+      setError(data?.error || t('book.confirmFailed', 'The consultation could not be booked.'));
       if (data?.refresh) {
         // Someone took it first — go back and show what is actually free now.
         setStep('time');
@@ -127,7 +139,14 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
     }
   };
 
-  const timeLabel = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const timeLabel = (iso) => formatDate(iso, { hour: '2-digit', minute: '2-digit' });
+
+  /*
+   * One date cell, rendered from the ISO date rather than the server's English
+   * fragments. `formatDate` returns '' for anything unparseable, so the
+   * server's own value is the fallback and a bad row still renders.
+   */
+  const datePart = (d, opts, fallback) => formatDate(d.date, opts) || fallback;
 
   return (
     <div className="fixed inset-0 z-50 bg-surface-sunken/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -139,18 +158,23 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
               <button
                 type="button"
                 onClick={() => setStep(step === 'doctor' ? 'time' : step === 'time' ? 'date' : 'choice')}
-                aria-label="Back"
+                aria-label={t('common.back', 'Back')}
                 className="p-1.5 rounded-field text-ink-subtle hover:bg-surface-sunken"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
             <div className="min-w-0">
-              <h3 className="font-bold text-ink text-base">Video Consultation</h3>
+              <h3 className="font-bold text-ink text-base">{t('book.title', 'Video Consultation')}</h3>
               <p className="text-[11px] text-ink-muted truncate">{patientName}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-field text-ink-subtle hover:bg-surface-sunken">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('common.close', 'Close')}
+            className="p-1.5 rounded-field text-ink-subtle hover:bg-surface-sunken"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -175,11 +199,13 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                 <div className="w-10 h-10 rounded-field bg-tier-emergency text-white flex items-center justify-center mb-3">
                   {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
                 </div>
-                <div className="font-bold text-sm text-ink">Instant Consultation</div>
+                <div className="font-bold text-sm text-ink">{t('book.instant', 'Instant Consultation')}</div>
                 <p className="text-[11px] text-ink-muted mt-1">
-                  Find a doctor who is free right now and start immediately.
+                  {t('book.instantHint', 'Find a doctor who is free right now and start immediately.')}
                 </p>
-                <span className="inline-block mt-2 text-[11px] font-bold text-tier-emergency">Find Doctor Now →</span>
+                <span className="inline-block mt-2 text-[11px] font-bold text-tier-emergency">
+                  {t('book.findNow', 'Find Doctor Now →')}
+                </span>
               </button>
 
               <button
@@ -190,11 +216,13 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                 <div className="w-10 h-10 rounded-field bg-gov-600 text-white flex items-center justify-center mb-3">
                   <Calendar className="w-5 h-5" />
                 </div>
-                <div className="font-bold text-sm text-ink">Schedule Consultation</div>
+                <div className="font-bold text-sm text-ink">{t('book.schedule', 'Schedule Consultation')}</div>
                 <p className="text-[11px] text-ink-muted mt-1">
-                  Pick a date and time in the next seven days.
+                  {t('book.scheduleHint', 'Pick a date and time in the next seven days.')}
                 </p>
-                <span className="inline-block mt-2 text-[11px] font-bold text-gov-700">Schedule →</span>
+                <span className="inline-block mt-2 text-[11px] font-bold text-gov-700">
+                  {t('book.scheduleCta', 'Schedule →')}
+                </span>
               </button>
             </div>
           )}
@@ -202,10 +230,10 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
           {/* --- Date strip (§2.1) --- */}
           {step === 'date' && (
             <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">Select a date</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">{t('book.selectDate', 'Select a date')}</h4>
               {loading ? (
                 <p className="text-xs text-ink-muted py-8 text-center flex items-center justify-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Checking availability…
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('book.checking', 'Checking availability…')}
                 </p>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
@@ -221,21 +249,31 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                           : 'border-line bg-surface-raised hover:border-gov-300'
                       }`}
                     >
-                      <div className="text-[10px] font-semibold text-ink-muted">{d.weekday}</div>
-                      <div className="text-lg font-bold text-ink leading-tight">{d.day}</div>
-                      <div className="text-[9px] text-ink-muted">{d.month}</div>
+                      <div className="text-[10px] font-semibold text-ink-muted">
+                        {datePart(d, { weekday: 'short' }, d.weekday)}
+                      </div>
+                      <div className="text-lg font-bold text-ink leading-tight">
+                        {datePart(d, { day: 'numeric' }, d.day)}
+                      </div>
+                      <div className="text-[9px] text-ink-muted">
+                        {datePart(d, { month: 'short' }, d.month)}
+                      </div>
                       <div className={`text-[9px] font-bold mt-1 ${d.available_slots ? 'text-tier-low' : 'text-ink-subtle'}`}>
-                        {d.unavailable ? 'Closed' : `${d.available_doctors} dr`}
+                        {d.unavailable
+                          ? t('book.closed', 'Closed')
+                          : t('book.doctorCount', '{count} dr', { count: formatNumber(d.available_doctors) })}
                       </div>
                       <div className="text-[9px] text-ink-subtle">
-                        {d.unavailable ? '—' : `${d.available_slots} slots`}
+                        {d.unavailable
+                          ? '—'
+                          : t('book.slotCount', '{count} slots', { count: formatNumber(d.available_slots) })}
                       </div>
                     </button>
                   ))}
                 </div>
               )}
               <p className="text-[11px] text-ink-subtle">
-                Counts come from each doctor&apos;s working hours and existing bookings, checked just now.
+                {t('book.countsHint', 'Counts come from each doctor’s working hours and existing bookings, checked just now.')}
               </p>
             </div>
           )}
@@ -245,24 +283,25 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-                  Select a time · {new Date(selectedDate).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}
+                  {t('book.selectTime', 'Select a time')} ·{' '}
+                  {formatDate(selectedDate, { weekday: 'long', day: 'numeric', month: 'long' })}
                 </h4>
                 <button
                   type="button"
                   onClick={() => loadSlots(selectedDate)}
                   className="text-[11px] text-gov-600 hover:underline flex items-center gap-1"
                 >
-                  <RefreshCw className="w-3 h-3" /> Refresh
+                  <RefreshCw className="w-3 h-3" /> {t('common.refresh', 'Refresh')}
                 </button>
               </div>
 
               {loading ? (
                 <p className="text-xs text-ink-muted py-8 text-center flex items-center justify-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading slots…
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('book.loadingSlots', 'Loading slots…')}
                 </p>
               ) : slots.length === 0 ? (
                 <div className="p-6 text-center text-xs text-ink-muted border border-dashed border-line-strong rounded-field">
-                  No slots remain on this date. Choose another day.
+                  {t('book.noSlots', 'No slots remain on this date. Choose another day.')}
                 </div>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-64 overflow-y-auto">
@@ -273,9 +312,9 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                       onClick={() => pickSlot(s)}
                       className="px-2 py-2 rounded-field border border-line bg-surface-raised hover:border-blue-400 hover:bg-gov-50 text-xs font-semibold text-ink transition-colors"
                     >
-                      {s.label}
+                      {timeLabel(s.start_time) || s.label}
                       <span className="block text-[9px] font-normal text-ink-subtle">
-                        {s.available_doctors.length} free
+                        {t('book.freeCount', '{count} free', { count: formatNumber(s.available_doctors.length) })}
                       </span>
                     </button>
                   ))}
@@ -288,7 +327,7 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
           {step === 'doctor' && selectedSlot && (
             <div className="space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-                Doctors free at {timeLabel(selectedSlot.start_time)}
+                {t('book.doctorsFreeAt', 'Doctors free at {time}', { time: timeLabel(selectedSlot.start_time) })}
               </h4>
 
               <div className="space-y-2">
@@ -310,10 +349,12 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-bold text-xs text-ink truncate">{d.name}</div>
-                        <div className="text-[11px] text-gov-700">{d.specialization}</div>
+                        <div className="text-[11px] text-gov-700">
+                          {t('specialty.' + String(d.specialization || '').toLowerCase().replace(/[^a-z]+/g, ''), d.specialization)}
+                        </div>
                       </div>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-tier-lowBg text-tier-low border border-tier-low/30 shrink-0">
-                        Available
+                        {t('book.available', 'Available')}
                       </span>
                       {active && <CheckCircle2 className="w-5 h-5 text-gov-600 shrink-0" />}
                     </button>
@@ -328,7 +369,9 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                 className="w-full py-3 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white font-semibold text-sm flex items-center justify-center gap-2"
               >
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
-                {busy ? 'Booking…' : `Confirm ${timeLabel(selectedSlot.start_time)}`}
+                {busy
+                  ? t('book.booking', 'Booking…')
+                  : t('book.confirmAt', 'Confirm {time}', { time: timeLabel(selectedSlot.start_time) })}
               </button>
             </div>
           )}
@@ -341,16 +384,18 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
               </div>
               <div>
                 <h4 className="font-bold text-ink">
-                  {result.consultation_type === 'INSTANT' ? 'Doctor found — starting now' : 'Consultation booked'}
+                  {result.consultation_type === 'INSTANT'
+                    ? t('book.doctorFound', 'Doctor found — starting now')
+                    : t('book.booked', 'Consultation booked')}
                 </h4>
                 <p className="text-xs text-ink-muted mt-1">
                   {result.doctor?.full_name || result.doctor_name}
                   {result.scheduled_start_time && (
-                    <> · {new Date(result.scheduled_start_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</>
+                    <> · {formatDate(result.scheduled_start_time, { dateStyle: 'medium', timeStyle: 'short' })}</>
                   )}
                 </p>
                 <p className="text-[11px] text-ink-subtle mt-1">
-                  Both you and the doctor have been notified.
+                  {t('book.notified', 'Both you and the doctor have been notified.')}
                 </p>
               </div>
 
@@ -361,7 +406,7 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                     onClick={() => navigate(`/call/${result.id}`)}
                     className="px-5 py-2.5 rounded-field bg-tier-low hover:opacity-90 text-white font-semibold text-xs"
                   >
-                    Join now
+                    {t('notify.joinNow', 'Join now')}
                   </button>
                 )}
                 <button
@@ -369,7 +414,7 @@ export default function ScheduleConsultationModal({ visitId, patientName, onClos
                   onClick={onClose}
                   className="px-5 py-2.5 rounded-field border border-line-strong text-ink-muted font-semibold text-xs hover:bg-surface-sunken"
                 >
-                  Done
+                  {t('common.done', 'Done')}
                 </button>
               </div>
             </div>

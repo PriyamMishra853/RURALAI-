@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { useTheme } from '../context/ThemeContext';
+import { useI18n } from '../i18n/index.jsx';
 import DISTRICTS from '../data/upDistricts.json';
 
 /**
@@ -40,6 +41,7 @@ const seeded = (i) => {
 export default function DistrictNetwork3D({ className, onDistrictHover }) {
   const mountRef = useRef(null);
   const { isDark } = useTheme();
+  const { t, formatNumber } = useI18n();
   const [hovered, setHovered] = useState(null);
   const [failed, setFailed] = useState(false);
   const hoverRef = useRef(null);
@@ -320,7 +322,9 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
     return (
       <div className={className}>
         <div className="w-full h-full rounded-card bg-gradient-to-br from-gov-600 to-gov-800 flex items-center justify-center">
-          <p className="text-white/70 text-xs">75 districts · Uttar Pradesh</p>
+          <p className="text-white/70 text-xs">
+            {t('map.districtCount', '{count} districts', { count: formatNumber(75) })} · Uttar Pradesh
+          </p>
         </div>
       </div>
     );
@@ -328,8 +332,12 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
 
   return (
     <div className={`relative ${className || ''}`}>
-      <div ref={mountRef} className="absolute inset-0" role="img"
-           aria-label="Interactive 3D map of the 75 district hospital network across Uttar Pradesh" />
+      <div
+        ref={mountRef}
+        className="absolute inset-0"
+        role="img"
+        aria-label={t('map.aria', 'Interactive 3D map of the {count} district hospital network across Uttar Pradesh', { count: formatNumber(75) })}
+      />
 
       {/* Hover readout — the reason this is a map and not a decoration. */}
       <div className="absolute bottom-3 left-3 pointer-events-none">
@@ -339,22 +347,22 @@ export default function DistrictNetwork3D({ className, onDistrictHover }) {
             : 'bg-surface-raised/60 border-transparent opacity-70 translate-y-1'
         }`}>
           <p className="text-[10px] uppercase tracking-wider text-ink-subtle">
-            {hovered ? 'District' : 'Uttar Pradesh'}
+            {hovered ? t('field.district', 'District') : 'Uttar Pradesh'}
           </p>
           <p className="text-sm font-bold text-ink leading-tight">
-            {hovered || '75 district hospitals'}
+            {hovered || t('map.hospitalCount', '{count} district hospitals', { count: formatNumber(75) })}
           </p>
         </div>
       </div>
 
       <div className="absolute top-3 right-3 pointer-events-none flex flex-col gap-1.5 items-end">
         {[
-          ['Sub-centre', 'bg-gov-500'],
-          ['Active now', 'bg-tier-low'],
-          ['Referral in transit', 'bg-tier-emergency']
-        ].map(([label, dot]) => (
-          <span key={label} className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-raised/70 backdrop-blur text-[10px] text-ink-muted">
-            <span className={`w-1.5 h-1.5 rounded-full ${dot}`} /> {label}
+          ['map.subCentre', 'Sub-centre', 'bg-gov-500'],
+          ['map.activeNow', 'Active now', 'bg-tier-low'],
+          ['map.inTransit', 'Referral in transit', 'bg-tier-emergency']
+        ].map(([k, label, dot]) => (
+          <span key={k} className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-surface-raised/70 backdrop-blur text-[10px] text-ink-muted">
+            <span className={`w-1.5 h-1.5 rounded-full ${dot}`} /> {t(k, label)}
           </span>
         ))}
       </div>

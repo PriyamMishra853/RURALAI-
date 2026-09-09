@@ -201,11 +201,13 @@ export const buildReferral = async ({ districtName, lat, lon, tier = 'HIGH', req
     // Direct hospital switchboard numbers are NOT listed: there is no
     // authoritative public register of them, and a wrong number on a referral
     // screen costs minutes at exactly the wrong moment.
+    // The numbers are national and never change; only the description of each
+    // is prose, so each carries a catalogue key the browser renders.
     emergency_lines: [
-      { number: '108', label: 'Emergency ambulance (free, 24x7)' },
-      { number: '102', label: 'Maternal & child health ambulance' },
-      { number: '104', label: 'Health helpline / advice' },
-      { number: '112', label: 'National emergency number' }
+      { number: '108', label_key: 'emergency.108', label: 'Emergency ambulance (free, 24x7)' },
+      { number: '102', label_key: 'emergency.102', label: 'Maternal & child health ambulance' },
+      { number: '104', label_key: 'emergency.104', label: 'Health helpline / advice' },
+      { number: '112', label_key: 'emergency.112', label: 'National emergency number' }
     ],
     emergency_line: '108',
     // Returned so the screen, and anyone reading the audit row later, can see
@@ -213,9 +215,14 @@ export const buildReferral = async ({ districtName, lat, lon, tier = 'HIGH', req
     tier,
     required_capabilities: required,
     ranking: 'capability > affordability (PM-JAY) > quality (NABH, type, beds) > travel time',
+    rating_disclaimer_key: 'referral.ratingDisclaimer',
     rating_disclaimer: 'Public review scores are shown only where available and are not a measure of clinical quality.',
     // Stated explicitly so the UI cannot quietly imply we know bed status.
     capacity_status: 'UNKNOWN',
+    // The single most important sentence on the emergency screen: it is what
+    // stops a critical patient being driven to a hospital that cannot admit
+    // them. It has to be readable by whoever is making that decision.
+    capacity_instruction_key: 'referral.capacityInstruction',
     capacity_instruction:
       'Bed and room availability is not published as a live feed. Call the hospital or 108 to confirm capacity before transporting the patient.',
     distance_source: 'straight-line'

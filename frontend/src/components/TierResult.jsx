@@ -7,6 +7,11 @@ import {
 import { Card, Button, Alert, cn } from './ui';
 import { TierBadge, DangerZone } from './TierSystem';
 import SpeakButton, { assessmentToSpeech } from './SpeakButton';
+// Was used by PdfButtons below without ever being imported, so every hardcopy
+// button on this screen threw a ReferenceError instead of downloading.
+import { downloadVisitReport } from '../services/reportDownload';
+import { useI18n } from '../i18n/index.jsx';
+import { serverText } from '../i18n/serverLabels.js';
 
 /**
  * The tiered assessment result — spec §3.6.
@@ -48,31 +53,39 @@ function NumberedList({ items }) {
 }
 
 function PdfButtons({ visitId, tier }) {
+  const { t } = useI18n();
+
   const open = async (type) => {
-    const { ok, error } = await downloadVisitReport(visitId, type);
-    if (!ok) alert(error);
+    // The report is generated server-side and comes back in the language the
+    // request was made in; see reportPdfService on the API.
+    const { ok, error } = await downloadVisitReport(visitId, type, { t });
+    if (!ok) alert(error || t('report.downloadFailed', 'The report could not be downloaded.'));
   };
 
   return (
     <div className="flex flex-wrap gap-2">
       <Button size="sm" variant="secondary" onClick={() => open('summary')}>
-        <FileDown className="w-3.5 h-3.5" /> Clinical summary
+        <FileDown className="w-3.5 h-3.5" /> {t('report.summary', 'Clinical summary')}
       </Button>
       {tier === 'LOW' && (
         <Button size="sm" variant="secondary" onClick={() => open('prescription')}>
-          <FileDown className="w-3.5 h-3.5" /> Medication advice
+          <FileDown className="w-3.5 h-3.5" /> {t('report.prescription', 'Medication advice')}
         </Button>
       )}
       {tier === 'HIGH' && (
         <Button size="sm" variant="danger" onClick={() => open('referral')}>
-          <FileDown className="w-3.5 h-3.5" /> Referral &amp; bill
+          <FileDown className="w-3.5 h-3.5" /> {t('report.referral', 'Referral & bill')}
         </Button>
       )}
     </div>
   );
 }
 
-export default function TierResult({ workflow, assessment, visitId, language = 'Hindi', onScheduleConsultation }) {
+export default function TierResult({ workflow, assessment, visitId, onScheduleConsultation }) {
+  // `language` used to be threaded in here to tell SpeakButton what to read.
+  // It now reads the selected interface language from context, so the prop was
+  // a second, staler source of the same answer.
+  const { t, formatNumber } = useI18n();
   if (!workflow) return null;
 
   const { tier } = workflow;
@@ -99,12 +112,12 @@ export default function TierResult({ workflow, assessment, visitId, language = '
               'mt-2 font-display text-lg font-bold',
               tier === 'HIGH' ? 'text-tier-emergency' : tier === 'MEDIUM' ? 'text-tier-moderate' : 'text-tier-low'
             )}>
-              {workflow.headline}
+              {serverText(t, workflow, 'headline')}
             </h3>
           </div>
 
           <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
-            <SpeakButton text={speech} language={language} label="Read aloud" size="sm" />
+            <SpeakButton text={speech} size="sm" />
           </div>
         </div>
 
@@ -118,7 +131,7 @@ export default function TierResult({ workflow, assessment, visitId, language = '
         <Card className="border-2 border-tier-emergency">
           <div className="bg-tier-emergency px-4 py-2.5">
             <p className="text-white font-bold text-sm flex items-center gap-2">
-              <Siren className="w-4 h-4" /> Refer to district hospital now
+              <Siren className="w-4 h-4" /> {t('referral.now', 'Refer to district hospital now')}
             </p>
           </div>
           <div className="p-4 sm:p-5 space-y-3">
@@ -129,9 +142,9 @@ export default function TierResult({ workflow, assessment, visitId, language = '
                   <MapPin className="w-3.5 h-3.5" />
                   {workflow.referral.primary.district}
                   {workflow.referral.primary.road_distance_km != null
-                    ? ` · ${workflow.referral.primary.road_distance_km} km by road`
+                    ? ' · ' + t('referral.kmByRoad', '{km} km by road', { km: formatNumber(workflow.referral.primary.road_distance_km) })
                     : workflow.referral.primary.straight_line_km != null
-                      ? ` · ${workflow.referral.primary.straight_line_km} km`
+                      ? ' · ' + t('referral.km', '{km} km', { km: formatNumber(workflow.referral.primary.straight_line_km) })
                       : ''}
                   {workflow.referral.primary.driving_time_text ? ` · ${workflow.referral.primary.driving_time_text}` : ''}
                 </p>
@@ -146,7 +159,7 @@ export default function TierResult({ workflow, assessment, visitId, language = '
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-tier-emergency text-xs font-bold"
                 >
                   <Phone className="w-3.5 h-3.5" /> {l.number}
-                  <span className="font-normal text-[10px] opacity-80">{l.label}</span>
+                  <span className="font-normal text-[10px] opacity-80">{serverText(t, l, 'label')}</span>
                 </a>
               ))}
             </div>
@@ -154,8 +167,8 @@ export default function TierResult({ workflow, assessment, visitId, language = '
             {/* Never invented. There is no live bed feed for UP district
                 hospitals, and a fabricated number here would be the most
                 dangerous thing on the screen. */}
-            <Alert tone="warning" icon={AlertTriangle} title="Bed availability not confirmed">
-              {workflow.referral.capacity_instruction}
+            <Alert tone="warning" icon={AlertTriangle} title={t('referral.bedsUnconfirmed', 'Bed availability not confirmed')}>
+              {serverText(t, workflow.referral, 'capacity_instruction')}
             </Alert>
           </div>
         </Card>
@@ -169,15 +182,24 @@ export default function TierResult({ workflow, assessment, visitId, language = '
               <Video className="w-5 h-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-ink">Video consultation required</p>
-              <p className="text-xs text-ink-muted mt-0.5">
-                Routed to <strong className="text-ink">{workflow.consultation.speciality}</strong> ·{' '}
-                {workflow.consultation.routing_basis}
+              <p className="text-sm font-bold text-ink">
+                {t('tier.moderate.headline', 'Video consultation required')}
               </p>
-              <p className="text-[11px] text-ink-subtle mt-1">{workflow.consultation.note}</p>
+              <p className="text-xs text-ink-muted mt-0.5">
+                {t('consult.routedTo', 'Routed to')}{' '}
+                <strong className="text-ink">{workflow.consultation.speciality}</strong> ·{' '}
+                {/* The candidate names are clinical data and stay as sent;
+                    only the phrase introducing them is translated. */}
+                {workflow.consultation.routing_candidates?.length
+                  ? t('workflow.routing.candidates', 'disease candidates: {list}', {
+                    list: workflow.consultation.routing_candidates.join(', ')
+                  })
+                  : serverText(t, workflow.consultation, 'routing_basis')}
+              </p>
+              <p className="text-[11px] text-ink-subtle mt-1">{serverText(t, workflow.consultation, 'note')}</p>
             </div>
             <Button onClick={onScheduleConsultation} className="shrink-0">
-              <Stethoscope className="w-4 h-4" /> Find a doctor
+              <Stethoscope className="w-4 h-4" /> {t('consult.findDoctor', 'Find a doctor')}
             </Button>
           </div>
         </Card>
@@ -186,30 +208,32 @@ export default function TierResult({ workflow, assessment, visitId, language = '
       {/* ---- Common blocks, in the spec's order ---- */}
       <Card className="p-4 sm:p-5">
         {workflow.first_aid?.length > 0 && (
-          <Section icon={ShieldCheck} title="First aid — perform now">
+          <Section icon={ShieldCheck} title={t('section.firstAid', 'First aid — perform now')}>
             <NumberedList items={workflow.first_aid} />
           </Section>
         )}
 
-        <Section icon={User} title="Patient">
+        <Section icon={User} title={t('common.patient', 'Patient')}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
             {[
-              ['Name', workflow.patient?.name],
-              ['Age', workflow.patient?.age != null ? `${workflow.patient.age} yr` : null],
-              ['Gender', workflow.patient?.gender],
-              ['Village', workflow.patient?.village],
-              ['District', workflow.patient?.district],
-              ['Phone', workflow.patient?.phone]
-            ].filter(([, v]) => v).map(([k, v]) => (
-              <div key={k}>
-                <span className="block text-[10px] text-ink-subtle">{k}</span>
+              ['field.name', 'Name', workflow.patient?.name],
+              ['field.age', 'Age', workflow.patient?.age != null
+                ? t('field.ageYears', '{age} yr', { age: formatNumber(workflow.patient.age) })
+                : null],
+              ['field.gender', 'Gender', workflow.patient?.gender],
+              ['field.village', 'Village', workflow.patient?.village],
+              ['field.district', 'District', workflow.patient?.district],
+              ['field.phone', 'Phone', workflow.patient?.phone]
+            ].filter(([, , v]) => v).map(([key, en, v]) => (
+              <div key={key}>
+                <span className="block text-[10px] text-ink-subtle">{t(key, en)}</span>
                 <span className="font-semibold text-ink">{v}</span>
               </div>
             ))}
           </div>
         </Section>
 
-        <Section icon={Pill} title="Medication">
+        <Section icon={Pill} title={t('section.medication', 'Medication')}>
           {workflow.medication?.emitted ? (
             <div className="space-y-2">
               {workflow.medication.items.map((m, i) => (
@@ -220,28 +244,32 @@ export default function TierResult({ workflow, assessment, visitId, language = '
                   </p>
                   {m.availability?.cheapest_inr != null && (
                     <p className="text-[11px] text-tier-low mt-1">
-                      From ₹{m.availability.cheapest_inr} · {m.availability.products} products available in India
+                      {t('med.availability', 'From ₹{price} · {count} products available in India', {
+                        price: formatNumber(m.availability.cheapest_inr),
+                        count: formatNumber(m.availability.products)
+                      })}
                     </p>
                   )}
                   {m.rule_source_id && (
-                    <p className="text-[10px] text-ink-subtle font-mono mt-1">Formulary {m.rule_source_id}</p>
+                    <p className="text-[10px] text-ink-subtle font-mono mt-1">
+                      {t('med.formulary', 'Formulary {id}', { id: m.rule_source_id })}
+                    </p>
                   )}
                 </div>
               ))}
               {workflow.medication.signature_status !== 'SIGNED' && (
-                <Alert tone="danger" icon={AlertTriangle} title="Unsigned formulary">
-                  These entries have not been reviewed by a registered medical practitioner
-                  for this deployment and must not be dispensed.
+                <Alert tone="danger" icon={AlertTriangle} title={t('med.unsignedTitle', 'Unsigned formulary')}>
+                  {t('med.unsignedBody', 'These entries have not been reviewed by a registered medical practitioner for this deployment and must not be dispensed.')}
                 </Alert>
               )}
             </div>
           ) : (
-            <p className="text-xs text-ink-muted">{workflow.medication?.reason}</p>
+            <p className="text-xs text-ink-muted">{serverText(t, workflow.medication, 'reason')}</p>
           )}
         </Section>
 
         {workflow.precautions?.items?.length > 0 && (
-          <Section icon={ListChecks} title="Precautions">
+          <Section icon={ListChecks} title={t('section.precautions', 'Precautions')}>
             <ul className="space-y-1.5">
               {workflow.precautions.items.map((p, i) => (
                 <li key={i} className="flex gap-2 text-xs text-ink">
@@ -254,7 +282,7 @@ export default function TierResult({ workflow, assessment, visitId, language = '
         )}
 
         {workflow.diet?.length > 0 && (
-          <Section icon={Apple} title="Diet guidance">
+          <Section icon={Apple} title={t('section.diet', 'Diet guidance')}>
             <ul className="space-y-1.5">
               {workflow.diet.map((d, i) => (
                 <li key={i} className="flex gap-2 text-xs text-ink-muted">
@@ -266,7 +294,7 @@ export default function TierResult({ workflow, assessment, visitId, language = '
           </Section>
         )}
 
-        <Section icon={FileDown} title="Hardcopy">
+        <Section icon={FileDown} title={t('section.hardcopy', 'Hardcopy')}>
           <PdfButtons visitId={visitId} tier={tier} />
         </Section>
       </Card>
@@ -276,12 +304,14 @@ export default function TierResult({ workflow, assessment, visitId, language = '
         tone={tier === 'HIGH' ? 'danger' : tier === 'MEDIUM' ? 'warning' : 'info'}
         icon={Stethoscope}
         title={
-          workflow.doctor_action?.queue === 'NONE' ? 'Case closed on this platform'
-            : workflow.doctor_action?.queue === 'CONSULTATION' ? 'Sent for consultation'
-              : 'Queued for daily doctor review'
+          workflow.doctor_action?.queue === 'NONE'
+            ? t('queue.closed', 'Case closed on this platform')
+            : workflow.doctor_action?.queue === 'CONSULTATION'
+              ? t('queue.consultation', 'Sent for consultation')
+              : t('queue.daily', 'Queued for daily doctor review')
         }
       >
-        {workflow.doctor_action?.note}
+        {serverText(t, workflow.doctor_action, 'note')}
       </Alert>
     </div>
   );

@@ -2,6 +2,7 @@ import React from 'react';
 import { twMerge } from 'tailwind-merge';
 import clsx from 'clsx';
 import { Loader2 } from 'lucide-react';
+import { useT } from '../../i18n/index.jsx';
 
 /**
  * UI primitives.
@@ -223,11 +224,17 @@ export function Skeleton({ className }) {
 
 /* ------------------------------------------------------------------ Spinner */
 
-export function Spinner({ label = 'Loading…', className }) {
+/**
+ * `label` defaults to null rather than to the English word, so the common case
+ * renders the translated string. A caller that passes its own label still
+ * wins — several screens say what is loading, not just that something is.
+ */
+export function Spinner({ label = null, className }) {
+  const t = useT();
   return (
     <div className={cn('flex items-center justify-center gap-2 py-10 text-xs text-ink-muted', className)}>
       <Loader2 className="w-4 h-4 animate-spin text-gov-600 dark:text-gov-500" />
-      {label}
+      {label ?? t('common.loading', 'Loading…')}
     </div>
   );
 }

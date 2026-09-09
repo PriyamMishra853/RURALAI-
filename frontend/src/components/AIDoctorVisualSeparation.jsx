@@ -1,9 +1,24 @@
 import React from 'react';
 import { Bot, Stethoscope, AlertTriangle, BookOpen, ShieldCheck, FileCheck2, UserCheck, Camera, FileText, Pill, Eye, RefreshCw, CheckCircle2 } from 'lucide-react';
 import RiskBadge from './RiskBadge';
+import { useI18n } from '../i18n/index.jsx';
 
+/**
+ * The AI's contribution and the doctor's decision, kept visually apart.
+ *
+ * Both halves are translated, including the section headings. This panel's
+ * whole job is to make it obvious which statements carry a doctor's authority
+ * and which do not, and a heading a reader cannot read cannot do that job.
+ *
+ * What is NOT translated, deliberately:
+ *   - drug names, strengths and dose strings, which are canonical
+ *   - the OCR extraction dump, which is diagnostic JSON
+ *   - protocol titles from MoHFW, which are cited documents
+ */
 export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, prescription, documents = [], images = [] }) {
+  const { t, formatNumber } = useI18n();
   const isAIProcessing = aiAssessment?.processing_status === 'processing';
+  const notAvailable = t('cv.notAvailable', 'Not available from automated analysis');
 
   return (
     <div className="space-y-6">
@@ -17,13 +32,15 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             </div>
             <div>
               <h3 className="text-base font-bold text-ink flex items-center gap-2">
-                🤖 AI Assessment Summary & Clinical Artifacts
+                🤖 {t('aiPanel.title', 'AI Assessment Summary & Clinical Artifacts')}
               </h3>
-              <p className="text-xs text-ink-muted">Database-backed AI synthesis, OCR extractions, and computer vision photo analysis.</p>
+              <p className="text-xs text-ink-muted">
+                {t('aiPanel.subtitle', 'Database-backed AI synthesis, OCR extractions, and computer vision photo analysis.')}
+              </p>
             </div>
           </div>
           <span className="text-[10px] font-semibold uppercase tracking-wider bg-gov-50 text-gov-700 px-2.5 py-1 rounded border border-gov-200">
-            AI Data Layer
+            {t('aiPanel.chip', 'AI Data Layer')}
           </span>
         </div>
 
@@ -31,7 +48,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
         {isAIProcessing && (
           <div className="p-4 rounded-field bg-gov-50 border border-gov-200 text-xs text-blue-800 flex items-center gap-2 font-medium">
             <RefreshCw className="w-4 h-4 text-gov-600 animate-spin shrink-0" />
-            <span>AI Patient Assessment is processing in real-time... Please wait while clinical protocols are retrieved.</span>
+            <span>{t('aiPanel.processing', 'AI Patient Assessment is processing in real-time… Please wait while clinical protocols are retrieved.')}</span>
           </div>
         )}
 
@@ -40,17 +57,19 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             
             {/* Risk Status */}
             <div className="flex items-center justify-between p-3 rounded-field bg-surface-sunken border border-line">
-              <span className="font-semibold text-ink-muted">Rule Engine Risk Status:</span>
+              <span className="font-semibold text-ink-muted">{t('aiPanel.ruleRisk', 'Rule Engine Risk Status:')}</span>
               <RiskBadge level={aiAssessment.risk_level} />
             </div>
 
             {/* AI Summary */}
             <div className="p-4 rounded-field bg-surface-sunken border border-line">
               <div className="font-bold text-gov-700 mb-1 flex items-center gap-1.5">
-                <Bot className="w-4 h-4 text-gov-600" /> Patient Assessment Summary
+                <Bot className="w-4 h-4 text-gov-600" /> {t('aiPanel.summaryTitle', 'Patient Assessment Summary')}
               </div>
               <p className="leading-relaxed text-ink font-medium">
-                {aiAssessment.patient_summary || aiAssessment.summary || 'Patient Assessment Summary Logged'}
+                {aiAssessment.patient_summary
+                  || aiAssessment.summary
+                  || t('aiPanel.summaryLogged', 'Patient Assessment Summary Logged')}
               </p>
             </div>
 
@@ -58,12 +77,14 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {aiAssessment.first_aid_steps && aiAssessment.first_aid_steps.length > 0 && (
               <div className="p-4 rounded-field bg-tier-lowBg/50 border border-tier-low/30 space-y-2">
                 <div className="font-bold text-tier-low flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-tier-low" /> Step-by-Step First-Aid Guidance
+                  <ShieldCheck className="w-4 h-4 text-tier-low" /> {t('aiPanel.firstAid', 'Step-by-Step First-Aid Guidance')}
                 </div>
                 <div className="space-y-1.5 text-ink">
                   {aiAssessment.first_aid_steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-2">
-                      <span className="w-4 h-4 rounded-full bg-tier-lowBg text-tier-low font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">{idx+1}</span>
+                      <span className="w-4 h-4 rounded-full bg-tier-lowBg text-tier-low font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                        {formatNumber(idx + 1)}
+                      </span>
                       <span>{step}</span>
                     </div>
                   ))}
@@ -79,11 +100,11 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             */}
             <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-1">
               <div className="font-bold text-ink-muted flex items-center gap-1.5">
-                <Pill className="w-4 h-4" /> Medication — not suggested by the AI
+                <Pill className="w-4 h-4" /> {t('aiPanel.noMedication', 'Medication — not suggested by the AI')}
               </div>
               <p className="text-xs text-ink-muted">
                 {aiAssessment.medication_withheld_reason
-                  || 'Medication is a clinical decision reserved for the doctor.'}
+                  || t('aiPanel.medicationReserved', 'Medication is a clinical decision reserved for the doctor.')}
               </p>
             </div>
 
@@ -91,14 +112,20 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {documents && documents.length > 0 && (
               <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-2">
                 <div className="font-bold text-tier-low flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-tier-low" /> Scanned Document (OCR) Records ({documents.length})
+                  <FileText className="w-4 h-4 text-tier-low" />{' '}
+                  {t('aiPanel.ocrRecords', 'Scanned Document (OCR) Records ({count})', { count: formatNumber(documents.length) })}
                 </div>
                 {documents.map((doc, idx) => (
                   <div key={idx} className="p-2.5 rounded-field bg-surface-raised border border-line text-xs space-y-1">
-                    <div className="font-semibold text-ink">{doc.original_file_name || doc.file_name} ({doc.document_type})</div>
+                    <div className="font-semibold text-ink">
+                      {doc.original_file_name || doc.file_name}{' '}
+                      ({t('docType.' + doc.document_type, doc.document_type)})
+                    </div>
                     {doc.document_extractions?.[0]?.structured_data && (
                       <div className="text-ink-muted">
-                        Extracted: {JSON.stringify(doc.document_extractions[0].structured_data.medications || doc.document_extractions[0].structured_data)}
+                        {t('aiPanel.extracted', 'Extracted')}:{' '}
+                        {/* Raw JSON on purpose — this is the diagnostic dump, not prose. */}
+                        {JSON.stringify(doc.document_extractions[0].structured_data.medications || doc.document_extractions[0].structured_data)}
                       </div>
                     )}
                   </div>
@@ -110,7 +137,8 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {images && images.length > 0 && (
               <div className="p-4 rounded-field bg-surface-sunken border border-line space-y-4">
                 <div className="font-bold text-purple-800 flex items-center gap-1.5 text-sm">
-                  <Camera className="w-4 h-4 text-gov-600" /> Injury & Clinical Wound Photo Observations ({images.length})
+                  <Camera className="w-4 h-4 text-gov-600" />{' '}
+                  {t('aiPanel.woundObs', 'Injury & Clinical Wound Photo Observations ({count})', { count: formatNumber(images.length) })}
                 </div>
                 
                 {images.map((img, idx) => {
@@ -125,38 +153,48 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
                       {/* Render Actual Wound Photo Image */}
                       {imgUrl ? (
                         <div className="rounded-field overflow-hidden border border-line max-h-72 bg-surface-sunken flex items-center justify-center p-2">
-                          <img src={imgUrl} alt="Uploaded Clinical Wound Photo" className="max-h-64 object-contain rounded w-full" />
+                          <img
+                            src={imgUrl}
+                            alt={t('cv.woundPhotoAlt', 'Uploaded clinical wound photo')}
+                            className="max-h-64 object-contain rounded w-full"
+                          />
                         </div>
                       ) : (
                         <div className="p-4 rounded bg-surface-sunken border text-ink-muted text-center">
-                          Image preview pending
+                          {t('cv.previewPending', 'Image preview pending')}
                         </div>
                       )}
 
                       {/* 1. Computer Vision Surface Analysis Breakdown */}
                       <div className="space-y-2">
                         <div className="font-bold text-gov-600 flex items-center gap-1.5 text-xs">
-                          <Eye className="w-4 h-4 text-gov-600" /> Computer Vision Surface Feature Breakdown:
+                          <Eye className="w-4 h-4 text-gov-600" /> {t('cv.breakdown', 'Computer Vision Surface Feature Breakdown:')}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div className="p-2.5 rounded-field bg-gov-50/60 border border-gov-200">
-                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">Tissue Margin Erythema</span>
+                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">
+                              {t('cv.tissueMargin', 'Tissue Margin Erythema')}
+                            </span>
                             <span className="text-ink text-[11px] leading-snug block">
-                              {cvData.tissue_margin || 'Not available from automated analysis'}
+                              {cvData.tissue_margin || notAvailable}
                             </span>
                           </div>
 
                           <div className="p-2.5 rounded-field bg-gov-50/60 border border-gov-200">
-                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">Surface Features & Swelling</span>
+                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">
+                              {t('cv.surfaceFeatures', 'Surface Features & Swelling')}
+                            </span>
                             <span className="text-ink text-[11px] leading-snug block">
-                              {cvData.surface_features || 'Not available from automated analysis'}
+                              {cvData.surface_features || notAvailable}
                             </span>
                           </div>
 
                           <div className="p-2.5 rounded-field bg-gov-50/60 border border-gov-200">
-                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">Exudate & Moisture</span>
+                            <span className="font-bold text-gov-600 block text-[11px] uppercase tracking-wider mb-0.5">
+                              {t('cv.exudate', 'Exudate & Moisture')}
+                            </span>
                             <span className="text-ink text-[11px] leading-snug block">
-                              {cvData.exudate_observation || 'Not available from automated analysis'}
+                              {cvData.exudate_observation || notAvailable}
                             </span>
                           </div>
                         </div>
@@ -166,7 +204,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
                       {obsFeatures && obsFeatures.length > 0 && (
                         <div className="space-y-1.5 pt-2 border-t border-line">
                           <div className="font-bold text-ink flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-tier-low" /> Detected Anatomical Features & Findings:
+                            <CheckCircle2 className="w-3.5 h-3.5 text-tier-low" /> {t('cv.detected', 'Detected Anatomical Features & Findings:')}
                           </div>
                           <div className="space-y-1 text-ink-muted pl-1">
                             {obsFeatures.map((feat, fIdx) => (
@@ -181,9 +219,10 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
 
                       {/* 3. Complete Untruncated Cautious Summary */}
                       <div className="p-3 rounded-field bg-surface-sunken border border-line text-ink space-y-1">
-                        <div className="font-bold text-ink">Complete Cautious Summary for Doctor Review:</div>
+                        <div className="font-bold text-ink">{t('cv.cautiousSummary', 'Complete Cautious Summary for Doctor Review:')}</div>
                         <p className="leading-relaxed text-ink text-[11px]">
-                          {img.cautious_summary || 'No automated visual analysis is available for this photograph — please review the image directly.'}
+                          {img.cautious_summary
+                            || t('cv.noAnalysis', 'No automated visual analysis is available for this photograph — please review the image directly.')}
                         </p>
                       </div>
 
@@ -191,7 +230,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
                       {warnings && warnings.length > 0 && (
                         <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30 text-tier-moderate space-y-1 text-[11px]">
                           <div className="font-bold flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 text-tier-moderate" /> Vision System Clinical Precautions:
+                            <AlertTriangle className="w-3.5 h-3.5 text-tier-moderate" /> {t('cv.precautions', 'Vision System Clinical Precautions:')}
                           </div>
                           <ul className="list-disc list-inside space-y-0.5 text-ink">
                             {warnings.map((w, wIdx) => (
@@ -211,7 +250,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {aiAssessment.warnings && aiAssessment.warnings.length > 0 && (
               <div className="p-3.5 rounded-field bg-tier-moderateBg border border-tier-moderate/30 text-tier-moderate">
                 <div className="font-bold flex items-center gap-1.5 mb-1">
-                  <AlertTriangle className="w-4 h-4 text-tier-moderate" /> Warning Flags & Safety Checks
+                  <AlertTriangle className="w-4 h-4 text-tier-moderate" /> {t('aiPanel.warningFlags', 'Warning Flags & Safety Checks')}
                 </div>
                 <ul className="list-disc list-inside space-y-1 text-ink">
                   {aiAssessment.warnings.map((w, idx) => (
@@ -225,7 +264,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {aiAssessment.protocol_matches && aiAssessment.protocol_matches.length > 0 && (
               <div className="p-4 rounded-field bg-surface-sunken border border-line">
                 <div className="font-bold text-blue-800 flex items-center gap-1.5 mb-2">
-                  <BookOpen className="w-4 h-4 text-gov-600" /> Approved MoHFW Clinical Protocols
+                  <BookOpen className="w-4 h-4 text-gov-600" /> {t('aiPanel.protocols', 'Approved MoHFW Clinical Protocols')}
                 </div>
                 <div className="space-y-2">
                   {aiAssessment.protocol_matches.map((p, idx) => (
@@ -242,7 +281,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
         ) : (
           <div className="p-4 rounded-field bg-gov-50 border border-gov-200 text-xs text-blue-800 flex items-center gap-2 font-medium">
             <RefreshCw className="w-4 h-4 text-gov-600 animate-spin shrink-0" />
-            <span>AI Patient Assessment is processing or pending for this visit. Uploads will appear live once generated.</span>
+            <span>{t('aiPanel.pending', 'AI Patient Assessment is processing or pending for this visit. Uploads will appear live once generated.')}</span>
           </div>
         )}
       </div>
@@ -256,13 +295,15 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             </div>
             <div>
               <h3 className="text-base font-bold text-ink flex items-center gap-2">
-                👨‍⚕️ Qualified Doctor Medical Decision
+                👨‍⚕️ {t('doctorPanel.title', 'Qualified Doctor Medical Decision')}
               </h3>
-              <p className="text-xs text-ink-muted">Final clinical diagnosis, prescription issuance, and treatment decisions by Registered Doctor.</p>
+              <p className="text-xs text-ink-muted">
+                {t('doctorPanel.subtitle', 'Final clinical diagnosis, prescription issuance, and treatment decisions by Registered Doctor.')}
+              </p>
             </div>
           </div>
           <span className="text-[10px] font-semibold uppercase tracking-wider bg-tier-lowBg text-tier-low px-2.5 py-1 rounded border border-tier-low/30">
-            Doctor Medical Decision
+            {t('doctorPanel.chip', 'Doctor Medical Decision')}
           </span>
         </div>
 
@@ -270,17 +311,19 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
           <div className="space-y-4 text-xs">
             <div className="p-3.5 rounded-field bg-surface-sunken border border-line flex items-center justify-between">
               <div>
-                <span className="text-ink-muted">Doctor Decision:</span>
-                <span className="ml-2 font-bold text-sm text-tier-low uppercase">{doctorReview.decision}</span>
+                <span className="text-ink-muted">{t('doctorPanel.decision', 'Doctor Decision:')}</span>
+                <span className="ml-2 font-bold text-sm text-tier-low uppercase">
+                  {t('decision.' + String(doctorReview.decision || '').replace(/_(.)/g, (m, c) => c.toUpperCase()), doctorReview.decision)}
+                </span>
               </div>
               <span className="text-ink-muted flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5 text-tier-low" /> Reviewed by Registered Doctor
+                <UserCheck className="w-3.5 h-3.5 text-tier-low" /> {t('doctorPanel.reviewedBy', 'Reviewed by Registered Doctor')}
               </span>
             </div>
 
             {doctorReview.doctor_notes && (
               <div className="p-3.5 rounded-field bg-surface-sunken border border-line">
-                <div className="font-bold text-tier-low mb-1">Clinical Notes & Observations</div>
+                <div className="font-bold text-tier-low mb-1">{t('doctorPanel.notes', 'Clinical Notes & Observations')}</div>
                 <p className="text-ink leading-relaxed">{doctorReview.doctor_notes}</p>
               </div>
             )}
@@ -288,13 +331,17 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
             {prescription && prescription.prescription_data && (
               <div className="p-4 rounded-field bg-tier-lowBg/50 border border-tier-low/30">
                 <div className="font-bold text-tier-low flex items-center gap-1.5 mb-2 text-sm">
-                  <FileCheck2 className="w-4 h-4 text-tier-low" /> Official Signed Digital Prescription
+                  <FileCheck2 className="w-4 h-4 text-tier-low" /> {t('doctorPanel.signedRx', 'Official Signed Digital Prescription')}
                 </div>
                 <div className="space-y-2">
                   {(prescription.prescription_data.medications || prescription.prescription_data || []).map((med, idx) => (
                     <div key={idx} className="p-2.5 rounded-field bg-surface-raised border border-line flex items-center justify-between">
                       <span className="font-semibold text-ink">{med.name} ({med.strength})</span>
-                      <span className="text-ink-muted">{med.frequency} for {med.duration}</span>
+                      <span className="text-ink-muted">
+                        {t('rx.forDuration', '{frequency} for {duration}', {
+                          frequency: med.frequency, duration: med.duration
+                        })}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -303,7 +350,7 @@ export default function AIDoctorVisualSeparation({ aiAssessment, doctorReview, p
           </div>
         ) : (
           <div className="p-4 rounded-field bg-surface-sunken border border-dashed border-line text-center text-xs text-ink-muted">
-            ⏳ Pending Remote Doctor Review & Final Medical Decision.
+            ⏳ {t('doctorPanel.pending', 'Pending Remote Doctor Review & Final Medical Decision.')}
           </div>
         )}
       </div>

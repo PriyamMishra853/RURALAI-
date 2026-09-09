@@ -8,6 +8,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { maskAadhaar } from '../config/patientFields';
+import { useI18n } from '../i18n/index.jsx';
+import { consultationStatusLabel } from '../i18n/serverLabels.js';
 
 /**
  * Consultation call screen.
@@ -37,7 +39,11 @@ import { maskAadhaar } from '../config/patientFields';
  * Tearing it down would break a call that was still working.
  */
 
-const ROLE_LABEL = { DOCTOR: 'Doctor', CLINIC_ASSISTANT: 'Clinic Assistant' };
+/* [catalogue key, English fallback] — the same two roles the shell names. */
+const ROLE_LABEL = {
+  DOCTOR: ['role.doctor', 'Doctor'],
+  CLINIC_ASSISTANT: ['role.assistant', 'Clinic Assistant']
+};
 
 /** Does this ICE server list include a relay? Without one, cross-network calls fail. */
 const hasRelay = (iceServers) =>
@@ -46,6 +52,7 @@ const hasRelay = (iceServers) =>
   );
 
 export default function CallPage() {
+  const { t, formatNumber } = useI18n();
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -138,8 +145,8 @@ export default function CallPage() {
       if (pc.connectionState === 'failed') {
         setError(
           hasRelay(iceServers)
-            ? 'The media connection failed even through the relay. Check both sides’ network and retry.'
-            : 'The media connection could not be established. This usually needs a TURN relay when the two sides are on different networks.'
+            ? t('call.mediaFailedRelay', 'The media connection failed even through the relay. Check both sides’ network and retry.')
+            : t('call.mediaFailed', 'The media connection could not be established. This usually needs a TURN relay when the two sides are on different networks.')
         );
         setRetryable(true);
       }
@@ -185,7 +192,7 @@ export default function CallPage() {
         // The SFU path exchanges transport parameters over the same socket.
         // Not reachable on this host — the server selects p2p when the
         // mediasoup worker cannot run — so it is not wired up here.
-        setError('The SFU provider is active but this client build only implements the peer-to-peer path.');
+        setError(t('call.sfuUnsupported', 'The SFU provider is active but this client build only implements the peer-to-peer path.'));
         setPhase('error');
         return;
       }
@@ -201,7 +208,7 @@ export default function CallPage() {
       setPhase('waiting');
     } catch (err) {
       const data = err.response?.data;
-      setError(data?.error || err.message || 'Could not join this consultation.');
+      setError(data?.error || err.message || t('call.joinFailed', 'Could not join this consultation.'));
       setRetryable(Boolean(data?.retryable));
       setPhase('error');
     }
@@ -372,14 +379,14 @@ export default function CallPage() {
           <button
             type="button"
             onClick={leaveWithoutEnding}
-            aria-label="Back"
+            aria-label={t('common.back', 'Back')}
             className="p-2 rounded-field text-ink-subtle hover:bg-surface-raised/10"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0">
             <h1 className="text-base font-bold text-white truncate">
-              {patient?.full_name || 'Consultation'}
+              {patient?.full_name || t('call.consultation', 'Consultation')}
             </h1>
             <p className="text-[11px] text-ink-subtle truncate">
               {patient?.aadhaar_number && <span className="font-mono">{maskAadhaar(patient.aadhaar_number)}</span>}
@@ -396,7 +403,9 @@ export default function CallPage() {
           )}
           <span className={`text-[11px] flex items-center gap-1 ${connected ? 'text-tier-low' : 'text-tier-moderate'}`}>
             {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5 animate-pulse" />}
-            {connected ? 'Connected' : 'Reconnecting'}
+            {connected
+              ? t('call.connected', 'Connected')
+              : t('notify.reconnectingShort', 'Reconnecting')}
           </span>
         </div>
       </div>
@@ -412,7 +421,7 @@ export default function CallPage() {
                 onClick={join}
                 className="mt-2 px-3 py-1.5 rounded-field bg-tier-emergency hover:opacity-90 text-white text-[11px] font-semibold flex items-center gap-1.5"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Retry
+                <RefreshCw className="w-3.5 h-3.5" /> {t('common.retry', 'Try again')}
               </button>
             )}
           </div>
@@ -426,8 +435,7 @@ export default function CallPage() {
         <div className="p-2.5 rounded-field bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 flex items-start gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>
-            No TURN relay is configured. Calls will connect on a shared network, but are likely to
-            fail when the doctor and the clinic are on different networks.
+            {t('call.noRelay', 'No TURN relay is configured. Calls will connect on a shared network, but are likely to fail when the doctor and the clinic are on different networks.')}
           </span>
         </div>
       )}
@@ -455,12 +463,28 @@ export default function CallPage() {
 
           {phase !== 'live' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-ink-subtle">
-              {phase === 'joining' && <><Loader2 className="w-8 h-8 animate-spin" /><p className="text-sm">Joining…</p></>}
+              {phase === 'joining' && (
+                <>
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                  <p className="text-sm">{t('call.joining', 'Joining…')}</p>
+                </>
+              )}
               {phase === 'waiting' && connected && (
                 <>
                   <Loader2 className="w-8 h-8 animate-spin" />
-                  <p className="text-sm">Waiting for the {user?.role === 'DOCTOR' ? 'clinic assistant' : 'doctor'} to join…</p>
-                  <p className="text-xs text-ink-muted">They have been notified.</p>
+                  {/*
+                    One key with the role interpolated, rather than a sentence
+                    glued around a role name. The two halves cannot be
+                    reordered independently in a verb-final language.
+                  */}
+                  <p className="text-sm">
+                    {t('call.waitingFor', 'Waiting for the {role} to join…', {
+                      role: user?.role === 'DOCTOR'
+                        ? t('role.assistant', 'Clinic Assistant').toLowerCase()
+                        : t('role.doctor', 'Doctor').toLowerCase()
+                    })}
+                  </p>
+                  <p className="text-xs text-ink-muted">{t('call.notified', 'They have been notified.')}</p>
                 </>
               )}
 
@@ -472,23 +496,24 @@ export default function CallPage() {
               {phase === 'waiting' && !connected && (
                 <>
                   <WifiOff className="w-8 h-8 text-tier-moderate" />
-                  <p className="text-sm text-tier-moderate">Not connected to the consultation server</p>
+                  <p className="text-sm text-tier-moderate">
+                    {t('call.noServer', 'Not connected to the consultation server')}
+                  </p>
                   <p className="text-xs text-ink-muted max-w-sm text-center">
-                    Reconnecting… Nobody can join until this succeeds. If it persists, the
-                    realtime address is likely misconfigured for this deployment.
+                    {t('call.noServerHint', 'Reconnecting… Nobody can join until this succeeds. If it persists, the realtime address is likely misconfigured for this deployment.')}
                   </p>
                 </>
               )}
               {phase === 'ended' && (
                 <>
                   <PhoneOff className="w-8 h-8" />
-                  <p className="text-sm">Consultation ended</p>
+                  <p className="text-sm">{t('call.ended', 'Consultation ended')}</p>
                   <button
                     type="button"
                     onClick={leaveWithoutEnding}
                     className="mt-2 px-4 py-2 rounded-field bg-surface-raised/10 hover:bg-surface-raised/20 text-white text-xs font-semibold"
                   >
-                    Back to dashboard
+                    {t('call.backToDashboard', 'Back to dashboard')}
                   </button>
                 </>
               )}
@@ -508,7 +533,10 @@ export default function CallPage() {
           <div className="relative rounded-card overflow-hidden bg-black border border-white/10 aspect-video shadow-lg">
             <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/60 text-white text-[10px] font-semibold">
-              You · {ROLE_LABEL[user?.role] || 'Participant'}
+              {t('call.you', 'You')} ·{' '}
+              {ROLE_LABEL[user?.role]
+                ? t(ROLE_LABEL[user.role][0], ROLE_LABEL[user.role][1])
+                : t('call.participant', 'Participant')}
             </span>
             {!camOn && (
               <div className="absolute inset-0 bg-surface-sunken flex items-center justify-center">
@@ -521,14 +549,24 @@ export default function CallPage() {
             <div className="p-3 rounded-card bg-surface-raised/5 border border-white/10 text-[11px] text-ink-subtle space-y-1.5">
               <div className="flex items-center gap-1.5 text-ink-subtle">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="font-semibold">Consultation</span>
+                <span className="font-semibold">{t('call.consultation', 'Consultation')}</span>
               </div>
-              <p>Type: {consultation.consultation_type}</p>
-              <p>Status: {consultation.status}</p>
-              {consultation.visits?.risk_level && <p>Risk: {consultation.visits.risk_level}</p>}
+              <p>
+                {t('call.type', 'Type')}:{' '}
+                {t('consultType.' + consultation.consultation_type, consultation.consultation_type)}
+              </p>
+              <p>{t('call.status', 'Status')}: {consultationStatusLabel(t, consultation.status)}</p>
+              {consultation.visits?.risk_level && (
+                <p>
+                  {t('call.risk', 'Risk')}:{' '}
+                  {t('tier.' + String(consultation.visits.risk_level).toLowerCase(), consultation.visits.risk_level)}
+                </p>
+              )}
               <p className="text-ink-muted">
-                Media: {consultation.meeting_provider === 'mediasoup' ? 'SFU' : 'peer-to-peer'}
-                {relayed && ' · relay available'}
+                {/* "SFU" and "peer-to-peer" are protocol names, left as-is. */}
+                {t('call.media', 'Media')}:{' '}
+                {consultation.meeting_provider === 'mediasoup' ? 'SFU' : 'peer-to-peer'}
+                {relayed && ' · ' + t('call.relayAvailable', 'relay available')}
               </p>
             </div>
           )}
@@ -539,7 +577,9 @@ export default function CallPage() {
         <button
           type="button"
           onClick={toggleMic}
-          aria-label={micOn ? 'Mute microphone' : 'Unmute microphone'}
+          aria-label={micOn
+            ? t('call.muteMic', 'Mute microphone')
+            : t('call.unmuteMic', 'Unmute microphone')}
           className={`p-3.5 rounded-full transition-colors ${micOn ? 'bg-surface-raised/10 hover:bg-surface-raised/20 text-white' : 'bg-tier-emergency hover:opacity-90 text-white'}`}
         >
           {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
@@ -548,7 +588,9 @@ export default function CallPage() {
         <button
           type="button"
           onClick={toggleCam}
-          aria-label={camOn ? 'Turn camera off' : 'Turn camera on'}
+          aria-label={camOn
+            ? t('call.camOff', 'Turn camera off')
+            : t('call.camOn', 'Turn camera on')}
           className={`p-3.5 rounded-full transition-colors ${camOn ? 'bg-surface-raised/10 hover:bg-surface-raised/20 text-white' : 'bg-tier-emergency hover:opacity-90 text-white'}`}
         >
           {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
@@ -560,7 +602,7 @@ export default function CallPage() {
           disabled={phase === 'ended'}
           className="px-6 py-3.5 rounded-full bg-tier-emergency hover:opacity-90 disabled:opacity-40 text-white font-semibold text-sm flex items-center gap-2"
         >
-          <PhoneOff className="w-5 h-5" /> End consultation
+          <PhoneOff className="w-5 h-5" /> {t('call.end', 'End consultation')}
         </button>
       </div>
     </div>

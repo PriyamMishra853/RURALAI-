@@ -8,6 +8,7 @@ import { downloadVisitReport } from '../services/reportDownload';
 import { useRealtime } from '../context/RealtimeContext';
 import { Card, CardHeader, Badge, Button, Alert, Spinner, cn } from './ui';
 import SpeakButton from './SpeakButton';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * The doctor's decision, on the assistant's screen — spec §3.6.
@@ -24,12 +25,29 @@ import SpeakButton from './SpeakButton';
  * is still coming when none ever will.
  */
 
+/*
+ * The left-hand values are what the database stores and never change; the pair
+ * on the right is [catalogue key, English fallback].
+ *
+ * NOTE: `treat_locally` reads differently here to the same decision in
+ * NotificationBell — "Treat locally — protocol care" versus "Treat locally".
+ * That difference is deliberate and predates this change: the notification is
+ * a one-line summary and this is the full decision panel. They therefore keep
+ * separate keys rather than being merged into one that would be wrong in one
+ * of the two places.
+ */
 const DECISION_LABEL = {
-  prescribe: 'Prescription issued',
-  treat_locally: 'Treat locally — protocol care',
-  follow_up: 'Follow-up scheduled',
-  refer_hospital: 'Referred to hospital',
-  no_action_needed: 'No action needed'
+  prescribe: ['decision.prescribe', 'Prescription issued'],
+  treat_locally: ['decision.treatLocallyFull', 'Treat locally — protocol care'],
+  follow_up: ['decision.followUp', 'Follow-up scheduled'],
+  refer_hospital: ['decision.referHospital', 'Referred to hospital'],
+  no_action_needed: ['decision.noAction', 'No action needed']
+};
+
+/** Resolve a stored decision to readable text, falling back to the raw value. */
+const decisionText = (t, decision) => {
+  const entry = DECISION_LABEL[decision];
+  return entry ? t(entry[0], entry[1]) : decision;
 };
 
 const DECISION_TONE = {
@@ -41,7 +59,10 @@ const DECISION_TONE = {
 };
 
 
-export default function DoctorReviewPanel({ visitId, language = 'Hindi', className }) {
+export default function DoctorReviewPanel({ visitId, className }) {
+  // `language` was threaded in only to tell SpeakButton what to read; it now
+  // takes that from the selected interface language directly.
+  const { t, formatDate } = useI18n();
   const { subscribe } = useRealtime();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -89,7 +110,13 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
   }, [justArrived]);
 
   if (!visitId) return null;
-  if (loading) return <Card className={className}><Spinner label="Checking for the doctor's review…" /></Card>;
+  if (loading) {
+    return (
+      <Card className={className}>
+        <Spinner label={t('review.checking', 'Checking for the doctor’s review…')} />
+      </Card>
+    );
+  }
   if (!data) return null;
 
   // HIGH / referred — closed on this platform.
@@ -101,7 +128,9 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
             <Siren className="w-5 h-5" />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-ink">Case closed — referred to hospital</p>
+            <p className="text-sm font-bold text-ink">
+              {t('review.closedReferred', 'Case closed — referred to hospital')}
+            </p>
             <p className="text-xs text-ink-muted mt-1 leading-relaxed">{data.reason}</p>
           </div>
         </div>
@@ -112,10 +141,15 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
   const review = data.review;
   const rx = data.prescription;
 
+  /*
+   * Assembled in English and translated as a whole by the read-aloud control,
+   * for the same reason as assessmentToSpeech: fragments translated separately
+   * do not reassemble into a grammatical sentence in a verb-final language.
+   */
   const speech = review
     ? [
         `The doctor has reviewed this case.`,
-        `Decision: ${DECISION_LABEL[review.decision] || review.decision}.`,
+        `Decision: ${(DECISION_LABEL[review.decision] || [])[1] || review.decision}.`,
         review.clinical_notes || '',
         rx?.items?.length
           ? 'Prescription. ' + rx.items.map((m) =>
@@ -135,17 +169,19 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
         className
       )}>
         <CardHeader
-          title="Doctor's review"
-          subtitle={data.doctor_name ? `Assigned to ${data.doctor_name}` : 'Awaiting assignment'}
+          title={t('review.title', 'Doctor’s review')}
+          subtitle={data.doctor_name
+            ? t('review.assignedTo', 'Assigned to {name}', { name: data.doctor_name })
+            : t('review.awaitingAssignment', 'Awaiting assignment')}
           icon={Stethoscope}
           action={
             <div className="flex items-center gap-2">
-              {review && <SpeakButton text={speech} language={language} label="Read" size="sm" />}
+              {review && <SpeakButton text={speech} label={t('speak.read', 'Read')} size="sm" />}
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => load({ silent: true })}
-                aria-label="Check for the review"
+                aria-label={t('review.check', 'Check for the review')}
               >
                 <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
               </Button>
@@ -158,9 +194,9 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
             <div className="flex items-center gap-3 text-sm text-ink-muted">
               <Clock className="w-5 h-5 text-tier-moderate shrink-0 animate-pulse" />
               <div>
-                <p className="font-semibold text-ink">Waiting for the doctor</p>
+                <p className="font-semibold text-ink">{t('review.waiting', 'Waiting for the doctor')}</p>
                 <p className="text-xs mt-0.5">
-                  This screen updates on its own the moment the review is signed — no need to refresh.
+                  {t('review.waitingHint', 'This screen updates on its own the moment the review is signed — no need to refresh.')}
                 </p>
               </div>
             </div>
@@ -169,15 +205,17 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={DECISION_TONE[review.decision] || 'neutral'}>
                   <CheckCircle2 className="w-3 h-3" />
-                  {DECISION_LABEL[review.decision] || review.decision}
+                  {decisionText(t, review.decision)}
                 </Badge>
                 {review.agreed_with_ai != null && (
                   <Badge tone={review.agreed_with_ai ? 'low' : 'moderate'}>
-                    {review.agreed_with_ai ? 'Agreed with AI assessment' : 'Differed from AI assessment'}
+                    {review.agreed_with_ai
+                      ? t('review.agreedAi', 'Agreed with AI assessment')
+                      : t('review.differedAi', 'Differed from AI assessment')}
                   </Badge>
                 )}
                 <span className="text-[11px] text-ink-subtle">
-                  {new Date(review.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                  {formatDate(review.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
                 </span>
               </div>
 
@@ -192,7 +230,8 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
               {rx?.items?.length > 0 && (
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted flex items-center gap-1.5 mb-2">
-                    <Pill className="w-3.5 h-3.5" /> Prescription {rx.prescription_code}
+                    <Pill className="w-3.5 h-3.5" />{' '}
+                    {t('rx.code', 'Prescription {code}', { code: rx.prescription_code })}
                   </p>
                   <div className="space-y-1.5">
                     {rx.items.map((m, i) => (
@@ -208,15 +247,14 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
                   </div>
                   {rx.advice && (
                     <p className="mt-2 text-xs text-ink-muted">
-                      <span className="font-semibold text-ink">Advice: </span>{rx.advice}
+                      <span className="font-semibold text-ink">{t('rx.advice', 'Advice')}: </span>{rx.advice}
                     </p>
                   )}
                 </div>
               )}
 
               <Alert tone="success" icon={CheckCircle2}>
-                A registered practitioner has signed this decision. Give the patient the
-                printed copy and explain it in their own language.
+                {t('review.signed', 'A registered practitioner has signed this decision. Give the patient the printed copy and explain it in their own language.')}
               </Alert>
 
               <Button
@@ -224,12 +262,13 @@ export default function DoctorReviewPanel({ visitId, language = 'Hindi', classNa
                 variant="secondary"
                 onClick={async () => {
                   const { ok, error } = await downloadVisitReport(visitId, 'summary', {
-                    patientName: data?.patient_name
+                    patientName: data?.patient_name,
+                    t
                   });
-                  if (!ok) alert(error);
+                  if (!ok) alert(error || t('report.downloadFailed', 'The report could not be downloaded.'));
                 }}
               >
-                <FileDown className="w-3.5 h-3.5" /> Print for the patient
+                <FileDown className="w-3.5 h-3.5" /> {t('review.print', 'Print for the patient')}
               </Button>
             </div>
           )}

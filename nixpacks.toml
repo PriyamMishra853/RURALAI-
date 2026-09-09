@@ -22,7 +22,18 @@ cmds = [
   'cd frontend && npm install',
   # Non-fatal by design — see build-ai.sh. A dependency that will not resolve
   # costs symptom retrieval, not the whole deploy.
-  'bash ./build-ai.sh'
+  'bash ./build-ai.sh',
+  # The Noto faces the PDF reports need. Roughly 3 MB, fetched rather than
+  # committed: they are not ours to redistribute and a deployment that only
+  # prints English does not need them.
+  #
+  # Non-fatal for the same reason as the line above. Without a font the report
+  # still renders — in English, with a line on the page naming the script that
+  # was unavailable, so nobody is misled about what the patient was handed.
+  # Taking a clinical system offline because a font mirror was briefly
+  # unreachable would be the worse failure. `npm run check:fonts` reports what
+  # is covered.
+  'cd backend && npm run fonts:install || true'
 ]
 
 [phases.build]

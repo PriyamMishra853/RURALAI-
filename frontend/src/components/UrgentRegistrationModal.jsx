@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Siren, Loader2, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import { Button, Input, Alert } from './ui';
+import { useT } from '../i18n/index.jsx';
 
 /**
  * Emergency bypass registration.
@@ -22,13 +23,18 @@ import { Button, Input, Alert } from './ui';
  * thing that should happen is recording what is wrong with the patient.
  */
 
+/*
+ * `value` is the wire format and stays English — the API and the triage rules
+ * compare against it. Only the caption is translated.
+ */
 const GENDERS = [
-  { value: 'female', label: 'Female' },
-  { value: 'male', label: 'Male' },
-  { value: 'other', label: 'Other' }
+  { value: 'female', key: 'gender.female', label: 'Female' },
+  { value: 'male', key: 'gender.male', label: 'Male' },
+  { value: 'other', key: 'gender.other', label: 'Other' }
 ];
 
 export default function UrgentRegistrationModal({ onClose }) {
+  const t = useT();
   const navigate = useNavigate();
   const [fullName, setFullName] = useState('');
   const [gender, setGender] = useState('');
@@ -54,7 +60,7 @@ export default function UrgentRegistrationModal({ onClose }) {
     } catch (err) {
       const data = err.response?.data;
       setFieldErrors(data?.fields || {});
-      setError(data?.error || 'The emergency registration could not be saved.');
+      setError(data?.error || t('urgent.saveFailed', 'The emergency registration could not be saved.'));
       setBusy(false);
     }
   };
@@ -68,11 +74,13 @@ export default function UrgentRegistrationModal({ onClose }) {
               <Siren className="w-4 h-4" />
             </span>
             <div className="min-w-0">
-              <h3 className="font-bold text-ink text-sm">Urgent registration</h3>
-              <p className="text-[11px] text-ink-muted">No documents needed — record details later</p>
+              <h3 className="font-bold text-ink text-sm">{t('urgent.cta', 'Urgent registration')}</h3>
+              <p className="text-[11px] text-ink-muted">
+                {t('urgent.subtitle', 'No documents needed — record details later')}
+              </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-field text-ink-subtle hover:bg-surface-sunken">
+          <button type="button" onClick={onClose} aria-label={t('common.close', 'Close')} className="p-1.5 rounded-field text-ink-subtle hover:bg-surface-sunken">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -83,16 +91,18 @@ export default function UrgentRegistrationModal({ onClose }) {
           )}
 
           <Input
-            label="Name (optional)"
+            label={t('urgent.nameLabel', 'Name (optional)')}
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            placeholder="Leave blank if unknown"
-            hint="A guest number is issued if this is empty."
+            placeholder={t('urgent.namePlaceholder', 'Leave blank if unknown')}
+            hint={t('urgent.nameHint', 'A guest number is issued if this is empty.')}
             autoFocus
           />
 
           <div>
-            <span className="block text-xs font-semibold text-ink-muted mb-1.5">Sex *</span>
+            <span className="block text-xs font-semibold text-ink-muted mb-1.5">
+              {t('field.sex', 'Sex')} *
+            </span>
             <div className="grid grid-cols-3 gap-2">
               {GENDERS.map((g) => (
                 <button
@@ -105,7 +115,7 @@ export default function UrgentRegistrationModal({ onClose }) {
                       : 'border-line bg-surface-raised text-ink-muted hover:border-gov-300'
                   }`}
                 >
-                  {g.label}
+                  {t(g.key, g.label)}
                 </button>
               ))}
             </div>
@@ -113,30 +123,29 @@ export default function UrgentRegistrationModal({ onClose }) {
           </div>
 
           <Input
-            label="Estimated age (years) *"
+            label={t('urgent.ageLabel', 'Estimated age (years) *')}
             type="number"
             min="0"
             max="120"
             value={ageYears}
             onChange={(e) => setAgeYears(e.target.value)}
-            placeholder="e.g. 45"
+            placeholder={t('urgent.agePlaceholder', 'e.g. 45')}
             error={fieldErrors.age_years}
-            hint="An estimate is fine — triage thresholds depend on age, so it cannot be skipped."
+            hint={t('urgent.ageHint', 'An estimate is fine — triage thresholds depend on age, so it cannot be skipped.')}
           />
 
           <div className="flex gap-2 pt-1">
             <Button type="submit" variant="danger" disabled={busy || !gender || !ageYears} className="flex-1">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Siren className="w-4 h-4" />}
-              {busy ? 'Registering…' : 'Register and record symptoms'}
+              {busy ? t('urgent.registering', 'Registering…') : t('urgent.submit', 'Register and record symptoms')}
             </Button>
             <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-              Cancel
+              {t('common.cancel', 'Cancel')}
             </Button>
           </div>
 
           <p className="text-[11px] text-ink-subtle">
-            A provisional record is created. Add the Aadhaar and address once the
-            patient is stable — the record stays flagged until then.
+            {t('urgent.provisional', 'A provisional record is created. Add the Aadhaar and address once the patient is stable — the record stays flagged until then.')}
           </p>
         </form>
       </div>

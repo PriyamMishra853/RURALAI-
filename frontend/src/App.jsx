@@ -50,7 +50,7 @@ export default function App() {
 
         <AppShell>
           {/* A crash in one page must not blank the whole app. */}
-          <ErrorBoundary label="This page">
+          <ErrorBoundary labelKey="error.thisPage" label="This page">
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />

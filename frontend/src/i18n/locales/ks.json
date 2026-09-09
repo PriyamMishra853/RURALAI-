@@ -1,0 +1,22 @@
+{
+  "app.name": "دیہاتی صحت گرِڈ",
+  "auth.signin": "اسٹاف سائن اِن",
+  "auth.submit": "سائن اِن",
+  "common.cancel": "منسوخ کریو",
+  "common.close": "بند کریو",
+  "common.no": "نہٕ",
+  "common.save": "محفوظ کریو",
+  "common.yes": "آہ",
+  "lang.continue": "اگر ٲسِو",
+  "lang.switch": "زبان",
+  "lang.title": "پنُن زبان ژارِو",
+  "nav.dashboard": "ڈیش بورڈ",
+  "nav.patients": "مریض",
+  "nav.signout": "سائن آوٹ",
+  "role.assistant": "کلینک اسسٹنٹ",
+  "role.doctor": "ڈاکٹر",
+  "tier.emergency": "ایمرجنسی",
+  "tier.high": "زیادٕ خطرٕ",
+  "tier.low": "کم خطرٕ",
+  "tier.moderate": "درمیٲنہٕ خطرٕ"
+}

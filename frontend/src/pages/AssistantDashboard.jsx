@@ -12,6 +12,8 @@ import { TierBadge } from '../components/TierSystem';
 import { maskAadhaar } from '../config/patientFields';
 import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
 import UrgentRegistrationModal from '../components/UrgentRegistrationModal';
+import { useI18n } from '../i18n/index.jsx';
+import { consultationStatusLabel, joinActionLabel } from '../i18n/serverLabels.js';
 
 /**
  * Clinic assistant workspace.
@@ -26,6 +28,7 @@ import UrgentRegistrationModal from '../components/UrgentRegistrationModal';
 const RECENT_LIMIT = 8;
 
 export default function AssistantDashboard() {
+  const { t, formatNumber, formatDate } = useI18n();
   const { user } = useAuth();
   const { subscribe } = useRealtime();
   const navigate = useNavigate();
@@ -69,12 +72,12 @@ export default function AssistantDashboard() {
       setConsultations(cRes.data?.consultations ?? []);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not load your workspace.');
+      setError(err.response?.data?.error || t('assistant.loadFailed', 'Could not load your workspace.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -152,7 +155,7 @@ export default function AssistantDashboard() {
         </p>
       </div>
       <span className="hidden sm:flex items-center gap-1 text-xs font-semibold text-gov-600 dark:text-gov-500 shrink-0">
-        Start visit <ChevronRight className="w-4 h-4" />
+        {t('assistant.startVisit', 'Start visit')} <ChevronRight className="w-4 h-4" />
       </span>
       <ChevronRight className="w-4 h-4 text-ink-subtle sm:hidden shrink-0" />
     </motion.button>
@@ -170,20 +173,23 @@ export default function AssistantDashboard() {
             </span>
             <div className="min-w-0">
               <h1 className="font-display text-lg sm:text-xl font-bold text-ink truncate">
-                Clinic Assistant Workspace
+                {t('assistant.title', 'Clinic Assistant Workspace')}
               </h1>
               <p className="text-xs text-ink-muted truncate">
-                {user?.name}{user?.district ? ` · ${user.district} sub-centre` : ''}
+                {user?.name}
+                {user?.district
+                  ? ' · ' + t('assistant.subCentre', '{district} sub-centre', { district: user.district })
+                  : ''}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => fetchData({ silent: true })} aria-label="Refresh">
+            <Button variant="ghost" size="icon" onClick={() => fetchData({ silent: true })} aria-label={t('common.refresh', 'Refresh')}>
               <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
             </Button>
             <Link to="/assistant/patients/new">
-              <Button><UserPlus className="w-4 h-4" /> Register patient</Button>
+              <Button><UserPlus className="w-4 h-4" /> {t('nav.register', 'Register Patient')}</Button>
             </Link>
           </div>
         </div>
@@ -193,17 +199,17 @@ export default function AssistantDashboard() {
 
       {/* ---- Stats ---- */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <Stat label="Registered patients" value={total} icon={Users} />
-        <Stat label="Registered today" value={registeredToday} tone="low" icon={CheckCircle2} />
-        <Stat label="Open consultations" value={consultations.length} tone="moderate" icon={Video} />
+        <Stat label={t('assistant.stat.registered', 'Registered patients')} value={formatNumber(total)} icon={Users} />
+        <Stat label={t('assistant.stat.today', 'Registered today')} value={formatNumber(registeredToday)} tone="low" icon={CheckCircle2} />
+        <Stat label={t('assistant.stat.consultations', 'Open consultations')} value={formatNumber(consultations.length)} tone="moderate" icon={Video} />
       </div>
 
       {/* ---- Live consultations ---- */}
       {consultations.length > 0 && (
         <Card>
           <CardHeader
-            title="Open consultations"
-            subtitle="Scheduled and live calls for your patients, however they were booked"
+            title={t('assistant.stat.consultations', 'Open consultations')}
+            subtitle={t('assistant.consultations.subtitle', 'Scheduled and live calls for your patients, however they were booked')}
             icon={Video}
           />
           <div className="p-4 sm:p-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -217,11 +223,13 @@ export default function AssistantDashboard() {
                   <div className="flex items-center justify-between gap-2">
                     <TierBadge level={c.visits?.risk_level} size="sm" />
                     <Badge tone={c.status === 'ACTIVE' ? 'low' : 'neutral'}>
-                      {c.status === 'ACTIVE' ? 'Live' : c.status}
+                      {consultationStatusLabel(t, c.status)}
                     </Badge>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-ink truncate">{p?.full_name || 'Patient'}</p>
+                    <p className="text-sm font-bold text-ink truncate">
+                      {p?.full_name || t('common.patient', 'Patient')}
+                    </p>
                     <p className="text-xs text-ink-muted line-clamp-2">{c.visits?.chief_complaint}</p>
                     <p className="text-[11px] text-tier-moderate flex items-center gap-1 mt-1">
                       <Clock className="w-3.5 h-3.5" />
@@ -229,11 +237,13 @@ export default function AssistantDashboard() {
                           reads as "now" and would send an assistant looking for
                           a patient who is booked for tomorrow. */}
                       {isToday
-                        ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : when.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        ? formatDate(when, { hour: '2-digit', minute: '2-digit' })
+                        : formatDate(when, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </p>
                     {c.doctor?.full_name && (
-                      <p className="text-[11px] text-ink-subtle truncate">with {c.doctor.full_name}</p>
+                      <p className="text-[11px] text-ink-subtle truncate">
+                        {t('assistant.withDoctor', 'with {name}', { name: c.doctor.full_name })}
+                      </p>
                     )}
                   </div>
                   <Button
@@ -243,7 +253,7 @@ export default function AssistantDashboard() {
                     onClick={() => navigate(`/call/${c.id}`)}
                     className="w-full"
                   >
-                    <PhoneCall className="w-3.5 h-3.5" /> {c.join_label}
+                    <PhoneCall className="w-3.5 h-3.5" /> {joinActionLabel(t, c)}
                   </Button>
                 </div>
               );
@@ -255,15 +265,17 @@ export default function AssistantDashboard() {
       {/* ---- Search ---- */}
       <Card>
         <CardHeader
-          title={searchResults ? `Search results (${searchTotal})` : 'Recently handled'}
+          title={searchResults
+            ? t('assistant.searchResults', 'Search results ({count})', { count: formatNumber(searchTotal) })
+            : t('assistant.recent', 'Recently handled')}
           subtitle={searchResults
             // The total comes from the server, so a search that matches more
             // than one page says so rather than quietly showing the first 50
             // as if they were everything.
             ? searchTotal > searchResults.length
-              ? `Showing ${searchResults.length} of ${searchTotal} matches — narrow the search to see the rest`
-              : 'Matching name, Aadhaar, phone or village across the whole register'
-            : `The last ${RECENT_LIMIT} patients registered at this sub-centre`}
+              ? t('assistant.searchPartial', 'Showing {shown} of {total} matches — narrow the search to see the rest', { shown: formatNumber(searchResults.length), total: formatNumber(searchTotal) })
+              : t('assistant.searchScope', 'Matching name, Aadhaar, phone or village across the whole register')
+            : t('assistant.recentSubtitle', 'The last {count} patients registered at this sub-centre', { count: formatNumber(RECENT_LIMIT) })}
           icon={searchResults ? Search : History}
           action={
             <div className="relative w-40 sm:w-64">
@@ -272,8 +284,8 @@ export default function AssistantDashboard() {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search patients"
-                aria-label="Search patients"
+                placeholder={t('assistant.searchPlaceholder', 'Search patients')}
+                aria-label={t('assistant.searchPlaceholder', 'Search patients')}
                 className="field pl-9 py-2 text-xs"
               />
             </div>
@@ -282,20 +294,31 @@ export default function AssistantDashboard() {
 
         <div className="p-4 sm:p-5">
           {loading ? (
-            <Spinner label="Loading your patients…" />
+            <Spinner label={t('assistant.loadingPatients', 'Loading your patients…')} />
           ) : searching && !searchResults ? (
-            <Spinner label="Searching the register…" />
+            <Spinner label={t('assistant.searching', 'Searching the register…')} />
           ) : (searchResults ?? recent).length === 0 ? (
             <EmptyState
               icon={Inbox}
-              title={searchResults ? 'No patients match that search' : 'No patients registered yet'}
+              title={searchResults
+                ? t('assistant.noMatch', 'No patients match that search')
+                : t('assistant.noPatients', 'No patients registered yet')}
               description={searchResults
-                ? 'Try a name, the full 12-digit Aadhaar, or a phone number.'
-                : 'Register the first patient to begin.'}
+                ? t('assistant.noMatchHint', 'Try a name, the full 12-digit Aadhaar, or a phone number.')
+                : t('assistant.noPatientsHint', 'Register the first patient to begin.')}
               action={
                 searchResults
-                  ? <Button size="sm" variant="secondary" onClick={() => setQuery('')}>Clear search</Button>
-                  : <Link to="/assistant/patients/new"><Button size="sm"><UserPlus className="w-4 h-4" /> Register patient</Button></Link>
+                  ? (
+                    <Button size="sm" variant="secondary" onClick={() => setQuery('')}>
+                      {t('assistant.clearSearch', 'Clear search')}
+                    </Button>
+                  ) : (
+                    <Link to="/assistant/patients/new">
+                      <Button size="sm">
+                        <UserPlus className="w-4 h-4" /> {t('nav.register', 'Register Patient')}
+                      </Button>
+                    </Link>
+                  )
               }
             />
           ) : (
@@ -308,7 +331,7 @@ export default function AssistantDashboard() {
 
           {!searchResults && total > recent.length && (
             <p className="mt-3 text-[11px] text-ink-subtle text-center">
-              Showing the {recent.length} most recent of {total}. Use search to find any other patient.
+              {t('assistant.showingRecent', 'Showing the {shown} most recent of {total}. Use search to find any other patient.', { shown: formatNumber(recent.length), total: formatNumber(total) })}
             </p>
           )}
         </div>
@@ -321,18 +344,18 @@ export default function AssistantDashboard() {
             <Siren className="w-5 h-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-bold text-ink">Emergency — patient not registered</h3>
+            <h3 className="text-sm font-bold text-ink">
+              {t('urgent.bypassTitle', 'Emergency — patient not registered')}
+            </h3>
             <p className="text-xs text-ink-muted mt-0.5 leading-relaxed">
-              For a genuinely urgent case, search the register first — most patients are
-              already on it. If they are not, register with the minimum fields and
-              reconcile the record afterwards. Do not delay care to complete a form.
+              {t('urgent.bypassBody', 'For a genuinely urgent case, search the register first — most patients are already on it. If they are not, register with the minimum fields and reconcile the record afterwards. Do not delay care to complete a form.')}
             </p>
           </div>
           {/* Opens the bypass, not the full form. Sending an assistant to the
               registration form — Aadhaar, address, PIN, phone — was sending
               them to the exact thing an emergency is meant to skip. */}
           <Button variant="danger" size="sm" className="shrink-0" onClick={() => setShowUrgent(true)}>
-            <Activity className="w-4 h-4" /> Urgent registration
+            <Activity className="w-4 h-4" /> {t('urgent.cta', 'Urgent registration')}
           </Button>
         </div>
       </Card>

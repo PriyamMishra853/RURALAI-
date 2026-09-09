@@ -7,7 +7,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import NotificationBell from './NotificationBell';
-import { ROLES, ROLE_LABEL, ADMIN_ROLES } from '../config/roles';
+import { ROLES, ROLE_LABEL, ROLE_KEY, ADMIN_ROLES } from '../config/roles';
 import { cn } from './ui';
 import { LanguageSwitcher } from './LanguageGate';
 import { useT } from '../i18n/index.jsx';
@@ -38,15 +38,22 @@ const NAV_BY_ROLE = {
 
 function ThemeToggle() {
   const { choice, cycle } = useTheme();
+  const t = useT();
   const Icon = choice === 'light' ? Sun : choice === 'dark' ? Moon : Monitor;
   const next = choice === 'light' ? 'dark' : choice === 'dark' ? 'system' : 'light';
+  // Built from two translated mode names rather than one interpolated
+  // sentence, so a locale can name the modes once and reuse them.
+  const label = t('theme.toggle', 'Theme: {current}. Switch to {next}.', {
+    current: t('theme.' + choice, choice),
+    next: t('theme.' + next, next)
+  });
 
   return (
     <button
       type="button"
       onClick={cycle}
-      title={`Theme: ${choice}. Switch to ${next}.`}
-      aria-label={`Theme: ${choice}. Switch to ${next}.`}
+      title={label}
+      aria-label={label}
       className="p-2 rounded-field text-ink-muted hover:bg-surface-sunken hover:text-ink transition-colors"
     >
       <Icon className="w-5 h-5" />
@@ -58,7 +65,7 @@ function NavLinks({ items, onNavigate }) {
   const { pathname } = useLocation();
   const t = useT();
   return (
-    <nav className="space-y-1" aria-label="Main">
+    <nav className="space-y-1" aria-label={t('nav.main', 'Main')}>
       {items.map(({ to, label, fallback, icon: Icon }) => {
         const active = pathname === to || pathname.startsWith(`${to}/`);
         return (
@@ -85,6 +92,7 @@ function NavLinks({ items, onNavigate }) {
 }
 
 function Masthead() {
+  const t = useT();
   return (
     <Link to="/" className="flex items-center gap-2.5 min-w-0 group">
       <span className="w-9 h-9 rounded-field bg-gov-600 dark:bg-gov-500 text-white dark:text-gov-950 flex items-center justify-center shrink-0">
@@ -92,10 +100,10 @@ function Masthead() {
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-bold text-ink leading-tight truncate group-hover:text-gov-600 transition-colors">
-          Rural Health Grid
+          {t('app.name', 'Rural Health Grid')}
         </span>
         <span className="block text-[10px] text-ink-subtle uppercase tracking-wider truncate">
-          Village Tele-Clinic Network
+          {t('app.subtitle', 'Village Tele-Clinic Network')}
         </span>
       </span>
     </Link>
@@ -142,7 +150,9 @@ export default function AppShell({ children }) {
         {user ? (
           <>
             <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-ink-subtle">
-              {ROLE_LABEL[user.role] || 'Staff'}
+              {user.role
+                ? t(ROLE_KEY[user.role], ROLE_LABEL[user.role] || 'Staff')
+                : t('role.staff', 'Staff')}
             </p>
             <NavLinks items={items} onNavigate={() => setMobileOpen(false)} />
           </>
@@ -155,7 +165,7 @@ export default function AppShell({ children }) {
             to="/"
             className="flex items-center gap-2 text-xs text-ink-subtle hover:text-ink transition-colors"
           >
-            <Home className="w-3.5 h-3.5" /> Public site
+            <Home className="w-3.5 h-3.5" /> {t('nav.publicSite', 'Public site')}
           </Link>
         </div>
       </div>
@@ -238,7 +248,7 @@ export default function AppShell({ children }) {
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close navigation"
+            aria-label={t('nav.close', 'Close navigation')}
             className="absolute top-4 right-3 p-2 rounded-field text-ink-muted hover:bg-surface-sunken z-10"
           >
             <X className="w-5 h-5" />
@@ -253,7 +263,7 @@ export default function AppShell({ children }) {
                 <button
                   type="button"
                   onClick={() => setMobileOpen(true)}
-                  aria-label="Open navigation"
+                  aria-label={t('nav.open', 'Open navigation')}
                   aria-expanded={mobileOpen}
                   aria-controls="mobile-nav"
                   className="lg:hidden p-2 rounded-field text-ink-muted hover:bg-surface-sunken"
@@ -273,7 +283,7 @@ export default function AppShell({ children }) {
                 {user && <NotificationBell />}
                 {isAdmin && (
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gov-50 dark:bg-gov-100 text-gov-700 dark:text-gov-600 text-[10px] font-bold uppercase tracking-wide">
-                    <ShieldCheck className="w-3 h-3" /> Admin
+                    <ShieldCheck className="w-3 h-3" /> {t('nav.adminChip', 'Admin')}
                   </span>
                 )}
               </div>
@@ -286,8 +296,8 @@ export default function AppShell({ children }) {
 
           <footer className="border-t border-line bg-surface-raised px-4 sm:px-6 py-4">
             <div className="max-w-[100rem] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-ink-subtle">
-              <p>Rural Health Grid — AI prepares the case. The doctor makes the decision.</p>
-              <p className="font-mono">MoHFW Standard Treatment Guidelines</p>
+              <p>{t('footer.principle', 'Rural Health Grid — AI prepares the case. The doctor makes the decision.')}</p>
+              <p className="font-mono">{t('footer.guidelines', 'MoHFW Standard Treatment Guidelines')}</p>
             </div>
           </footer>
         </div>

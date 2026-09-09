@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Volume2, Square, AlertCircle, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { cn } from './ui';
+import { useI18n } from '../i18n/index.jsx';
+import { speechTag } from '../i18n/speech.js';
 
 /**
  * Read an AI assessment aloud — spec §3.6.
@@ -12,34 +14,37 @@ import { cn } from './ui';
  *   - it costs nothing per play, so an assistant can replay it freely
  *   - the patient's clinical text never leaves the device to be synthesised
  *
- * Either language, on demand. The assessment is generated in English, so
- * Hindi playback needs the text translated first — a Hindi voice reading
+ * Two languages are offered, on demand: English, and whichever language the
+ * interface is currently in. The assessment is generated in English, so any
+ * other playback needs the text translated first — a Tamil voice reading
  * English words produces something neither the assistant nor the patient can
- * follow. Each passage is translated once and kept, so replaying costs
- * nothing.
+ * follow. Each passage is translated once per language and kept, so replaying
+ * costs nothing.
  *
- * Which language to use is not a preference to guess at: the assistant is
- * standing with the patient and knows. The recorded language only decides
- * which button starts selected.
+ * ── Why the second button follows the app language ──────────────────────────
+ *
+ * This offered exactly "English" and "हिन्दी", hardcoded, which made read-aloud
+ * the one control that ignored the language the user had chosen: an assistant
+ * working in Kannada got a Kannada interface and no way to hear the assessment
+ * in it. The second button is now the selected language, whatever it is, and
+ * disappears when the selected language IS English rather than offering the
+ * same thing twice.
+ *
+ * Where a language has no speech voice of its own — most of the regional ones
+ * do — `speechTag` falls back to the nearest voice that exists, which is a
+ * comprehensible reading rather than an English-accented one.
  */
-
-const LANG_TAG = {
-  Hindi: 'hi-IN',
-  Urdu: 'ur-IN',
-  English: 'en-IN',
-  Awadhi: 'hi-IN',      // no distinct voice exists; Hindi is the closest match
-  Bhojpuri: 'hi-IN',
-  Braj: 'hi-IN',
-  Bundeli: 'hi-IN'
-};
 
 const supported = () => typeof window !== 'undefined' && 'speechSynthesis' in window;
 
-export default function SpeakButton({ text, language = 'Hindi', label = 'Read aloud', className, size = 'md' }) {
+export default function SpeakButton({ text, label, className, size = 'md' }) {
+  const { t, lang, language } = useI18n();
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState(null);
   const [voices, setVoices] = useState([]);
-  const [spokenLang, setSpokenLang] = useState(language === 'English' ? 'English' : 'Hindi');
+  // Starts on the interface language, which is the one the assistant chose and
+  // therefore the one the patient in front of them is most likely to follow.
+  const [spokenLang, setSpokenLang] = useState(lang);
   const [translating, setTranslating] = useState(false);
   const utteranceRef = useRef(null);
   // Keyed on the passage as well as the language, so a new assessment does not
@@ -63,6 +68,14 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
     if (supported()) window.speechSynthesis.cancel();
   }, []);
 
+  // Switching the interface language mid-case moves the selection with it, and
+  // stops any playback already running in the old one.
+  useEffect(() => {
+    setSpokenLang(lang);
+    if (supported()) window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }, [lang]);
+
   const stop = useCallback(() => {
     if (supported()) window.speechSynthesis.cancel();
     setSpeaking(false);
@@ -71,7 +84,7 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
   /** The passage in `target`, reusing anything already translated. */
   const textFor = useCallback(async (target) => {
     const source = String(text || '').trim();
-    if (target === 'English') return source;
+    if (target === 'en') return source;
 
     if (cacheRef.current.source !== source) cacheRef.current = { source, byLang: {} };
     if (cacheRef.current.byLang[target]) return cacheRef.current.byLang[target];
@@ -86,16 +99,16 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
       if (res.data?.ok === false && res.data?.reason) setError(res.data.reason);
       return out;
     } catch {
-      setError('Could not translate — reading the English text.');
+      setError(t('speak.translateFailed', 'Could not translate — reading the English text.'));
       return source;
     } finally {
       setTranslating(false);
     }
-  }, [text]);
+  }, [text, t]);
 
   const speak = useCallback(async (target) => {
     if (!supported()) {
-      setError('This browser cannot read text aloud.');
+      setError(t('speak.unsupported', 'This browser cannot read text aloud.'));
       return;
     }
     if (!text?.trim()) return;
@@ -108,8 +121,8 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
 
     // If translation failed the passage is still English, so read it with an
     // English voice rather than mispronouncing it with a Hindi one.
-    const translated = target !== 'English' && spoken !== String(text || '').trim();
-    const tag = translated ? (LANG_TAG[target] || 'hi-IN') : 'en-IN';
+    const translated = target !== 'en' && spoken !== String(text || '').trim();
+    const tag = translated ? speechTag(target) : 'en-IN';
 
     const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.lang = tag;
@@ -129,7 +142,7 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
       // 'interrupted' and 'canceled' are what a deliberate stop looks like;
       // reporting those as failures would be wrong.
       if (e.error !== 'interrupted' && e.error !== 'canceled') {
-        setError('Playback failed on this device.');
+        setError(t('speak.playbackFailed', 'Playback failed on this device.'));
       }
       setSpeaking(false);
     };
@@ -137,16 +150,24 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
     setSpeaking(true);
-  }, [text, voices, textFor]);
+  }, [text, voices, textFor, t]);
 
   if (!supported()) return null;
 
+  /*
+   * English first because it is what the text was generated in and therefore
+   * always available without a model call. The selected language is dropped
+   * when it IS English — two identical buttons help nobody.
+   */
   const LANGS = [
-    { key: 'English', label: 'English' },
-    { key: 'Hindi', label: 'हिन्दी' }
+    { key: 'en', label: 'English' },
+    ...(lang === 'en' ? [] : [{ key: lang, label: language.native }])
   ];
-  const hasVoiceFor = (lang) =>
-    voices.some((v) => v.lang?.startsWith((LANG_TAG[lang] || 'en-IN').split('-')[0]));
+
+  const hasVoiceFor = (code) =>
+    voices.some((v) => v.lang?.startsWith(speechTag(code).split('-')[0]));
+
+  const readAloud = label || t('speak.readAloud', 'Read aloud');
 
   const press = (lang) => {
     if (speaking && lang === spokenLang) { stop(); return; }
@@ -169,7 +190,9 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
               type="button"
               onClick={() => press(l.key)}
               disabled={!text?.trim() || (translating && spokenLang !== l.key)}
-              aria-label={active ? `Stop reading in ${l.label}` : `${label} in ${l.label}`}
+              aria-label={active
+                ? t('speak.stopIn', 'Stop reading in {language}', { language: l.label })
+                : t('speak.readIn', '{action} in {language}', { action: readAloud, language: l.label })}
               className={cn(
                 'inline-flex items-center gap-2 rounded-field font-semibold transition-colors disabled:opacity-40',
                 size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2.5 text-xs min-h-[2.5rem]',
@@ -179,10 +202,10 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
               )}
             >
               {busy
-                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Translating…</>
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('speak.translating', 'Translating…')}</>
                 : active
-                  ? <><Square className="w-3.5 h-3.5 fill-current" /> Stop</>
-                  : <><Volume2 className="w-4 h-4" /> {l.label}</>}
+                  ? <><Square className="w-3.5 h-3.5 fill-current" /> {t('speak.stop', 'Stop')}</>
+                  : <><Volume2 className="w-4 h-4" /> <span lang={l.key}>{l.label}</span></>}
             </button>
           );
         })}
@@ -194,11 +217,12 @@ export default function SpeakButton({ text, language = 'Hindi', label = 'Read al
         </span>
       )}
 
-      {/* Said plainly rather than silently reading Hindi text in an English
-          voice, which is close to unintelligible. */}
-      {!error && !hasVoiceFor('Hindi') && (
+      {/* Said plainly rather than silently reading translated text in an
+          English voice, which is close to unintelligible. Only shown for the
+          selected language: English always has a voice. */}
+      {!error && lang !== 'en' && !hasVoiceFor(lang) && (
         <span className="text-[10px] text-ink-subtle">
-          No Hindi voice installed on this device — Hindi will read in the default voice.
+          {t('speak.noVoice', 'No {language} voice is installed on this device — it will read in the default voice.', { language: language.native })}
         </span>
       )}
     </div>
@@ -216,6 +240,16 @@ export function assessmentToSpeech(workflow, assessment) {
   if (!workflow) return '';
   const parts = [];
 
+  /*
+   * Built in English on purpose, and translated afterwards as one passage.
+   *
+   * Assembling the narration from translated fragments would hand the model
+   * pre-broken grammar — several of these languages are verb-final, and a
+   * sentence stitched from parts translated in isolation comes out wrong or,
+   * worse, plausible and wrong. One coherent English passage through
+   * /voice/translate gives the model the whole sentence to work with, and it
+   * is the passage that has already been through the clinical safety checks.
+   */
   const tierWord = { LOW: 'low risk', MEDIUM: 'medium risk', HIGH: 'high risk' }[workflow.tier] || 'assessed';
   parts.push(`This case is ${tierWord}.`);
 

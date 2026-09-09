@@ -71,6 +71,7 @@ entirely in future or in-progress tense.
 | 17 | [Architecture Decision Record](17-architecture-decision-record.md) | 18 significant decisions, the alternatives, and why each was chosen |
 | 18 | [Glossary](18-glossary.md) | Clinical, Indian health-system and project-specific terms |
 | 19 | [Contributing and Conventions](19-contributing-and-conventions.md) | Coding conventions, invariants that must not be broken, review checklist |
+| 20 | [Internationalisation](20-internationalisation.md) | How the language choice reaches every screen, the AI prose and the printed report — and what is deliberately never translated |
 
 ### Regulatory and demonstration
 

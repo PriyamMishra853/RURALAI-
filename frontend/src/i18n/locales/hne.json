@@ -1,0 +1,22 @@
+{
+  "app.name": "ग्रामीण स्वास्थ्य ग्रिड",
+  "auth.signin": "स्टाफ साइन इन",
+  "auth.submit": "साइन इन",
+  "common.cancel": "रद्द करव",
+  "common.close": "बंद करव",
+  "common.no": "नइ",
+  "common.save": "सहेजव",
+  "common.yes": "हव",
+  "lang.continue": "आगू बढ़व",
+  "lang.switch": "भाखा",
+  "lang.title": "अपन भाखा चुनव",
+  "nav.dashboard": "डैशबोर्ड",
+  "nav.patients": "बिमरहा",
+  "nav.signout": "साइन आउट",
+  "role.assistant": "क्लिनिक सहायक",
+  "role.doctor": "डाक्टर",
+  "tier.emergency": "आपातकाल",
+  "tier.high": "जादा खतरा",
+  "tier.low": "कम खतरा",
+  "tier.moderate": "मध्यम खतरा"
+}
