@@ -515,7 +515,14 @@ def diagnose(req: DiagnoseRequest):
         'sparse_input': single_symptom,
         'symptoms_used': names,
         'candidates': candidates,
-        'model': META.get('selected'),
+        # The model that ACTUALLY scored this request, not the one the training
+        # run happened to prefer. META['selected'] said 'centroid' while
+        # NB.predict_proba did the work and centroids.npy was never loaded by
+        # this service at all -- so every response named a model that was not
+        # running, next to the accuracy of the one that was. In a pipeline whose
+        # safety argument is that its output is traceable to its training data,
+        # mislabelling which model produced it is not a cosmetic error.
+        'model': META.get('model', 'bernoulli_nb'),
         'model_top5_accuracy': META.get('metrics', {}).get('bernoulli_nb', {}).get('top5'),
         # Stated on every response so the caller cannot present this as a
         # diagnosis by omission.
