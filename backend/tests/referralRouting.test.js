@@ -13,8 +13,9 @@
 import { describe, expect, it, beforeEach, afterEach, jest } from '@jest/globals';
 import {
   haversineKm, nearestHospitals, hospitalForDistrict,
-  buildReferral, withinIndia, directionsUrl, referralDataLoaded
+  buildReferral, withinIndia, directionsUrl, referralDataLoaded, referralDataByFile
 } from '../src/services/referralService.js';
+import { MH_DISTRICTS } from '../src/data/maharashtra.js';
 
 // Known points, so the distances below are checkable by hand.
 const LUCKNOW = { lat: 26.8467, lon: 80.9462 };
@@ -22,9 +23,14 @@ const KANPUR = { lat: 26.4499, lon: 80.3319 };
 const DELHI = { lat: 28.6139, lon: 77.2090 };
 
 describe('the hospital data actually loaded', () => {
-  it('has all 75 district hospitals', () => {
-    // Everything else here is meaningless if the file did not parse.
-    expect(referralDataLoaded()).toBe(75);
+  it('has every district hospital, in every state file', () => {
+    // Everything else here is meaningless if the files did not parse. Counted
+    // per file, so a state that failed to load cannot hide inside the total.
+    expect(referralDataByFile()).toEqual({
+      'mh_district_hospitals.json': 36,
+      'up_district_hospitals.json': 75
+    });
+    expect(referralDataLoaded()).toBe(111);
   });
 });
 
@@ -223,5 +229,42 @@ describe('when the maps API misbehaves', () => {
     expect(r.primary.driving_time_text).toBe('1 hour 52 mins');
     // The route link must survive the enrichment that replaces `primary`.
     expect(r.primary.directions_url).toContain('maps/dir');
+  });
+});
+
+describe('a second state', () => {
+  it('has a referral destination for every seeded Maharashtra district', () => {
+    // The seed and the referral data live in separate files. This is what keeps
+    // them from drifting apart, so no seeded clinic opens an empty referral screen.
+    const missing = MH_DISTRICTS.filter((d) => !hospitalForDistrict(d.name)).map((d) => d.name);
+    expect(missing).toEqual([]);
+  });
+
+  it('routes a patient in Pune to Pune, not to Uttar Pradesh', () => {
+    const [first] = nearestHospitals(18.5204, 73.8567, 1);
+    expect(first.district).toBe('Pune');
+    expect(first.state).toBe('Maharashtra');
+  });
+
+  it('leaves Uttar Pradesh routing exactly as it was', () => {
+    const [first] = nearestHospitals(LUCKNOW.lat, LUCKNOW.lon, 1);
+    expect(first.state).toBe('Uttar Pradesh');
+  });
+
+  it('still finds a district by its former name', () => {
+    expect(hospitalForDistrict('Aurangabad')?.district).toBe('Chhatrapati Sambhajinagar');
+    expect(hospitalForDistrict('Osmanabad')?.district).toBe('Dharashiv');
+    expect(hospitalForDistrict('Ahmednagar')?.district).toBe('Ahilyanagar');
+  });
+
+  it('keeps every Maharashtra hospital inside Maharashtra', () => {
+    const mh = nearestHospitals(19.5, 76.0, 500).filter((h) => h.state === 'Maharashtra');
+    expect(mh).toHaveLength(36);
+    for (const h of mh) {
+      expect(h.lat).toBeGreaterThan(15.6);
+      expect(h.lat).toBeLessThan(22.1);
+      expect(h.lon).toBeGreaterThan(72.6);
+      expect(h.lon).toBeLessThan(80.9);
+    }
   });
 });

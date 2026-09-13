@@ -1,0 +1,1029 @@
+{
+  "_meta": {
+    "purpose": "EMERGENCY and HIGH referral routing for Maharashtra. Same schema and ranking as up_district_hospitals.json, loaded alongside it: referralService reads every *_district_hospitals.json in this directory.",
+    "coordinates": "District headquarters, where the government district hospital sits, accurate to the town. The two Mumbai districts use a named public general hospital, positioned at its locality.",
+    "district_names": "Current official names. Ahilyanagar was Ahmednagar, Chhatrapati Sambhajinagar was Aurangabad, Dharashiv was Osmanabad. Former names are kept in \"formerly\", and hospitalForDistrict matches either.",
+    "sourcing_rule": "Null where unsourced; never guess. Only ownership and facility type are filled, and only where they follow from the record itself. Populate the rest against a real source with ingestFacilities.js --dataset mh_district_hospitals.json.",
+    "coverage": "36 government district-level hospitals, one per district. Private and PM-JAY empanelled facilities are NOT yet seeded; the ranking engine treats every null field as unverified, never as absent.",
+    "capacity": "NOT INCLUDED BY DESIGN. There is no public real-time bed-availability feed. Any number here would be invented, and an invented bed count on a referral screen is dangerous. The UI instructs the health worker to confirm capacity before transporting.",
+    "phone_numbers": "Null where a verified public number was not available; the UI falls back to the national 108 ambulance line rather than showing a wrong number.",
+    "emergency_line": "108",
+    "state": "Maharashtra",
+    "count": 36
+  },
+  "hospitals": [
+    {
+      "district": "Ahilyanagar",
+      "name": "District Hospital Ahilyanagar",
+      "lat": 19.0952,
+      "lon": 74.7496,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      },
+      "formerly": [
+        "Ahmednagar"
+      ]
+    },
+    {
+      "district": "Akola",
+      "name": "District Hospital Akola",
+      "lat": 20.7096,
+      "lon": 76.9981,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Amravati",
+      "name": "District Hospital Amravati",
+      "lat": 20.932,
+      "lon": 77.7523,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Beed",
+      "name": "District Hospital Beed",
+      "lat": 18.9891,
+      "lon": 75.7601,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Bhandara",
+      "name": "District Hospital Bhandara",
+      "lat": 21.1669,
+      "lon": 79.649,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Buldhana",
+      "name": "District Hospital Buldhana",
+      "lat": 20.5292,
+      "lon": 76.1842,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Chandrapur",
+      "name": "District Hospital Chandrapur",
+      "lat": 19.9615,
+      "lon": 79.2961,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Chhatrapati Sambhajinagar",
+      "name": "District Hospital Chhatrapati Sambhajinagar",
+      "lat": 19.8762,
+      "lon": 75.3433,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      },
+      "formerly": [
+        "Aurangabad"
+      ]
+    },
+    {
+      "district": "Dharashiv",
+      "name": "District Hospital Dharashiv",
+      "lat": 18.186,
+      "lon": 76.0419,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      },
+      "formerly": [
+        "Osmanabad"
+      ]
+    },
+    {
+      "district": "Dhule",
+      "name": "District Hospital Dhule",
+      "lat": 20.9042,
+      "lon": 74.7749,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Gadchiroli",
+      "name": "District Hospital Gadchiroli",
+      "lat": 20.1809,
+      "lon": 79.995,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Gondia",
+      "name": "District Hospital Gondia",
+      "lat": 21.4624,
+      "lon": 80.192,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Hingoli",
+      "name": "District Hospital Hingoli",
+      "lat": 19.7173,
+      "lon": 77.1494,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Jalgaon",
+      "name": "District Hospital Jalgaon",
+      "lat": 21.0077,
+      "lon": 75.5626,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Jalna",
+      "name": "District Hospital Jalna",
+      "lat": 19.8347,
+      "lon": 75.8816,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Kolhapur",
+      "name": "District Hospital Kolhapur",
+      "lat": 16.705,
+      "lon": 74.2433,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Latur",
+      "name": "District Hospital Latur",
+      "lat": 18.4088,
+      "lon": 76.5604,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Mumbai City",
+      "name": "Sir J.J. Group of Hospitals (Grant Government Medical College), Mumbai",
+      "lat": 18.9637,
+      "lon": 72.8339,
+      "ownership": "government",
+      "facility_type": "medical_college",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Mumbai has no district hospital in the sense the other districts do; the named public general hospital in the district is used. Public ownership follows from the full name.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Medical college, per the full name.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "Hospital locality coordinates. Accurate to the locality, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Mumbai Suburban",
+      "name": "K.B. Bhabha Municipal General Hospital, Bandra",
+      "lat": 19.0544,
+      "lon": 72.8352,
+      "ownership": "government",
+      "facility_type": null,
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Mumbai has no district hospital in the sense the other districts do; the named public general hospital in the district is used. Public ownership follows from the full name.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "Hospital locality coordinates. Accurate to the locality, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Nagpur",
+      "name": "District Hospital Nagpur",
+      "lat": 21.1458,
+      "lon": 79.0882,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Nanded",
+      "name": "District Hospital Nanded",
+      "lat": 19.1383,
+      "lon": 77.321,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Nandurbar",
+      "name": "District Hospital Nandurbar",
+      "lat": 21.37,
+      "lon": 74.24,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Nashik",
+      "name": "District Hospital Nashik",
+      "lat": 19.9975,
+      "lon": 73.7898,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Palghar",
+      "name": "District Hospital Palghar",
+      "lat": 19.6967,
+      "lon": 72.7653,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Parbhani",
+      "name": "District Hospital Parbhani",
+      "lat": 19.2608,
+      "lon": 76.7748,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Pune",
+      "name": "District Hospital Pune",
+      "lat": 18.5204,
+      "lon": 73.8567,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Raigad",
+      "name": "District Hospital Alibag",
+      "lat": 18.6414,
+      "lon": 72.8722,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Ratnagiri",
+      "name": "District Hospital Ratnagiri",
+      "lat": 16.9902,
+      "lon": 73.312,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Sangli",
+      "name": "District Hospital Sangli",
+      "lat": 16.8524,
+      "lon": 74.5815,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Satara",
+      "name": "District Hospital Satara",
+      "lat": 17.6805,
+      "lon": 74.0183,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Sindhudurg",
+      "name": "District Hospital Oros",
+      "lat": 16.0983,
+      "lon": 73.6923,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Solapur",
+      "name": "District Hospital Solapur",
+      "lat": 17.6599,
+      "lon": 75.9064,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Thane",
+      "name": "District Hospital Thane",
+      "lat": 19.2183,
+      "lon": 72.9781,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Wardha",
+      "name": "District Hospital Wardha",
+      "lat": 20.7453,
+      "lon": 78.6022,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Washim",
+      "name": "District Hospital Washim",
+      "lat": 20.111,
+      "lon": 77.133,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    },
+    {
+      "district": "Yavatmal",
+      "name": "District Hospital Yavatmal",
+      "lat": 20.3888,
+      "lon": 78.1204,
+      "ownership": "government",
+      "facility_type": "district_hospital",
+      "capabilities": null,
+      "nabh_accredited": null,
+      "pmjay_empanelled": null,
+      "bed_count": null,
+      "phone": null,
+      "emergency_24x7": null,
+      "sources": {
+        "ownership": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "facility_type": {
+          "source": "Record definition: the government district hospital at the district headquarters.",
+          "retrieved": null
+        },
+        "coordinates": {
+          "source": "District headquarters town coordinates (public gazetteer). Accurate to the town, not to the building.",
+          "retrieved": null
+        }
+      }
+    }
+  ]
+}

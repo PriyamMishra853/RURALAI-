@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Merge a real facility source into up_district_hospitals.json.
+ * Merge a real facility source into one state's facility file:
+ * up_district_hospitals.json, mh_district_hospitals.json, selected with --dataset.
  *
  * The referral ranking is only as good as this data, and the one thing that
  * would make it dangerous is invented data — a fabricated `blood_bank` sends a
@@ -24,6 +25,7 @@
  *        --in ./pmjay-up.json \
  *        --source "PM-JAY Hospital Finder, hospitals.pmjay.gov.in" \
  *        --retrieved 2026-09-07 \
+ *        [--dataset mh_district_hospitals.json]   (default: up_district_hospitals.json)
  *        [--dry-run]
  *
  * Input is a JSON array. Each entry needs `district` and `name` to match or
@@ -41,7 +43,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_PATH = path.resolve(__dirname, '../../../AI/LLM/data/up_district_hospitals.json');
+const DATA_DIR = path.resolve(__dirname, '../../../AI/LLM/data');
 
 const OWNERSHIP = ['government', 'private', 'trust'];
 const FACILITY_TYPES = [
@@ -71,6 +73,14 @@ const arg = (name, fallback = null) => {
 };
 
 const main = () => {
+  // One file per state. Uttar Pradesh stays the default, so every existing
+  // invocation keeps doing exactly what it did.
+  const dataset = arg('dataset', 'up_district_hospitals.json');
+  if (!/^[a-z]{2,3}_district_hospitals\.json$/.test(dataset)) {
+    console.error(`--dataset must name a state file such as mh_district_hospitals.json, got "${dataset}".`);
+    process.exit(1);
+  }
+  const DATA_PATH = path.join(DATA_DIR, dataset);
   const inPath = arg('in');
   const source = arg('source');
   const retrieved = arg('retrieved');

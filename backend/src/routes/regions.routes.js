@@ -29,8 +29,8 @@ router.get('/states', async (req, res) => {
 /**
  * GET /api/regions/districts?stateId=...
  *
- * District masters are seeded for Uttar Pradesh only, so this returns an empty
- * list for other states. That is expected: the form offers these as
+ * District masters are seeded for Uttar Pradesh and Maharashtra, so this
+ * returns an empty list for every other state. That is expected: the form offers these as
  * suggestions and accepts free text, because a patient may give an address
  * anywhere in India.
  */

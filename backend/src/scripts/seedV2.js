@@ -544,6 +544,8 @@ SEED COMPLETE
 
   Credentials written to database/v2/DEMO_CREDENTIALS.md
   Super admin is NOT seeded — run: npm run seed:root
+  Maharashtra demo data was removed with everything else — restore it with:
+    npm run seed:maharashtra -- --confirm
 ================================================================
 `);
   } catch (err) {

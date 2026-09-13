@@ -21,14 +21,44 @@ import { rankFacilities, estimateTravelMinutes, CAPABILITIES } from './facilityR
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_PATH = path.resolve(__dirname, '../../../AI/LLM/data/up_district_hospitals.json');
+const DATA_DIR = path.resolve(__dirname, '../../../AI/LLM/data');
 
-let HOSPITALS = [];
-try {
-  HOSPITALS = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8')).hospitals || [];
-} catch (err) {
-  console.error(`Referral data could not be loaded from ${DATA_PATH}: ${err.message}`);
-}
+/*
+ * One file per state — up_district_hospitals.json, mh_district_hospitals.json.
+ *
+ * Nothing in this file names a state, and adding one is adding its file. Each
+ * row is stamped with its file's state so a result can say where it is.
+ *
+ * Files load independently: one malformed state must not take every other
+ * state's referrals down with it. A referral screen with no hospitals on it is
+ * the worst thing this service can produce, so a bad file costs that state its
+ * data and is reported loudly, and nothing else.
+ */
+const loadFacilities = () => {
+  const loaded = { all: [], byFile: {} };
+  let files = [];
+  try {
+    files = fs.readdirSync(DATA_DIR).filter((f) => /_district_hospitals\.json$/.test(f)).sort();
+  } catch (err) {
+    console.error(`Referral data directory could not be read (${DATA_DIR}): ${err.message}`);
+    return loaded;
+  }
+  for (const file of files) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), 'utf8'));
+      const state = parsed?._meta?.state || null;
+      const rows = (parsed.hospitals || []).map((h) => ({ ...h, state: h.state || state }));
+      loaded.all.push(...rows);
+      loaded.byFile[file] = rows.length;
+    } catch (err) {
+      console.error(`Referral data could not be loaded from ${file}: ${err.message}`);
+    }
+  }
+  return loaded;
+};
+
+const LOADED = loadFacilities();
+const HOSPITALS = LOADED.all;
 
 const EARTH_RADIUS_KM = 6371;
 const toRad = (deg) => (deg * Math.PI) / 180;
@@ -44,8 +74,14 @@ export const haversineKm = (aLat, aLon, bLat, bLon) => {
 };
 
 /** The district hospital for a named district, if we have one. */
-export const hospitalForDistrict = (districtName) =>
-  HOSPITALS.find((h) => h.district.toLowerCase() === String(districtName || '').toLowerCase()) || null;
+export const hospitalForDistrict = (districtName) => {
+  const want = String(districtName || '').trim().toLowerCase();
+  if (!want) return null;
+  // Former names count: Aurangabad is now Chhatrapati Sambhajinagar, and a
+  // patient record or a person typing from memory may still use either.
+  return HOSPITALS.find((h) => h.district.toLowerCase() === want
+    || (h.formerly || []).some((f) => f.toLowerCase() === want)) || null;
+};
 
 /**
  * Is this a plausible position in India?
@@ -252,3 +288,6 @@ export const buildReferral = async ({ districtName, lat, lon, tier = 'HIGH', req
 };
 
 export const referralDataLoaded = () => HOSPITALS.length;
+
+/** Rows loaded from each state file — so a missing state is visible, not just a smaller total. */
+export const referralDataByFile = () => ({ ...LOADED.byFile });

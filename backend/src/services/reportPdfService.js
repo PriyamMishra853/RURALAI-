@@ -33,7 +33,7 @@ const fmtDate = (d = new Date()) =>
 
 /* ------------------------------------------------------------------ chrome */
 
-function header(doc, title, tier) {
+function header(doc, title, tier, place) {
   // Tricolour rule — the same government-service device the UI uses.
   const w = doc.page.width - 80;
   doc.rect(40, 34, w / 3, 3).fill('#F39211');
@@ -43,7 +43,11 @@ function header(doc, title, tier) {
   doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(15)
     .text('Rural Health Grid', 40, 48);
   doc.fillColor(MUTED).font('Helvetica').fontSize(8)
-    .text('Village Tele-Clinic Network  ·  Uttar Pradesh', 40, 66);
+    // The patient's own district, not a state baked into the template. This
+    // read "Uttar Pradesh" on every sheet, and the platform serves Maharashtra
+    // too; a referral letter naming the wrong state is one a receiving
+    // hospital has reason to doubt.
+    .text(place ? `Village Tele-Clinic Network  ·  ${place}` : 'Village Tele-Clinic Network', 40, 66);
 
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(12)
     .text(title, 40, 86);
@@ -128,7 +132,7 @@ function patientBlock(doc, patient, visit) {
 
 /** Clinical summary — produced for every tier. */
 function renderSummary(doc, { patient, visit, assessment, workflow }) {
-  header(doc, 'Clinical Assessment Summary', workflow?.tier);
+  header(doc, 'Clinical Assessment Summary', workflow?.tier, patient?.address_district);
   patientBlock(doc, patient, visit);
 
   sectionTitle(doc, 'Presenting complaint');
@@ -189,7 +193,7 @@ function renderSummary(doc, { patient, visit, assessment, workflow }) {
 
 /** Prescription — LOW only, formulary-signed medication only. */
 function renderPrescription(doc, { patient, visit, workflow }) {
-  header(doc, 'Medication Advice', workflow?.tier);
+  header(doc, 'Medication Advice', workflow?.tier, patient?.address_district);
   patientBlock(doc, patient, visit);
 
   sectionTitle(doc, 'Medication');
@@ -242,7 +246,7 @@ function renderPrescription(doc, { patient, visit, workflow }) {
 
 /** Referral and bill — HIGH only. The danger-zone hardcopy. */
 function renderReferral(doc, { patient, visit, assessment, workflow }) {
-  header(doc, 'Emergency Referral', 'HIGH');
+  header(doc, 'Emergency Referral', 'HIGH', patient?.address_district);
 
   // A red band, because this sheet travels with the patient and needs to be
   // identifiable at a glance in a hospital reception queue.

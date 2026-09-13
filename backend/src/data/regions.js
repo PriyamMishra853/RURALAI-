@@ -55,8 +55,9 @@ export const STATES = [
 /**
  * All 75 districts of Uttar Pradesh.
  *
- * This is the only state seeded with districts and staff — the request asked
- * for UP specifically. Every other state exists as a row so the admin
+ * Uttar Pradesh is seeded here by seedV2. Maharashtra's 36 districts live in
+ * data/maharashtra.js and are seeded additively by seedMaharashtra.js, without
+ * touching this state. Every other state exists as a row so the admin
  * drilldown renders the full country, and shows zero coverage for the rest.
  */
 export const UP_DISTRICTS = [
