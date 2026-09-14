@@ -64,7 +64,12 @@ const main = async () => {
     return;
   }
 
-  const client = await makeClient();
+  // makeClient() returns an unconnected client. A query issued before connect()
+  // waits forever, Node finds nothing else to do and exits silently, and the
+  // run looks like it stopped for no reason with nothing applied. That is
+  // exactly what this script did until this line existed.
+  const client = makeClient();
+  await client.connect();
   try {
     for (const name of names) {
       console.log(`  ${name} ...`);
