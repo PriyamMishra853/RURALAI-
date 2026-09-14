@@ -5,6 +5,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { ROLES, ROLE_LABEL, ROLE_KEY } from '../config/roles';
 import { useI18n } from '../i18n/index.jsx';
+import { useFeature, FEATURES } from '../context/FeatureContext';
+import BaselineMetricsCard from '../components/admin/BaselineMetricsCard';
 
 /**
  * Admin console.
@@ -41,6 +43,8 @@ export default function AdminDashboard({ auditOnly = false }) {
   const isAuditor = user?.role === ROLES.AUDITOR;
 
   const [activeTab, setActiveTab] = useState(auditOnly || isAuditor ? 'audit' : 'analytics');
+  // Phase 0 baseline outcomes, shown only where the server has switched them on.
+  const baselineOn = useFeature(FEATURES.BASELINE_METRICS);
   const [analytics, setAnalytics] = useState(null);
   const [users, setUsers] = useState([]);
   const [userTotal, setUserTotal] = useState(0);
@@ -202,6 +206,8 @@ export default function AdminDashboard({ auditOnly = false }) {
           <VisitFunnel visits={analytics?.visits || {}} />
 
           <TrendChart data={analytics?.trend || []} />
+
+          {baselineOn && <BaselineMetricsCard />}
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <RiskChart distribution={analytics?.risk_distribution || {}} />
