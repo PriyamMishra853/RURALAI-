@@ -2,11 +2,12 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **59 HTTP routes** across 13 routers, the WebSocket protocol, and the Python
-inference service's 4 endpoints.
+All **64 HTTP routes** across 13 routers, the WebSocket protocol, and the Python
+inference service's 4 endpoints. Four of the routes exist only when a
+[feature flag](#feature-flags) switches them on.
 
 **Base URL:** `/api` · **Auth:** `Authorization: Bearer <token>` on everything
-except `POST /api/auth/login` and `GET /api/health`.
+except `POST /api/auth/login`, `GET /api/health` and `GET /api/features`.
 
 Role abbreviations: **SA** super_admin · **STA** state_admin · **DA**
 district_admin · **DR** doctor · **CA** clinic_assistant · **AU** auditor.
@@ -57,6 +58,19 @@ Some endpoints add detail:
 | Patient search | 5 min | 60 | Patient list, lookup, detail |
 | AI | 1 min | 20 | `/ai/*` (except `service-status`), `/vision/*`, `/voice/*`, document upload |
 
+### Feature flags
+
+Some routes exist only when the server's `FEATURE_FLAGS` names their feature
+([setup guide](01-setup-guide.md)). With the flag off they answer **404**
+`"Not found."`, exactly as a route that was never written, so a client cannot
+probe for an unreleased feature. They are marked **flag** below.
+
+| Flag | Routes |
+|---|---|
+| `baseline_metrics` | `GET /api/admin/metrics/baseline` |
+| `doctor_referral` | `GET /api/doctor/referrals` · `POST /api/doctor/cases/:id/referrals` · `POST /api/doctor/referrals/:id/:action`, and the referral fields on `GET /api/doctor/cases/:id` |
+| `voice_intake` | None yet. Reserved for Roadmap v3 Phase 2 |
+
 ---
 
 ## 2. Health and index
@@ -70,6 +84,15 @@ No auth.
 
 ### `GET /api` (or `GET /` when no frontend build is present)
 Service index listing the mounted endpoint groups.
+
+### `GET /api/features`
+No auth.
+```json
+{ "features": ["baseline_metrics", "doctor_referral"] }
+```
+The flags switched on for this deployment, sorted. Names only. The client hides
+every flagged feature until this answers, and treats a failed request as
+everything off.
 
 ---
 
@@ -434,9 +457,18 @@ advertised "Aug 26: 1" and then showed an empty list.
 ### `GET /api/doctor/cases/:id` — DR only
 Ownership checked **inside** the query. Returns the full case: vitals, symptoms,
 documents, `patient_images` with **freshly signed URLs**, reviews, prescriptions.
-Writes a `CASE_OPENED` audit entry.
+Writes a `CASE_OPENED` audit entry, with `metadata.access`.
 
 **404** `"That case is not assigned to you."`
+
+`access` is `"assigned"` unless the referral rule below let the caller in.
+**flag: `doctor_referral`**: a doctor the case was referred to may also open it
+while that referral is `requested`, `accepted`, `completed` or `returned`. A
+referral recorded as declined, expired or cancelled grants nothing. Such a read
+returns `access: "referral"`, and the response adds `referrals`: every referral
+on the case for the assigned doctor, only the caller's own for a referred doctor.
+Both fields are additions. Reading a case through a referral does not let the
+doctor decide it, because `POST /cases/:id/review` still requires the assignment.
 
 ### `POST /api/doctor/cases/:id/review` — DR only
 ```json
@@ -456,6 +488,70 @@ Writes a `CASE_OPENED` audit entry.
 **409** the case is from a previous day, or already reviewed
 
 Fires `DOCTOR_REVIEW_COMPLETED` back to the assistant.
+
+### `GET /api/doctor/referrals?direction=incoming|outgoing&status=open|all` — DR only · flag: `doctor_referral`
+`incoming` (the default) is what was referred to the caller; `outgoing` is what
+they sent. Open referrals (`requested`, `accepted`) by default; at most 100,
+newest first.
+
+```json
+{ "direction": "incoming",
+  "referrals": [ { "id": "…", "visit_id": "…", "from_doctor_id": "…", "to_doctor_id": "…",
+                   "referral_type": "second_opinion", "urgency": "urgent",
+                   "clinical_question": "…", "status": "requested", "depth": 1,
+                   "accountable_doctor_id": "…", "expires_at": "…", "created_at": "…",
+                   "visits": { "visit_code": "…", "risk_level": "…", "chief_complaint": "…",
+                               "patients": { "full_name": "…", "age_years": 41 } },
+                   "from_doctor": { "id": "…", "full_name": "…" },
+                   "to_doctor": { "id": "…", "full_name": "…" } } ] }
+```
+
+`status` is the **effective** status: a request that expired unanswered reads
+`expired` and is not listed as open, even before anything writes that down.
+
+### `POST /api/doctor/cases/:id/referrals` — DR only · flag: `doctor_referral`
+```json
+{ "to_doctor_id": "…", "referral_type": "second_opinion",
+  "urgency": "routine", "clinical_question": "Is this rash a drug reaction?" }
+```
+
+`referral_type` ∈ `second_opinion` | `specialist_consult` | `transfer_of_care`.
+`urgency` ∈ `routine` (expires after 24 h unanswered) | `urgent` (30 min).
+`clinical_question` is 10–2,000 characters. The referring doctor stays accountable.
+
+**201** `{ referral }`, and `CASE_REFERRAL_REQUESTED` to the receiving doctor
+**400** no doctor chosen · unknown type or urgency · question too short or too
+long · referring to yourself
+**404** the case is not assigned to you · that doctor is not an active doctor in
+your district
+**409** the case is from a previous day, or already closed · it already has an
+open referral (a simultaneous second request is refused by the database's unique
+index) · that doctor already declined it · it has been referred 3 times
+
+### `POST /api/doctor/referrals/:id/:action` — DR only · flag: `doctor_referral`
+
+| `action` | Caller | Referral must be | Body | Result · notifies |
+|---|---|---|---|---|
+| `accept` | receiving doctor | `requested` | — | Consult: `accepted`, the referrer stays accountable · referrer. **Transfer of care:** `completed` at once, the case is reassigned to the receiving doctor, who becomes accountable · referrer and assistant |
+| `decline` | receiving doctor | `requested` | `{ reason }`, ≥ 5 characters | `declined` · referrer |
+| `complete` | receiving doctor | `accepted`, not a transfer | `{ response_notes }`, ≥ 10 characters | `completed`, the opinion goes back · referrer |
+| `return` | receiving doctor | `accepted` | `{ reason }`, ≥ 5 characters | `returned`, handed back without an opinion · referrer |
+| `cancel` | referring doctor | `requested` | — | `cancelled` · receiving doctor |
+
+**200** `{ referral }`
+**400** unknown action · reason or opinion missing or too short
+**403** a party to the referral, but not the one who may do this
+**404** no such referral, or the caller is neither party to it
+**409** wrong state · expired unanswered (recorded as `expired` on the way) ·
+changed while being answered · accepting a case the referring doctor has already
+decided (the referral is cancelled) · a transfer when the case is no longer
+assigned to the referring doctor (the answer is undone, so no transfer is recorded
+that did not happen)
+
+Supabase's REST interface has no multi-statement transaction, so each write is
+guarded rather than wrapped: a referral changes only from the state it was read
+in, and a transfer moves the case only while it is still where the referral said.
+Every answer is audited as `CASE_REFERRAL_<OUTCOME>`.
 
 ---
 
@@ -598,6 +694,29 @@ the suspension. Never a hard delete — clinical rows reference who recorded the
 `admin_analytics()` in Postgres. **500** if that function is missing — apply
 `10_admin_analytics.sql`.
 
+### `GET /api/admin/metrics/baseline?days=30&includeDemo=false` — SA, STA, DA, AU · flag: `baseline_metrics`
+The Roadmap v3 Phase 0 baseline, scoped exactly as `analytics` is. `days` is
+clamped to 1–365 (default 30). Demo data is excluded unless `includeDemo=true`.
+
+```json
+{ "scope": "state", "generated_at": "…", "window_days": 30, "include_demo": false,
+  "visits": 120,
+  "intake_minutes":                        { "n": 110, "median": 3.5,  "p90": 12.0 },
+  "registration_to_decision_minutes":      { "n": 40,  "median": 22.0, "p90": 95.0 },
+  "handoff_to_decision_minutes":           { "n": 38,  "median": 9.0,  "p90": 41.0 },
+  "instant_consult_wait_minutes":          { "n": 0,   "median": null, "p90": null },
+  "scheduled_consult_start_delay_minutes": { "n": 6,   "median": -1.5, "p90": 4.0 },
+  "follow_up_decisions": 7,
+  "not_yet_measurable": { "referral_completion": "…", "follow_up_adherence": "…" } }
+```
+
+Illustrative figures. Medians, 90th percentiles and counts only, so no patient,
+visit or staff member is identifiable. Read `n` before the median. A negative
+start delay means the call began early, and it is kept. Referral completion and
+follow-up adherence cannot be measured yet, so they are **named** under
+`not_yet_measurable` and never reported as a number. **500** if
+`baseline_metrics()` is missing — apply `14_baseline_metrics.sql`.
+
 ### `GET /api/admin/audit` — SA, STA, DA, **AU**
 Query: `page`, `pageSize` (default 100), `action`. Already redacted at write time.
 The reason the `AUDITOR` role exists.
@@ -641,11 +760,17 @@ The scheme is derived from the page, never from configuration. Rejections:
 
 Liveness: a 25-second ping/pong sweep terminates unresponsive sockets.
 
-### The eight notification events
+### Notification events
 
 `CONSULTATION_SCHEDULED` · `CONSULTATION_REMINDER` · `CONSULTATION_STARTED` ·
 `CONSULTATION_CANCELLED` · `CONSULTATION_COMPLETED` · `CONSULTATION_FAILED` ·
 `CASE_ASSIGNED` · `DOCTOR_REVIEW_COMPLETED`
+
+With `doctor_referral` (values added by migration 15): `CASE_REFERRAL_REQUESTED` ·
+`CASE_REFERRAL_ACCEPTED` · `CASE_REFERRAL_DECLINED` · `CASE_REFERRAL_COMPLETED` ·
+`CASE_REFERRAL_RETURNED` · `CASE_REFERRAL_CANCELLED`. Their payloads carry
+identifiers and names only. The clinical question is read on the case, under the
+case's own access rule.
 
 Every one is **persisted before it is pushed**.
 
@@ -682,15 +807,16 @@ it"* is literally true. **It must not be given a public domain.**
   "unmatched_fragments": [], "excluded_candidates": [],
   "sparse_input": false, "symptoms_used": ["fever", "chills", "diarrhea"],
   "candidates": [{ "disease": "…", "confidence": 0.46 }],
-  "model": "centroid", "model_top5_accuracy": 0.9743,
+  "model": "bernoulli_nb", "model_top5_accuracy": 0.9743,
   "disclaimer": "Ranked candidates from a statistical model. Not a diagnosis…" }
 ```
 
 **`ok: false`** when nothing matched the vocabulary — *"An empty vector would make
 the model return its prior… Refusing is the only safe answer."*
 
-> ⚠️ `model` reports `META['selected']`, which is `"centroid"`, while the service
-> actually serves Bernoulli NB. The accuracy figure is correct for what runs.
+> `model` names the model that actually scored the request. Until `ed562b0` it
+> reported the training run's `selected` label, `"centroid"`, while Bernoulli NB
+> did the scoring.
 > [L7](16-known-limitations-and-risks.md#l7).
 
 **503** if the model failed to load.
@@ -710,6 +836,7 @@ Exact match, then fuzzy at score ≥ 80.
 |---|---|---|
 | GET | `/api/health` | public |
 | GET | `/api` | public |
+| GET | `/api/features` | public |
 | POST | `/api/auth/login` | public |
 | POST | `/api/auth/logout` | all |
 | GET | `/api/auth/me` | all |
@@ -748,6 +875,9 @@ Exact match, then fuzzy at score ≥ 80.
 | GET | `/api/doctor/queue/dates` | DR |
 | GET | `/api/doctor/cases/:id` | DR |
 | POST | `/api/doctor/cases/:id/review` | DR |
+| GET | `/api/doctor/referrals` | DR · flag |
+| POST | `/api/doctor/cases/:id/referrals` | DR · flag |
+| POST | `/api/doctor/referrals/:id/:action` | DR · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |
 | GET | `/api/consultations/availability/slots` | CA, DR |
 | GET | `/api/consultations/availability/doctors` | CA, DR |
@@ -767,5 +897,6 @@ Exact match, then fuzzy at score ≥ 80.
 | PATCH | `/api/admin/users/:id` | SA, STA, DA |
 | DELETE | `/api/admin/users/:id` | SA, STA, DA |
 | GET | `/api/admin/analytics` | SA, STA, DA, AU |
+| GET | `/api/admin/metrics/baseline` | SA, STA, DA, AU · flag |
 | GET | `/api/admin/audit` | SA, STA, DA, AU |
 | WS | `/realtime` | all staff |

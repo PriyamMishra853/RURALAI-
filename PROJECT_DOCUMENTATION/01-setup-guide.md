@@ -159,6 +159,7 @@ decommissioning a model is a config change rather than a code change.
 | `RESEND_API_KEY` | Staff account invitation email |
 | `GOOGLE_MAPS_API_KEY` | Upgrades referral straight-line distance to live driving distance. Entirely optional — the straight-line answer is computed first and stands if the call fails |
 | `DEMO_ACCOUNT_PASSWORD` | Shared password for seeded demo accounts. Written to a gitignored credentials file, never compiled into the frontend bundle |
+| `FEATURE_FLAGS` | Comma-separated optional features: `baseline_metrics`, `doctor_referral`, `voice_intake`. Unset means everything is off, which is the demo checkpoint's behaviour. Unknown names are ignored with a warning, never enabled. Apply the feature's migration before switching it on |
 | `ROOT_ADMIN_EMAIL`, `ROOT_ADMIN_PASSWORD`, `ROOT_ADMIN_NAME` | Passed at provision time for `npm run seed:root`. There is deliberately no default — a super admin with a known password is the same as no password |
 | `KAGGLE_USERNAME`, `KAGGLE_KEY` | Only to re-download the training datasets |
 | `BACKEND_URL`, `WS_URL` | Cosmetic; used only in the startup banner |
@@ -275,6 +276,7 @@ npm run seed -- --confirm   # demo regions, staff, patients, visits (destructive
 npm run seed:schedules # doctor working hours — without these every date reads "Closed"
 npm run seed:daily     # deterministic 5 cases per doctor for today
 npm run seed:maharashtra -- --confirm   # Maharashtra's 36 districts; additive, never touches Uttar Pradesh
+npm run db:migrate 14_baseline_metrics.sql 15_case_referrals.sql   # before switching on baseline_metrics / doctor_referral
 npm run rag:seed       # 3 clinical protocols into Qdrant
 ```
 

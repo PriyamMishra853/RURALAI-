@@ -136,9 +136,9 @@ winner = 'bernoulli_nb' if top5 >= base_top5 else 'centroid'
 ```
 
 **But the deployed service loads and serves the Bernoulli NB model**
-(`joblib.load(MODELS / 'symptom_nb.joblib')`), and `/diagnose` reports
-`'model': META.get('selected')` — so the API labels its answers `centroid` while
-actually running Bernoulli NB. The accuracy figure it reports
+(`joblib.load(MODELS / 'symptom_nb.joblib')`), and `/diagnose` reported
+`'model': META.get('selected')` — so the API labelled its answers `centroid` while
+actually running Bernoulli NB. Fixed in `ed562b0`: it now reports the model it ran. The accuracy figure it reports
 (`model_top5_accuracy`) is read from the `bernoulli_nb` block and is therefore
 correct for what is running.
 

@@ -68,7 +68,7 @@ doctor-to-doctor referral, voice intake and learning from verified cases.
 
 | # | Document | Covers |
 |---|---|---|
-| 13 | [API Reference](13-api-reference.md) | All 59 HTTP routes and the WebSocket protocol, with auth, roles, request and response shapes |
+| 13 | [API Reference](13-api-reference.md) | All 64 HTTP routes and the WebSocket protocol, with auth, roles, request and response shapes |
 | 14 | [Testing and Quality](14-testing-and-quality.md) | 171 tests across 12 suites, what each asserts, live-service check scripts, current coverage and gaps |
 | 15 | [Error Handling and Observability](15-error-handling-and-observability.md) | Failure taxonomy, degradation ladder, audit log as the observability spine, diagnostics endpoints |
 | 16 | [Known Limitations and Risks](16-known-limitations-and-risks.md) | Every gap, defect and unproven claim, with severity and what would close it |

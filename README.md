@@ -99,7 +99,7 @@ flowchart TB
     end
 
     subgraph C["One container"]
-        API["Express API — 59 routes<br/>+ /realtime WebSocket"]
+        API["Express API — 64 routes<br/>+ /realtime WebSocket"]
         PY["Python inference service<br/>FastAPI on 127.0.0.1:8001"]
         API <-->|loopback| PY
     end
@@ -254,7 +254,7 @@ it.
 | [10 — Authorisation](PROJECT_DOCUMENTATION/10-authorisation.md) | Full permission matrix; what each role is refused |
 | [11 — AI Model Training](PROJECT_DOCUMENTATION/11-ai-model-training.md) | Datasets, training, measured accuracy, the matcher, the rule engine |
 | [12 — Next-Generation Model — **roadmap**](PROJECT_DOCUMENTATION/12-next-generation-model-roadmap.md) | **In progress, not deployed.** The in-house clinical model programme |
-| [13 — API Reference](PROJECT_DOCUMENTATION/13-api-reference.md) | All 59 routes and the WebSocket protocol |
+| [13 — API Reference](PROJECT_DOCUMENTATION/13-api-reference.md) | All 64 routes and the WebSocket protocol |
 | [14 — Testing and Quality](PROJECT_DOCUMENTATION/14-testing-and-quality.md) | What the 135 tests assert, and what is not covered |
 | [15 — Error Handling and Observability](PROJECT_DOCUMENTATION/15-error-handling-and-observability.md) | Failure taxonomy, degradation ladder, performance |
 | [16 — Known Limitations and Risks](PROJECT_DOCUMENTATION/16-known-limitations-and-risks.md) | Every gap and defect, unsoftened |

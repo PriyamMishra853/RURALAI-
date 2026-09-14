@@ -638,10 +638,10 @@ Effort is relative: **S** small, **M** medium, **L** large, **XL** very large.
 |---|---|
 | Production state tagged `sih2026-live-checkpoint` (`437b877`) and branched `checkpoint/sih2026-demo`; the earlier state tagged `sih2026-demo-checkpoint` (`a28118c`) | Done |
 | Maharashtra district masters, demo staff, patients and referral hospitals | Done — seeded on production 2026-09-14: 36 districts, 216 clinical staff, 900 patients. The referral-hospital code ships with the next release |
-| Migrations 12 and 13 confirmed applied on production | To verify |
+| Migrations 12 and 13 applied on production | Done 2026-09-14. They had never run: `db:migrate` issued queries on a client it never connected, and exited silently. Fixed, applied, verified |
 | Seed command removed from the Railway start configuration | To verify |
-| Feature-flag mechanism, default off | Planned |
-| Baseline measurements: intake duration, registration to doctor decision, consultation wait | Planned |
+| Feature-flag mechanism, default off | Built — `FEATURE_FLAGS` on the server, `GET /api/features` for the client; a disabled feature's routes answer 404 |
+| Baseline measurements: intake duration, registration to doctor decision, consultation wait | Built behind `baseline_metrics` — `baseline_metrics()` (migration 14), `GET /api/admin/metrics/baseline`, admin dashboard card. Validated on production in a rolled-back transaction; not yet applied |
 
 **Exit criteria.** The checkpoint deploys and runs unchanged. Baselines recorded.
 Flags available for every later phase.
@@ -649,6 +649,12 @@ Flags available for every later phase.
 ---
 
 ### Phase 1 — Referral lifecycle · *L*
+
+> **Status:** F1 doctor-to-doctor referral is **built behind `doctor_referral`** —
+> migration 15, rules, endpoints, case-view panel, "Referred to you" queue and
+> notifications, with tests. Migration 15 was validated on production in a
+> rolled-back transaction; it is not applied and the flag is off. Closed-loop
+> facility referral is not started.
 
 **Goal.** One referral engine serving both directions: doctor to doctor (F1) and
 doctor to facility (closed loop).

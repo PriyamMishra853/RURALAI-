@@ -118,6 +118,10 @@ The default policy blocks the SPA's own bundle, served from the same origin.
 
 **Severity: Low** · `symptom_model_meta.json` + `app.py`
 
+> **Label fixed** in `ed562b0`. `/diagnose` now reports the model that actually
+> scored the request. The selection rule is unchanged, so the training metadata
+> still records `"selected": "centroid"`.
+
 `train_symptom_diagnosis.py` picks a winner on top-5 alone:
 
 ```python
@@ -126,7 +130,7 @@ winner = 'bernoulli_nb' if top5 >= base_top5 else 'centroid'
 
 The centroid baseline scored 0.9784 against NB's 0.9743, so the metadata records
 `"selected": "centroid"`. But `app.py` loads and serves **`symptom_nb.joblib`**,
-and `/diagnose` returns `'model': META.get('selected')` — so the API labels its
+and `/diagnose` returned `'model': META.get('selected')` — so the API labelled its
 own answers `centroid` while running Bernoulli NB.
 
 Serving NB is the **right** choice: a 0.4-point top-5 difference is within noise,
@@ -134,8 +138,8 @@ NB wins top-1 by a full point, and only NB gives calibrated per-class
 probabilities, which is what makes `confident: false` expressible. The accuracy
 figure reported alongside is read from the `bernoulli_nb` block and is correct.
 
-**The bug is the label, not the model.** Fix: report the actually-loaded model,
-and change the selection rule to weight top-1 and calibration.
+**The bug was the label, not the model.** The label is fixed. Still to do: change
+the selection rule to weight top-1 and calibration.
 
 ### L8 — The RAG embedding is not semantic {#l8}
 
