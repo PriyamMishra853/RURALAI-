@@ -11,6 +11,8 @@ import { useRealtime } from '../context/RealtimeContext';
 import { maskAadhaar, digitsOnly } from '../config/patientFields';
 import { useI18n } from '../i18n/index.jsx';
 import { consultationStatusLabel, joinActionLabel } from '../i18n/serverLabels.js';
+import { useFeature, FEATURES } from '../context/FeatureContext';
+import { REFERRAL_TYPES } from '../components/ReferToDoctorModal';
 
 /**
  * Doctor review queue.
@@ -50,6 +52,26 @@ export default function DoctorQueueDashboard() {
   const [query, setQuery] = useState('');
   const [tierFilter, setTierFilter] = useState('all');
   const [joining, setJoining] = useState(null);
+
+  // Cases other doctors have referred to this one. Fetched on its own, so a
+  // failure here can never take the doctor's own queue down with it.
+  const referralsOn = useFeature(FEATURES.DOCTOR_REFERRAL);
+  const [incoming, setIncoming] = useState([]);
+
+  const fetchIncoming = useCallback(async () => {
+    if (!referralsOn) { setIncoming([]); return; }
+    try {
+      const res = await api.get('/doctor/referrals', { params: { direction: 'incoming' } });
+      setIncoming(res.data?.referrals ?? []);
+    } catch {
+      setIncoming([]);
+    }
+  }, [referralsOn]);
+
+  useEffect(() => { fetchIncoming(); }, [fetchIncoming]);
+  useEffect(() => subscribe((msg) => {
+    if (msg.type === 'notification') fetchIncoming();
+  }), [subscribe, fetchIncoming]);
 
   const fetchAll = useCallback(async (opts = {}) => {
     if (opts.silent) setRefreshing(true);
@@ -243,6 +265,49 @@ export default function DoctorQueueDashboard() {
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* ---- Referred to you ---- */}
+      {referralsOn && incoming.length > 0 && (
+        <div className="bg-surface-raised rounded-card p-5 sm:p-6 border border-line shadow-sm space-y-3">
+          <h2 className="text-sm font-bold text-ink flex items-center gap-2">
+            <Inbox className="w-4 h-4 text-gov-600" /> {t('referral.incomingTitle', 'Referred to you')}
+            <span className="text-[11px] font-semibold text-ink-muted">{formatNumber(incoming.length)}</span>
+          </h2>
+          <ul className="divide-y divide-line">
+            {incoming.map((r) => {
+              const v = r.visits || {};
+              const p = v.patients || {};
+              const typeOpt = REFERRAL_TYPES.find((o) => o.value === r.referral_type);
+              return (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/doctor/cases/${r.visit_id}`)}
+                    className="w-full py-3 px-2 -mx-2 rounded-field text-left hover:bg-surface-sunken transition-colors flex items-start gap-3"
+                  >
+                    <div className="shrink-0 pt-0.5"><TierBadge level={v.risk_level} size="sm" /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-sm text-ink truncate">{p.full_name || t('common.patient', 'Patient')}</span>
+                        {r.urgency === 'urgent' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded text-tier-emergency bg-tier-emergencyBg">{t('referral.urgentBadge', 'URGENT')}</span>
+                        )}
+                        <span className="text-[11px] text-ink-muted">
+                          {typeOpt ? t(typeOpt.labelKey, typeOpt.label) : r.referral_type}
+                          {' · '}
+                          {t('referral.fromDoctor', 'from {doctor}', { doctor: r.from_doctor?.full_name || '—' })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-ink-muted line-clamp-2 mt-0.5">{r.clinical_question}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-ink-subtle shrink-0 self-center" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

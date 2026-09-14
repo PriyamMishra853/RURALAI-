@@ -10,6 +10,10 @@ import RiskBadge from '../components/RiskBadge';
 import { maskAadhaar } from '../config/patientFields';
 import CaseEvidence from '../components/CaseEvidence';
 import { useI18n } from '../i18n/index.jsx';
+import { useAuth } from '../context/AuthContext';
+import { useFeature, FEATURES } from '../context/FeatureContext';
+import CaseReferralPanel from '../components/CaseReferralPanel';
+import ReferToDoctorModal from '../components/ReferToDoctorModal';
 
 /**
  * Doctor case file and review.
@@ -46,6 +50,8 @@ export default function DoctorCaseViewPage() {
   const { t, formatNumber } = useI18n();
   const { id: visitId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const referralsOn = useFeature(FEATURES.DOCTOR_REFERRAL);
 
   const [visit, setVisit] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,6 +69,7 @@ export default function DoctorCaseViewPage() {
   const [submitError, setSubmitError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showRefer, setShowRefer] = useState(false);
 
   const fetchCase = useCallback(async () => {
     try {
@@ -98,6 +105,10 @@ export default function DoctorCaseViewPage() {
   const isPast = Boolean(visit?.visit_date && visit.visit_date < todayIso);
   const alreadyReviewed = ['completed', 'referred'].includes(visit?.status);
   const readOnly = isPast || alreadyReviewed;
+  // Reading this case because it was referred to this doctor, not because it
+  // is assigned to them. They advise in the referral panel; the decision form
+  // and the video booking belong to the assigned doctor.
+  const viaReferral = visit?.access === 'referral';
 
   const active = useMemo(() => DECISIONS.find((d) => d.value === decision), [decision]);
 
@@ -213,7 +224,7 @@ export default function DoctorCaseViewPage() {
           <button
             type="button"
             onClick={() => setShowSchedule(true)}
-            disabled={readOnly}
+            disabled={readOnly || viaReferral}
             className="w-full lg:w-auto px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-2"
           >
             <Video className="w-4 h-4" /> {t('case.videoConsultation', 'Video consultation')}
@@ -239,6 +250,16 @@ export default function DoctorCaseViewPage() {
               )}
           </span>
         </div>
+      )}
+
+      {referralsOn && (viaReferral || !readOnly || visit?.referrals?.length > 0) && (
+        <CaseReferralPanel
+          visit={visit}
+          currentUserId={user?.id}
+          canRefer={!readOnly && !viaReferral}
+          onRefer={() => setShowRefer(true)}
+          onChanged={() => fetchCase()}
+        />
       )}
 
       {/* ---- Clinical summary ---- */}
@@ -398,8 +419,9 @@ export default function DoctorCaseViewPage() {
           )}
         </div>
 
-        {/* Doctor side */}
-        <div className="xl:col-span-5">
+        {/* Doctor side. Hidden for a doctor reading this through a referral:
+            they advise, the assigned doctor decides. */}
+        <div className={viaReferral ? 'hidden' : 'xl:col-span-5'}>
           <form
             onSubmit={submit}
             className="bg-surface-raised rounded-card border border-line shadow-sm overflow-hidden xl:sticky xl:top-6"
@@ -596,6 +618,16 @@ export default function DoctorCaseViewPage() {
           </form>
         </div>
       </div>
+
+      {showRefer && (
+        <ReferToDoctorModal
+          visitId={visitId}
+          currentDoctorId={user?.id}
+          patientName={patient.full_name}
+          onClose={() => setShowRefer(false)}
+          onReferred={() => { setShowRefer(false); fetchCase(); }}
+        />
+      )}
 
       {showSchedule && (
         <ScheduleConsultationModal

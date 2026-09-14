@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, Wifi, WifiOff, Video, CalendarClock, XCircle, CheckCircle2,
-  AlertTriangle, Inbox, Stethoscope, ChevronRight
+  AlertTriangle, Inbox, Stethoscope, ChevronRight, ArrowRightLeft
 } from 'lucide-react';
 import { useRealtime } from '../context/RealtimeContext';
 import { useI18n } from '../i18n/index.jsx';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Notification bell — live events for the signed-in user.
@@ -29,7 +30,15 @@ const EVENT_STYLE = {
   CONSULTATION_COMPLETED: { icon: CheckCircle2, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.completed', label: 'Consultation completed' },
   CONSULTATION_FAILED:    { icon: AlertTriangle, tone: 'text-tier-emergency bg-tier-emergencyBg', key: 'notify.failed', label: 'Video session failed' },
   CASE_ASSIGNED:          { icon: Inbox, tone: 'text-gov-600 bg-gov-50', key: 'notify.caseAssigned', label: 'New case for review' },
-  DOCTOR_REVIEW_COMPLETED:{ icon: Stethoscope, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.reviewDone', label: 'Doctor’s decision received' }
+  DOCTOR_REVIEW_COMPLETED:{ icon: Stethoscope, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.reviewDone', label: 'Doctor’s decision received' },
+  // Doctor-to-doctor referral (Roadmap v3, Phase 1). Only ever sent when the
+  // doctor_referral flag is on, so these rows are inert on a build without it.
+  CASE_REFERRAL_REQUESTED:{ icon: ArrowRightLeft, tone: 'text-gov-600 bg-gov-50', key: 'notify.referralRequested', label: 'Case referred to you' },
+  CASE_REFERRAL_ACCEPTED: { icon: ArrowRightLeft, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.referralAccepted', label: 'Referral accepted' },
+  CASE_REFERRAL_DECLINED: { icon: ArrowRightLeft, tone: 'text-tier-emergency bg-tier-emergencyBg', key: 'notify.referralDeclined', label: 'Referral declined' },
+  CASE_REFERRAL_COMPLETED:{ icon: ArrowRightLeft, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.referralCompleted', label: 'Opinion returned' },
+  CASE_REFERRAL_RETURNED: { icon: ArrowRightLeft, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.referralReturned', label: 'Case handed back' },
+  CASE_REFERRAL_CANCELLED:{ icon: ArrowRightLeft, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.referralCancelled', label: 'Referral withdrawn' }
 };
 
 // Anything not listed above is still shown, plainly. It used to fall through to
@@ -52,7 +61,7 @@ const DECISION_LABEL = {
  * The assistant's assessment screen is addressed by patient, the doctor's case
  * view by visit, and a call by consultation — so each event resolves its own.
  */
-const destinationFor = (n, t) => {
+const destinationFor = (n, t, role) => {
   const p = n.payload || {};
   switch (n.event_type) {
     case 'CONSULTATION_STARTED':
@@ -67,6 +76,23 @@ const destinationFor = (n, t) => {
     case 'DOCTOR_REVIEW_COMPLETED':
       return p.patient_id
         ? { to: `/assistant/assessment/${p.patient_id}`, label: t('notify.viewDecision', 'View decision') }
+        : null;
+    case 'CASE_REFERRAL_REQUESTED':
+    case 'CASE_REFERRAL_ACCEPTED':
+    case 'CASE_REFERRAL_DECLINED':
+    case 'CASE_REFERRAL_COMPLETED':
+    case 'CASE_REFERRAL_RETURNED':
+    case 'CASE_REFERRAL_CANCELLED':
+      // An assistant hears about a referral only when their case moves to
+      // another doctor, and their screen is addressed by patient. The doctor
+      // case route is doctor-only, so sending an assistant there would bounce.
+      if (role === 'CLINIC_ASSISTANT') {
+        return p.patient_id
+          ? { to: '/assistant/assessment/' + p.patient_id, label: t('notify.viewCase', 'View case') }
+          : null;
+      }
+      return p.visit_id
+        ? { to: '/doctor/cases/' + p.visit_id, label: t('notify.openCase', 'Open case') }
         : null;
     default:
       return null;
@@ -116,6 +142,14 @@ const detailFor = (n, t, formatNumber) => {
     }
     return parts.join(' · ') || null;
   }
+
+  if (String(n.event_type).startsWith('CASE_REFERRAL_')) {
+    const who = p.from_doctor_name || p.by_doctor_name;
+    const bits = [];
+    if (p.urgency === 'urgent') bits.push(t('referral.urgentBadge', 'URGENT'));
+    if (who) bits.push(t('notify.byDoctor', 'by {name}', { name: who }));
+    return bits.join(' · ') || null;
+  }
   return null;
 };
 
@@ -143,6 +177,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const onClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -198,7 +233,7 @@ export default function NotificationBell() {
                 const style = EVENT_STYLE[n.event_type] || FALLBACK_STYLE;
                 const Icon = style.icon;
                 const p = n.payload || {};
-                const destination = destinationFor(n, t);
+                const destination = destinationFor(n, t, user?.role);
                 const detail = detailFor(n, t, formatNumber);
 
                 // The whole row is the target when there is somewhere to go —
