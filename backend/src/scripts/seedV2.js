@@ -186,6 +186,19 @@ await client.query(`
  * with no demo flag at all. So they are deleted by their doctor, not by their
  * visit. notifications cascade from consultations and need no separate pass.
  */
+// case_referrals holds both doctors ON DELETE RESTRICT, the same trap as
+// consultations below. The table exists only once migration 15 is applied, so
+// the delete is guarded rather than failing a seed on an older database.
+await client.query(`
+  DO $$ BEGIN
+    IF to_regclass('public.case_referrals') IS NOT NULL THEN
+      DELETE FROM case_referrals
+      WHERE from_doctor_id IN (SELECT id FROM staff_profiles WHERE is_demo)
+         OR to_doctor_id IN (SELECT id FROM staff_profiles WHERE is_demo);
+    END IF;
+  END $$;
+`);
+
 await client.query(`
   DELETE FROM consultations
   WHERE doctor_id IN (SELECT id FROM staff_profiles WHERE is_demo)

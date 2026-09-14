@@ -345,6 +345,14 @@ const clearMaharashtra = async (client, stateId) => {
     // consultations.doctor_id is ON DELETE RESTRICT — cleared first, by staff,
     // because a consultation booked through the API hangs off a visit that is
     // not flagged as demo and cannot be reached by cascade.
+    // case_referrals is RESTRICT on both doctors too, and exists only once
+    // migration 15 is applied.
+    const { rows: [{ present }] } = await client.query(
+      "SELECT to_regclass('public.case_referrals') IS NOT NULL AS present");
+    if (present) {
+      await client.query(
+        `DELETE FROM case_referrals WHERE from_doctor_id IN (${mhStaff}) OR to_doctor_id IN (${mhStaff})`, [stateId]);
+    }
     await client.query(
       `DELETE FROM consultations WHERE doctor_id IN (${mhStaff}) OR assistant_id IN (${mhStaff})`, [stateId]);
     await client.query(`DELETE FROM doctor_reviews WHERE doctor_id IN (${mhStaff})`, [stateId]);

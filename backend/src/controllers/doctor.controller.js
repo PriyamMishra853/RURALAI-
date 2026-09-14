@@ -4,6 +4,8 @@ import { withAge } from '../services/patientFields.js';
 import { istDateString } from '../services/schedulingService.js';
 import { notify, EVENTS } from '../services/notificationService.js';
 import { withSignedUrls } from '../services/imageAccess.js';
+import { isEnabled, FEATURES } from '../config/features.js';
+import { effectiveStatus } from '../services/caseReferralRules.js';
 
 /**
  * The doctor's caseload.
@@ -130,7 +132,7 @@ export const getQueueDates = async (req, res) => {
  * cannot carry `//` comments.
  */
 export const getDoctorCaseDetails = async (req, res) => {
-  const { data, error } = await supabaseAdmin
+  const caseQuery = () => supabaseAdmin
     .from('visits')
     .select(`
       ${QUEUE_FIELDS},
@@ -142,16 +144,59 @@ export const getDoctorCaseDetails = async (req, res) => {
       doctor_reviews ( id, decision, clinical_notes, agreed_with_ai, created_at ),
       prescriptions ( id, prescription_code, items, advice, signed_at )
     `)
-    .eq('id', req.params.id)
-    .eq('assigned_doctor_id', req.user.id)
-    .maybeSingle();
+    .eq('id', req.params.id);
+
+  const referralsOn = isEnabled(FEATURES.DOCTOR_REFERRAL);
+  let access = 'assigned';
+  let { data, error } = await caseQuery().eq('assigned_doctor_id', req.user.id).maybeSingle();
+
+  /*
+   * A doctor a case was referred to may read that one case — while the
+   * referral is open or once it has been answered — and nothing else of the
+   * patient's. The referral is checked in its own query before the case is
+   * fetched without the assignment filter, so access is still decided by a
+   * query and not by inspecting a row after it has been loaded.
+   *
+   * Reading is all it grants. recordDoctorReview still requires the case to
+   * be assigned, so a referred doctor advises; they do not decide.
+   */
+  if (!error && !data && referralsOn) {
+    const { data: viaReferral } = await supabaseAdmin
+      .from('case_referrals')
+      .select('id')
+      .eq('visit_id', req.params.id)
+      .eq('to_doctor_id', req.user.id)
+      .in('status', ['requested', 'accepted', 'completed', 'returned'])
+      .limit(1)
+      .maybeSingle();
+    if (viaReferral) {
+      ({ data, error } = await caseQuery().maybeSingle());
+      access = 'referral';
+    }
+  }
 
   if (error) return res.status(500).json({ error: 'Could not load the case.' });
   if (!data) return res.status(404).json({ error: 'That case is not assigned to you.' });
 
+  let referrals;
+  if (referralsOn) {
+    const { data: rows } = await supabaseAdmin
+      .from('case_referrals')
+      .select('id, from_doctor_id, to_doctor_id, referral_type, urgency, clinical_question, status, depth, response_notes, decline_reason, accountable_doctor_id, expires_at, created_at, responded_at, completed_at, from_doctor:from_doctor_id ( id, full_name ), to_doctor:to_doctor_id ( id, full_name )')
+      .eq('visit_id', req.params.id)
+      .order('created_at', { ascending: true });
+    const now = new Date();
+    // The assigned doctor sees the case's whole referral history; a referred
+    // doctor sees only what was addressed to them.
+    referrals = (rows || [])
+      .filter((r) => access === 'assigned' || r.to_doctor_id === req.user.id)
+      .map((r) => ({ ...r, status: effectiveStatus(r, now) }));
+  }
+
   await logAuditEvent({
     actorId: req.user.id, actorRole: req.user.role,
-    action: 'CASE_OPENED', entityType: 'VISITS', entityId: req.params.id, ip: req.ip
+    action: 'CASE_OPENED', entityType: 'VISITS', entityId: req.params.id,
+    metadata: { access }, ip: req.ip
   });
 
   /*
@@ -164,10 +209,14 @@ export const getDoctorCaseDetails = async (req, res) => {
     Array.isArray(data.patient_images) ? data.patient_images : []
   );
 
+  // `access` and `referrals` are additions; every field that was on this
+  // response before is still there, unchanged.
   return res.json({
     ...data,
     patients: withAge(data.patients),
-    patient_images: signedImages
+    patient_images: signedImages,
+    access,
+    ...(referralsOn ? { referrals } : {})
   });
 };
 
