@@ -5,6 +5,7 @@ import { RealtimeProvider } from './context/RealtimeContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { I18nProvider } from './i18n/index.jsx';
 import { LanguageGate } from './components/LanguageGate';
+import { FeatureProvider } from './context/FeatureContext';
 
 import AppShell from './components/AppShell';
 import RequireRole from './components/RequireRole';
@@ -44,6 +45,8 @@ export default function App() {
     {/* Asked before anything else: the first thing this interface requires is
         the ability to read it. */}
     <LanguageGate />
+    {/* Feature flags: everything not switched on by the server stays hidden. */}
+    <FeatureProvider>
     <AuthProvider>
       <RealtimeProvider>
       <div className="min-h-screen relative font-sans">
@@ -98,6 +101,7 @@ export default function App() {
       </div>
       </RealtimeProvider>
     </AuthProvider>
+    </FeatureProvider>
     </I18nProvider>
     </ThemeProvider>
   );

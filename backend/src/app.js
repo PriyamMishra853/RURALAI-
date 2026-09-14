@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 
 import { config } from './config/env.js';
 import { globalRateLimiter } from './middleware/rateLimit.middleware.js';
+import { enabledFeatures } from './config/features.js';
 
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
@@ -125,6 +126,17 @@ app.get('/api/health', (req, res) => {
     commit: COMMIT_SHA ? COMMIT_SHA.slice(0, 7) : 'unknown',
     started_at: STARTED_AT
   });
+});
+
+/*
+ * Which optional capabilities this deployment has switched on.
+ *
+ * Public on purpose: the list names features, not data, and the client needs
+ * it before sign-in to decide what to render. Gating is enforced on each
+ * feature's own routes, never by the client believing this list.
+ */
+app.get('/api/features', (req, res) => {
+  res.json({ features: enabledFeatures() });
 });
 
 // API Routes
