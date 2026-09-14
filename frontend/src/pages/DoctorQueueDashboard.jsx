@@ -9,6 +9,8 @@ import { TierBadge, TIER_META } from '../components/TierSystem';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { maskAadhaar, digitsOnly } from '../config/patientFields';
+import { useI18n } from '../i18n/index.jsx';
+import { consultationStatusLabel, joinActionLabel } from '../i18n/serverLabels.js';
 
 /**
  * Doctor review queue.
@@ -31,6 +33,7 @@ const TIERS = ['emergency', 'high', 'moderate', 'low'];
 const todayIso = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
 
 export default function DoctorQueueDashboard() {
+  const { t, formatNumber, formatDate } = useI18n();
   const { user } = useAuth();
   const { subscribe } = useRealtime();
   const navigate = useNavigate();
@@ -64,12 +67,12 @@ export default function DoctorQueueDashboard() {
       setDates(dRes.data?.dates ?? []);
       setFetchError(null);
     } catch (err) {
-      setFetchError(err.response?.data?.error || err.message || 'Could not reach the API.');
+      setFetchError(err.response?.data?.error || err.message || t('queue.apiUnreachable', 'Could not reach the API.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [date]);
+  }, [date, t]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -122,10 +125,14 @@ export default function DoctorQueueDashboard() {
               <Stethoscope className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold text-ink truncate">My Review Queue</h1>
+              <h1 className="text-lg sm:text-xl font-bold text-ink truncate">
+                {t('queue.title', 'My Review Queue')}
+              </h1>
               <p className="text-xs text-ink-muted">
                 {user?.name}
-                {user?.district ? ` · ${user.district}` : ''} · sorted worst first
+                {user?.district ? ` · ${user.district}` : ''}
+                {' · '}
+                {t('queue.sortedWorstFirst', 'sorted worst first')}
               </p>
             </div>
           </div>
@@ -138,7 +145,7 @@ export default function DoctorQueueDashboard() {
                 value={date}
                 onChange={(e) => { setLoading(true); setDate(e.target.value); }}
                 max={todayIso()}
-                aria-label="Queue date"
+                aria-label={t('queue.date', 'Queue date')}
                 className="bg-transparent text-xs text-ink outline-none w-[7.5rem]"
               />
             </div>
@@ -148,14 +155,14 @@ export default function DoctorQueueDashboard() {
                 onClick={() => { setLoading(true); setDate(todayIso()); }}
                 className="px-3 py-2 rounded-field border border-line-strong text-ink-muted text-xs font-semibold hover:bg-surface-sunken"
               >
-                Today
+                {t('queue.today', 'Today')}
               </button>
             )}
             <button
               type="button"
               onClick={() => fetchAll({ silent: true })}
               disabled={refreshing}
-              aria-label="Refresh queue"
+              aria-label={t('queue.refresh', 'Refresh queue')}
               className="p-2 rounded-field border border-line-strong text-ink-muted hover:bg-surface-sunken disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -168,8 +175,8 @@ export default function DoctorQueueDashboard() {
         <div className="p-3 rounded-field bg-surface-sunken border border-line-strong text-xs text-ink-muted flex items-center gap-2">
           <Lock className="w-4 h-4 shrink-0" />
           <span>
-            <strong>Read-only.</strong> This is a past date — cases here can be viewed but not reviewed.
-            An untouched case from a previous day needs an administrator to reassign it.
+            <strong>{t('queue.readOnlyLead', 'Read-only.')}</strong>{' '}
+            {t('queue.readOnlyBody', 'This is a past date — cases here can be viewed but not reviewed. An untouched case from a previous day needs an administrator to reassign it.')}
           </span>
         </div>
       )}
@@ -178,14 +185,14 @@ export default function DoctorQueueDashboard() {
         <div role="alert" className="p-4 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-xs text-tier-emergency flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <span className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span><strong>Could not load the queue:</strong> {fetchError}</span>
+            <span><strong>{t('queue.loadFailed', 'Could not load the queue:')}</strong> {fetchError}</span>
           </span>
           <button
             type="button"
             onClick={() => { setLoading(true); fetchAll(); }}
             className="px-3 py-1.5 rounded bg-tier-emergency text-white font-semibold text-xs hover:opacity-90 flex items-center gap-1 shrink-0 self-start"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Retry
+            <RefreshCw className="w-3.5 h-3.5" /> {t('common.retry', 'Try again')}
           </button>
         </div>
       )}
@@ -205,9 +212,11 @@ export default function DoctorQueueDashboard() {
                 active ? 'border-transparent ring-2 ring-gov-500' : 'border-line hover:border-line-strong'
               }`}
             >
-              <p className="text-xs text-ink-muted font-medium">{meta.label}</p>
-              <h3 className={`text-2xl font-bold mt-0.5 ${meta.text}`}>{counts[tier] ?? 0}</h3>
-              <p className="text-[10px] text-ink-subtle mt-0.5">{active ? 'Filtering — tap to clear' : 'Tap to filter'}</p>
+              <p className="text-xs text-ink-muted font-medium">{t(meta.labelKey, meta.label)}</p>
+              <h3 className={`text-2xl font-bold mt-0.5 ${meta.text}`}>{formatNumber(counts[tier] ?? 0)}</h3>
+              <p className="text-[10px] text-ink-subtle mt-0.5">
+                {active ? t('queue.filtering', 'Filtering — tap to clear') : t('queue.tapToFilter', 'Tap to filter')}
+              </p>
             </button>
           );
         })}
@@ -227,9 +236,11 @@ export default function DoctorQueueDashboard() {
                   : 'bg-surface-raised border-line-strong text-ink-muted hover:border-gov-300'
               }`}
             >
-              {new Date(d.date).toLocaleDateString([], { day: 'numeric', month: 'short' })}
-              <span className="ml-1.5 opacity-70">{d.total}</span>
-              {d.urgent > 0 && <span className="ml-1 text-tier-emergency font-bold">•{d.urgent}</span>}
+              {formatDate(d.date, { day: 'numeric', month: 'short' })}
+              <span className="ml-1.5 opacity-70">{formatNumber(d.total)}</span>
+              {d.urgent > 0 && (
+                <span className="ml-1 text-tier-emergency font-bold">•{formatNumber(d.urgent)}</span>
+              )}
             </button>
           ))}
         </div>
@@ -239,7 +250,7 @@ export default function DoctorQueueDashboard() {
       {consultations.length > 0 && (
         <div className="bg-surface-raised rounded-card p-5 sm:p-6 border border-line shadow-sm space-y-4">
           <h2 className="text-sm font-bold text-ink flex items-center gap-2">
-            <Video className="w-4 h-4 text-gov-600" /> Video consultations today
+            <Video className="w-4 h-4 text-gov-600" /> {t('queue.consultationsToday', 'Video consultations today')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {consultations.map((c) => {
@@ -253,19 +264,23 @@ export default function DoctorQueueDashboard() {
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                       live ? 'bg-tier-lowBg text-tier-low' : 'bg-surface-sunken text-ink-muted'
                     }`}>
-                      {live ? 'LIVE' : c.status}
+                      {live
+                        ? t('consult.statusLive', 'LIVE')
+                        : consultationStatusLabel(t, c.status)}
                     </span>
                   </div>
 
                   <div className="min-w-0">
-                    <div className="font-bold text-sm text-ink truncate">{p?.full_name || 'Patient'}</div>
+                    <div className="font-bold text-sm text-ink truncate">
+                      {p?.full_name || t('common.patient', 'Patient')}
+                    </div>
                     {p?.aadhaar_number && (
                       <div className="text-[11px] text-ink-muted font-mono">{maskAadhaar(p.aadhaar_number)}</div>
                     )}
                     <div className="text-xs text-ink-muted mt-1 line-clamp-2">{c.visits?.chief_complaint}</div>
                     <div className="text-[11px] text-tier-moderate flex items-center gap-1 mt-1 font-medium">
                       <Clock className="w-3.5 h-3.5 shrink-0" />
-                      {new Date(c.scheduled_start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatDate(c.scheduled_start_time, { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
 
@@ -273,7 +288,7 @@ export default function DoctorQueueDashboard() {
                     type="button"
                     onClick={() => joinCall(c.id)}
                     disabled={!canJoin || joining === c.id}
-                    title={canJoin ? undefined : c.join_label}
+                    title={canJoin ? undefined : joinActionLabel(t, c)}
                     className={`w-full py-2.5 rounded-field font-semibold text-xs flex items-center justify-center gap-2 transition-colors ${
                       canJoin
                         ? 'bg-gov-600 hover:bg-gov-700 text-white'
@@ -283,7 +298,7 @@ export default function DoctorQueueDashboard() {
                     {joining === c.id
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : canJoin ? <PhoneCall className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                    {c.join_label}
+                    {joinActionLabel(t, c)}
                   </button>
                 </div>
               );
@@ -296,9 +311,15 @@ export default function DoctorQueueDashboard() {
       <div className="bg-surface-raised rounded-card p-5 sm:p-6 border border-line shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-ink">
-            Cases for {new Date(date).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}
+            {t('queue.casesFor', 'Cases for {date}', {
+              date: formatDate(date, { day: 'numeric', month: 'long', year: 'numeric' })
+            })}
             <span className="ml-2 font-normal text-ink-subtle">
-              {filtered.length}{filtered.length !== total ? ` of ${total}` : ''}
+              {filtered.length !== total
+                ? t('queue.filteredOf', '{shown} of {total}', {
+                  shown: formatNumber(filtered.length), total: formatNumber(total)
+                })
+                : formatNumber(filtered.length)}
             </span>
           </h2>
           <div className="relative w-full sm:w-72">
@@ -307,8 +328,8 @@ export default function DoctorQueueDashboard() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Name, complaint, Aadhaar or visit code"
-              aria-label="Search cases"
+              placeholder={t('queue.searchPlaceholder', 'Name, complaint, Aadhaar or visit code')}
+              aria-label={t('queue.searchCases', 'Search cases')}
               className="w-full bg-surface-raised border border-line-strong rounded-field pl-9 pr-4 py-2 text-xs text-ink focus:border-gov-500 outline-none"
             />
           </div>
@@ -316,18 +337,23 @@ export default function DoctorQueueDashboard() {
 
         {loading ? (
           <div className="p-10 text-center text-xs text-ink-muted flex items-center justify-center gap-2">
-            <RefreshCw className="w-4 h-4 text-gov-600 animate-spin" /> Loading your queue…
+            <RefreshCw className="w-4 h-4 text-gov-600 animate-spin" /> {t('queue.loading', 'Loading your queue…')}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center border border-dashed border-line rounded-field space-y-2">
             <Inbox className="w-8 h-8 text-ink-subtle mx-auto" />
             <p className="text-xs text-ink-muted">
-              {total === 0 ? 'No cases assigned to you on this date.' : 'No cases match your search.'}
+              {total === 0
+                ? t('queue.noneAssigned', 'No cases assigned to you on this date.')
+                : t('queue.noneMatch', 'No cases match your search.')}
             </p>
             {total === 0 && dates.length > 0 && (
               <p className="text-[11px] text-ink-subtle">
-                You have cases on {dates.slice(0, 3).map((d) =>
-                  new Date(d.date).toLocaleDateString([], { day: 'numeric', month: 'short' })).join(', ')}.
+                {t('queue.casesOn', 'You have cases on {dates}.', {
+                  dates: dates.slice(0, 3)
+                    .map((d) => formatDate(d.date, { day: 'numeric', month: 'short' }))
+                    .join(', ')
+                })}
               </p>
             )}
             {(query || tierFilter !== 'all') && (
@@ -336,7 +362,7 @@ export default function DoctorQueueDashboard() {
                 onClick={() => { setQuery(''); setTierFilter('all'); }}
                 className="text-[11px] font-semibold text-gov-600 hover:underline inline-flex items-center gap-1"
               >
-                <XCircle className="w-3 h-3" /> Clear filters
+                <XCircle className="w-3 h-3" /> {t('queue.clearFilters', 'Clear filters')}
               </button>
             )}
           </div>
@@ -356,13 +382,14 @@ export default function DoctorQueueDashboard() {
 
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-sm text-ink truncate">
-                        {p.full_name || 'Patient'}
+                        {p.full_name || t('common.patient', 'Patient')}
                         <span className="ml-2 text-[11px] font-normal text-ink-muted">
-                          {p.age_display || ''}{p.gender ? ` · ${p.gender}` : ''}
+                          {p.age_display || ''}
+                          {p.gender ? ' · ' + t('gender.' + String(p.gender).toLowerCase(), p.gender) : ''}
                         </span>
                       </div>
                       <div className="text-xs text-ink-muted line-clamp-1">
-                        {c.chief_complaint || 'No complaint recorded'}
+                        {c.chief_complaint || t('queue.noComplaint', 'No complaint recorded')}
                         {c.symptom_duration ? ` · ${c.symptom_duration}` : ''}
                       </div>
                       <div className="text-[11px] text-ink-subtle font-mono truncate">
@@ -371,17 +398,21 @@ export default function DoctorQueueDashboard() {
                       {assessment?.recommended_next_action && (
                         <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded bg-gov-50 text-gov-700 border border-gov-200">
                           <Activity className="w-3 h-3" />
-                          {assessment.recommended_next_action.replace(/_/g, ' ')}
+                          {t(
+                            'nextAction.' + String(assessment.recommended_next_action).toLowerCase(),
+                            assessment.recommended_next_action.replace(/_/g, ' ')
+                          )}
                         </span>
                       )}
                     </div>
 
                     <div className="hidden sm:flex flex-col items-end gap-1 shrink-0">
                       <span className="text-[11px] text-ink-subtle">
-                        {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatDate(c.created_at, { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <span className="text-[11px] font-semibold text-gov-600 flex items-center gap-0.5">
-                        {readOnly ? 'View' : 'Review'} <ChevronRight className="w-3.5 h-3.5" />
+                        {readOnly ? t('common.view', 'View') : t('common.review', 'Review')}{' '}
+                        <ChevronRight className="w-3.5 h-3.5" />
                       </span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-ink-subtle sm:hidden shrink-0 self-center" />

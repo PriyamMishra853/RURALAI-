@@ -1,10 +1,15 @@
 # Architecture and Workflow — the current system
 
-> **Navigation:** [Index](README.md) · Detail: [03 — Data Flow](03-data-flow.md) · [04 — Workflow](04-workflow.md) · [07 — Tech Stack](07-tech-stack.md)
+> **Navigation:** [Index](README.md) · Detail: [03 — Data Flow](03-data-flow.md) · [04 — Workflow](04-workflow.md) · [07 — Tech Stack](07-tech-stack.md) · Planned: [Roadmap v3](ROADMAP_V3.md)
 
 One canonical picture of what is deployed, drawn from the code rather than from
 intent. Every box below corresponds to a file in this repository, and every
 arrow to a call that exists.
+
+The planned evolution of this architecture — doctor-to-doctor referral, voice
+intake, learning from verified cases — is in
+[Roadmap v3 §6](ROADMAP_V3.md#6-target-architecture-planned). Nothing there is
+deployed, and nothing here is removed by it.
 
 The first architecture drawing for this project described three roles, one "AI
 Triage Engine" box, and a doctor portal. All three are still there. What changed
@@ -17,7 +22,7 @@ is that each of them turned out to contain a system.
 | "OCR" | Gemini-native extraction including multi-page PDFs, a Tesseract + LLM fallback, and a **mandatory human verification step** before anything reaches triage |
 | "AI Assessment" — one box | A **five-stage chain** in which a deterministic rule engine sets a floor no model may lower, and a trained classifier bounds what the LLM is allowed to say |
 | "Video Call" | A scheduling engine, an instant-consultation path, a five-state consultation machine, a background sweeper, and a **provider abstraction** — mediasoup SFU with peer-to-peer fallback |
-| "Referral / Immediate" | Live location → nearest of **75 real UP district hospitals** → turn-by-turn deep link → an audited `referrals` row, with the bed-availability claim deliberately withheld |
+| "Referral / Immediate" | Live location → nearest of **111 district hospitals — 75 in Uttar Pradesh, 36 in Maharashtra** → turn-by-turn deep link → an audited `referrals` row, with the bed-availability claim deliberately withheld |
 | "Real-time Notification" | One authenticated WebSocket per staff member carrying **8 notification events and all call signalling** on the same connection |
 | — | Streaming **PDF reports**, visit withdrawal, district-scoped admin analytics aggregated in the database, and an append-only audit log |
 
@@ -311,7 +316,7 @@ flowchart TD
     BOUNDS -->|yes| HAV
     REJ --> HAV
 
-    HAV["haversine over 75 real UP district hospitals<br/>AI/LLM/data/up_district_hospitals.json"]
+    HAV["haversine over 111 district hospitals, UP and Maharashtra<br/>AI/LLM/data/*_district_hospitals.json"]
     HAV --> ROAD{"GOOGLE_MAPS_API_KEY set and reachable?"}
     ROAD -->|yes| DRIVE["driving distance plus ETA<br/>distance_source = google-driving"]
     ROAD -->|"no · timeout · error"| STRAIGHT["straight-line answer stands<br/>a routing outage must not blank<br/>the screen during an emergency"]

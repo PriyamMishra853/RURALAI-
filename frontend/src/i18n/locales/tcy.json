@@ -1,0 +1,19 @@
+{
+  "app.name": "ಗ್ರಾಮೀಣ ಆರೋಗ್ಯ ಗ್ರಿಡ್",
+  "auth.signin": "ಸಿಬ್ಬಂದಿ ಸೈನ್ ಇನ್",
+  "auth.submit": "ಸೈನ್ ಇನ್",
+  "common.cancel": "ರದ್ದು ಮಲ್ಪುಲೆ",
+  "common.close": "ಮುಚ್ಚುಲೆ",
+  "common.no": "ಇಜ್ಜಿ",
+  "common.save": "ಒರಿಪುಲೆ",
+  "common.yes": "ಅಂದ್",
+  "lang.continue": "ಮುಂದೆ ಪೋಲೆ",
+  "lang.switch": "ಬಾಸೆ",
+  "lang.title": "ಈರೆನ ಬಾಸೆ ಆಯ್ಕೆ ಮಲ್ಪುಲೆ",
+  "nav.dashboard": "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
+  "nav.patients": "ರೋಗಿಲು",
+  "nav.signout": "ಸೈನ್ ಔಟ್",
+  "role.assistant": "ಕ್ಲಿನಿಕ್ ಸಹಾಯಕೆ",
+  "role.doctor": "ಡಾಕ್ಟರ್",
+  "tier.emergency": "ತುರ್ತು"
+}

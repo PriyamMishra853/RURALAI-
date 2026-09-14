@@ -3,7 +3,8 @@ import { UserCog, Database, Plus, Stethoscope, BarChart3, Users, AlertCircle, Lo
 import { TrendChart, RiskChart, BarList, VisitFunnel } from '../components/admin/Charts';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { ROLES } from '../config/roles';
+import { ROLES, ROLE_LABEL, ROLE_KEY } from '../config/roles';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * Admin console.
@@ -18,14 +19,11 @@ import { ROLES } from '../config/roles';
  * is why the super admin appeared to load for a moment and then break.
  */
 
-const ROLE_LABEL = {
-  SUPER_ADMIN: 'Super Administrator',
-  STATE_ADMIN: 'State Administrator',
-  DISTRICT_ADMIN: 'District Administrator',
-  DOCTOR: 'Doctor',
-  CLINIC_ASSISTANT: 'Clinic Assistant',
-  AUDITOR: 'Auditor'
-};
+/*
+ * ROLE_LABEL and ROLE_KEY now come from config/roles.js. This page had its own
+ * verbatim copy of the label map, which meant the sidebar and this console
+ * would have had to be translated separately — and the second one forgotten.
+ */
 
 /** Which roles this admin may create, mirroring CREATABLE_ROLES on the server. */
 const CREATABLE = {
@@ -35,7 +33,11 @@ const CREATABLE = {
 };
 
 export default function AdminDashboard({ auditOnly = false }) {
+  const { t, formatNumber, formatDate } = useI18n();
   const { user } = useAuth();
+
+  /** A role's name in the reader's language, falling back to the English. */
+  const roleName = (role) => (role ? t(ROLE_KEY[role], ROLE_LABEL[role] || role) : '');
   const isAuditor = user?.role === ROLES.AUDITOR;
 
   const [activeTab, setActiveTab] = useState(auditOnly || isAuditor ? 'audit' : 'analytics');
@@ -71,11 +73,11 @@ export default function AdminDashboard({ auditOnly = false }) {
       setRegions({ states: rRes.data?.states ?? [], districts: rRes.data?.districts ?? [] });
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not load the admin console.');
+      setError(err.response?.data?.error || t('admin.loadFailed', 'Could not load the admin console.'));
     } finally {
       setLoading(false);
     }
-  }, [roleFilter]);
+  }, [roleFilter, t]);
 
   useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
 
@@ -85,11 +87,19 @@ export default function AdminDashboard({ auditOnly = false }) {
     setCreateMsg(null);
     try {
       await api.post('/admin/users', newUser);
-      setCreateMsg({ ok: true, text: `${newUser.full_name} created as ${ROLE_LABEL[newUser.role]}.` });
+      setCreateMsg({
+        ok: true,
+        text: t('admin.created', '{name} created as {role}.', {
+          name: newUser.full_name, role: roleName(newUser.role)
+        })
+      });
       setNewUser({ full_name: '', email: '', phone: '', role: creatable[0] || 'DOCTOR', password: '', district_id: '', state_id: '' });
       fetchAdminData();
     } catch (err) {
-      setCreateMsg({ ok: false, text: err.response?.data?.error || 'Account could not be created.' });
+      setCreateMsg({
+        ok: false,
+        text: err.response?.data?.error || t('admin.createFailed', 'Account could not be created.')
+      });
     } finally {
       setCreating(false);
     }
@@ -98,16 +108,16 @@ export default function AdminDashboard({ auditOnly = false }) {
 
   const tabs = [
     ...(isAuditor ? [] : [
-      { id: 'analytics', label: 'Platform Metrics', icon: <BarChart3 className="w-4 h-4" /> },
-      { id: 'staff', label: 'Staff Accounts', icon: <Stethoscope className="w-4 h-4" /> }
+      { id: 'analytics', label: t('admin.tab.metrics', 'Platform Metrics'), icon: <BarChart3 className="w-4 h-4" /> },
+      { id: 'staff', label: t('admin.tab.staff', 'Staff Accounts'), icon: <Stethoscope className="w-4 h-4" /> }
     ]),
-    { id: 'audit', label: 'Audit Logs', icon: <Database className="w-4 h-4" /> }
+    { id: 'audit', label: t('admin.tab.audit', 'Audit Logs'), icon: <Database className="w-4 h-4" /> }
   ];
 
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center text-sm text-ink-muted flex items-center justify-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading the admin console…
+        <Loader2 className="w-4 h-4 animate-spin" /> {t('admin.loading', 'Loading the admin console…')}
       </div>
     );
   }
@@ -118,15 +128,24 @@ export default function AdminDashboard({ auditOnly = false }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-ink flex items-center gap-2">
-            <UserCog className="w-5 h-5 text-gov-600" /> Admin Console
+            <UserCog className="w-5 h-5 text-gov-600" /> {t('admin.title', 'Admin Console')}
           </h1>
           <p className="text-xs text-ink-muted">
-            {ROLE_LABEL[user?.role]}
-            {user?.district ? ` · ${user.district} district` : user?.state ? ` · ${user.state}` : ' · nationwide'}
+            {roleName(user?.role)}
+            {user?.district
+              ? ' · ' + t('admin.districtScope', '{district} district', { district: user.district })
+              : user?.state
+                ? ` · ${user.state}`
+                : ' · ' + t('admin.nationwide', 'nationwide')}
           </p>
         </div>
         <span className="px-3 py-1.5 rounded-field bg-surface-sunken border border-line text-[11px] font-semibold text-ink-muted">
-          Scope: {analytics?.scope || (user?.district ? 'district' : user?.state ? 'state' : 'national')}
+          {t('admin.scope', 'Scope')}:{' '}
+          {(() => {
+            const scope = analytics?.scope
+              || (user?.district ? 'district' : user?.state ? 'state' : 'national');
+            return t('admin.scope.' + scope, scope);
+          })()}
         </span>
       </div>
 
@@ -158,18 +177,23 @@ export default function AdminDashboard({ auditOnly = false }) {
               unrelated totals share no scale worth plotting against. */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
             {[
-              { label: 'Patients', value: analytics?.patients, hint: 'Registered' },
-              { label: 'Doctors', value: analytics?.doctors, hint: 'Active' },
-              { label: 'Clinic assistants', value: analytics?.clinic_assistants, hint: 'Active' },
-              { label: 'Districts', value: analytics?.districts_total, hint: 'Covered' },
-              { label: 'States / UTs', value: analytics?.states_total, hint: 'In the register' }
+              { k: 'patients', label: 'Patients', value: analytics?.patients, hk: 'registered', hint: 'Registered' },
+              { k: 'doctors', label: 'Doctors', value: analytics?.doctors, hk: 'active', hint: 'Active' },
+              { k: 'assistants', label: 'Clinic assistants', value: analytics?.clinic_assistants, hk: 'active', hint: 'Active' },
+              { k: 'districts', label: 'Districts', value: analytics?.districts_total, hk: 'covered', hint: 'Covered' },
+              { k: 'states', label: 'States / UTs', value: analytics?.states_total, hk: 'inRegister', hint: 'In the register' }
             ].map((s) => (
-              <div key={s.label} className="bg-surface-raised rounded-card border border-line shadow-sm p-3">
+              <div key={s.k} className="bg-surface-raised rounded-card border border-line shadow-sm p-3">
                 <div className="text-xl font-bold text-ink tabular-nums">
-                  {s.value === undefined || s.value === null ? '—' : new Intl.NumberFormat('en-IN').format(s.value)}
+                  {/* Was pinned to en-IN. formatNumber keeps the lakh/crore
+                      grouping for every Indian locale and uses the reader's
+                      own numerals where the locale has them. */}
+                  {s.value === undefined || s.value === null ? '—' : formatNumber(s.value)}
                 </div>
-                <div className="text-[11px] font-semibold text-ink mt-0.5">{s.label}</div>
-                <div className="text-[10px] text-ink-subtle">{s.hint}</div>
+                <div className="text-[11px] font-semibold text-ink mt-0.5">
+                  {t('admin.stat.' + s.k, s.label)}
+                </div>
+                <div className="text-[10px] text-ink-subtle">{t('admin.hint.' + s.hk, s.hint)}</div>
               </div>
             ))}
           </div>
@@ -182,33 +206,35 @@ export default function AdminDashboard({ auditOnly = false }) {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <RiskChart distribution={analytics?.risk_distribution || {}} />
             <BarList
-              title="Busiest districts"
-              subtitle="Visits recorded, highest first"
-              valueLabel="Visits"
+              title={t('admin.busiestDistricts', 'Busiest districts')}
+              subtitle={t('admin.busiestDistrictsHint', 'Visits recorded, highest first')}
+              valueLabel={t('admin.visits', 'Visits')}
               items={analytics?.top_districts || []}
             />
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <BarList
-              title="Patients by age"
-              subtitle="Derived from date of birth, never stored"
-              valueLabel="Patients"
+              title={t('admin.byAge', 'Patients by age')}
+              subtitle={t('admin.byAgeHint', 'Derived from date of birth, never stored')}
+              valueLabel={t('admin.patients', 'Patients')}
               items={analytics?.demographics?.age_bands || []}
             />
             <BarList
-              title="Patients by sex"
-              valueLabel="Patients"
+              title={t('admin.bySex', 'Patients by sex')}
+              valueLabel={t('admin.patients', 'Patients')}
               items={Object.entries(analytics?.demographics?.gender || {})
-                .map(([label, count]) => ({ label: label[0].toUpperCase() + label.slice(1), count }))
+                // The stored value is the key; the caption is translated.
+                .map(([value, count]) => ({
+                  label: t('gender.' + value, value[0].toUpperCase() + value.slice(1)),
+                  count
+                }))
                 .filter((g) => g.count > 0)}
             />
           </div>
 
           <p className="text-[11px] text-ink-muted">
-            Aggregate counts only. No admin role can open a patient record — that
-            restriction is enforced in the API and in the database. Withdrawn
-            visits are excluded from every figure on this page.
+            {t('admin.aggregateNote', 'Aggregate counts only. No admin role can open a patient record — that restriction is enforced in the API and in the database. Withdrawn visits are excluded from every figure on this page.')}
           </p>
         </div>
       )}
@@ -218,10 +244,10 @@ export default function AdminDashboard({ auditOnly = false }) {
 
           <form onSubmit={handleAddUser} className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-ink flex items-center gap-2">
-              <Plus className="w-4 h-4 text-gov-600" /> Provision staff account
+              <Plus className="w-4 h-4 text-gov-600" /> {t('admin.provision', 'Provision staff account')}
             </h3>
             <p className="text-[11px] text-ink-muted">
-              The only way an account comes into existence. There is no public sign-up.
+              {t('admin.provisionHint', 'The only way an account comes into existence. There is no public sign-up.')}
             </p>
 
             {createMsg && (
@@ -233,86 +259,92 @@ export default function AdminDashboard({ auditOnly = false }) {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-ink-muted mb-1">Full name</label>
+              <label className="block text-xs font-semibold text-ink-muted mb-1">{t('field.fullName', 'Full name')}</label>
               <input type="text" required value={newUser.full_name}
                 onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
-                placeholder="e.g. Dr. Rajesh Verma"
+                placeholder={t('admin.namePlaceholder', 'e.g. Dr. Rajesh Verma')}
                 className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-ink-muted mb-1">Email</label>
+              <label className="block text-xs font-semibold text-ink-muted mb-1">{t('auth.email', 'Email address')}</label>
               <input type="email" required value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                 className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-ink-muted mb-1">Role</label>
+              <label className="block text-xs font-semibold text-ink-muted mb-1">{t('admin.role', 'Role')}</label>
               <select value={newUser.role}
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
                 className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none">
-                {creatable.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                {creatable.map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
               </select>
               <p className="mt-1 text-[10px] text-ink-subtle">
-                Your role may create: {creatable.map((r) => ROLE_LABEL[r]).join(', ') || 'no roles'}.
+                {t('admin.mayCreate', 'Your role may create: {roles}.', {
+                  roles: creatable.map(roleName).join(', ') || t('admin.noRoles', 'no roles')
+                })}
               </p>
             </div>
 
             {['DOCTOR', 'CLINIC_ASSISTANT', 'DISTRICT_ADMIN'].includes(newUser.role) && (
               <div>
-                <label className="block text-xs font-semibold text-ink-muted mb-1">District</label>
+                <label className="block text-xs font-semibold text-ink-muted mb-1">{t('field.district', 'District')}</label>
                 <select required value={newUser.district_id}
                   onChange={(e) => setNewUser({ ...newUser, district_id: e.target.value })}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none">
-                  <option value="">Select a district</option>
+                  <option value="">{t('admin.selectDistrict', 'Select a district')}</option>
                   {regions.districts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
             )}
             {newUser.role === 'STATE_ADMIN' && (
               <div>
-                <label className="block text-xs font-semibold text-ink-muted mb-1">State</label>
+                <label className="block text-xs font-semibold text-ink-muted mb-1">{t('field.state', 'State')}</label>
                 <select required value={newUser.state_id}
                   onChange={(e) => setNewUser({ ...newUser, state_id: e.target.value })}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none">
-                  <option value="">Select a state</option>
+                  <option value="">{t('register.selectState', 'Select a state')}</option>
                   {regions.states.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
                 </select>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-ink-muted mb-1">Initial password</label>
+              <label className="block text-xs font-semibold text-ink-muted mb-1">{t('admin.initialPassword', 'Initial password')}</label>
               <input type="text" required minLength={12} value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                placeholder="At least 12 characters"
+                placeholder={t('admin.passwordHint', 'At least 12 characters')}
                 className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none font-mono" />
               <p className="mt-1 text-[10px] text-ink-subtle">
-                Set per account and handed over directly — there is no shared default password.
+                {t('admin.passwordNote', 'Set per account and handed over directly — there is no shared default password.')}
               </p>
             </div>
 
             <button type="submit" disabled={creating || !creatable.length}
               className="w-full py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-2">
               {creating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {creating ? 'Creating…' : 'Create staff account'}
+              {creating ? t('admin.creating', 'Creating…') : t('admin.createAccount', 'Create staff account')}
             </button>
           </form>
 
           <div className="lg:col-span-2 bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-ink flex items-center gap-2">
-                <Users className="w-4 h-4 text-tier-low" /> Roster
-                <span className="font-normal text-ink-subtle">({userTotal} total)</span>
+                <Users className="w-4 h-4 text-tier-low" /> {t('admin.roster', 'Roster')}
+                <span className="font-normal text-ink-subtle">
+                  ({t('admin.totalCount', '{count} total', { count: formatNumber(userTotal) })})
+                </span>
               </h3>
               <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
                 className="bg-surface-raised border border-line-strong rounded-field px-3 py-1.5 text-xs text-ink focus:border-gov-500 outline-none">
-                {Object.keys(ROLE_LABEL).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                {Object.keys(ROLE_LABEL).map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
               </select>
             </div>
 
             {users.length === 0 ? (
               <p className="text-xs text-ink-muted p-6 text-center border border-dashed border-line rounded-field">
-                No {ROLE_LABEL[roleFilter]?.toLowerCase()} accounts in your region.
+                {t('admin.noAccounts', 'No {role} accounts in your region.', {
+                  role: roleName(roleFilter).toLowerCase()
+                })}
               </p>
             ) : (
               <div className="space-y-2 max-h-[32rem] overflow-y-auto">
@@ -327,7 +359,7 @@ export default function AdminDashboard({ auditOnly = false }) {
                         ? 'bg-tier-lowBg text-tier-low border-tier-low/30'
                         : 'bg-surface-sunken text-ink-muted border-line'
                     }`}>
-                      {u.status}
+                      {t('status.' + u.status, u.status)}
                     </span>
                   </div>
                 ))}
@@ -340,31 +372,39 @@ export default function AdminDashboard({ auditOnly = false }) {
       {activeTab === 'audit' && (
         <div className="bg-surface-raised p-6 rounded-field border border-line shadow-sm space-y-4">
           <div>
-            <h3 className="text-sm font-bold text-ink">Compliance audit trail</h3>
+            <h3 className="text-sm font-bold text-ink">{t('audit.title', 'Compliance audit trail')}</h3>
             <p className="text-[11px] text-ink-muted">
-              Append-only. No role can edit or delete an entry — there is no UPDATE or DELETE policy on this table.
-              Identifiers are redacted at write time.
+              {t('audit.subtitle', 'Append-only. No role can edit or delete an entry — there is no UPDATE or DELETE policy on this table. Identifiers are redacted at write time.')}
             </p>
           </div>
           {auditLogs.length === 0 ? (
             <p className="text-xs text-ink-muted p-6 text-center border border-dashed border-line rounded-field">
-              No audit entries yet.
+              {t('audit.empty', 'No audit entries yet.')}
             </p>
           ) : (
             <div className="overflow-x-auto max-h-[36rem]">
               <table className="w-full text-left text-xs">
                 <thead className="bg-surface-sunken text-ink-muted uppercase text-[10px] border-b border-line sticky top-0">
                   <tr>
-                    <th className="px-4 py-2">Timestamp</th>
-                    <th className="px-4 py-2">Actor Role</th>
-                    <th className="px-4 py-2">Action</th>
-                    <th className="px-4 py-2">Entity</th>
+                    <th className="px-4 py-2">{t('audit.timestamp', 'Timestamp')}</th>
+                    <th className="px-4 py-2">{t('audit.actorRole', 'Actor Role')}</th>
+                    <th className="px-4 py-2">{t('audit.action', 'Action')}</th>
+                    <th className="px-4 py-2">{t('audit.entity', 'Entity')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line font-mono text-[11px]">
                   {auditLogs.map((log) => (
                     <tr key={log.id}>
-                      <td className="px-4 py-2 text-ink-muted whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
+                      {/*
+                        Headings are translated; the VALUES are not, and that is
+                        deliberate. This table is a compliance record that gets
+                        exported, quoted in an incident report and grepped. An
+                        action name that reads differently depending on who was
+                        looking at the console is not an audit trail.
+                      */}
+                      <td className="px-4 py-2 text-ink-muted whitespace-nowrap">
+                        {formatDate(log.created_at, { dateStyle: 'medium', timeStyle: 'medium' })}
+                      </td>
                       <td className="px-4 py-2 text-gov-600 font-semibold">{log.actor_role || '—'}</td>
                       <td className="px-4 py-2 text-gov-600 font-bold">{log.action}</td>
                       <td className="px-4 py-2 text-ink-muted">{log.entity_type || '—'}</td>

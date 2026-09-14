@@ -271,9 +271,10 @@ psql "$DATABASE_URL" -f database/v2/11_referral_audit.sql
 
 ```bash
 cd backend
-npm run seed          # demo regions, staff, patients, visits
+npm run seed -- --confirm   # demo regions, staff, patients, visits (destructive: rebuilds every demo row)
 npm run seed:schedules # doctor working hours — without these every date reads "Closed"
 npm run seed:daily     # deterministic 5 cases per doctor for today
+npm run seed:maharashtra -- --confirm   # Maharashtra's 36 districts; additive, never touches Uttar Pradesh
 npm run rag:seed       # 3 clinical protocols into Qdrant
 ```
 

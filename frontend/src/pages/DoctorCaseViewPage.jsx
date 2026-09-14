@@ -9,6 +9,7 @@ import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
 import RiskBadge from '../components/RiskBadge';
 import { maskAadhaar } from '../config/patientFields';
 import CaseEvidence from '../components/CaseEvidence';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * Doctor case file and review.
@@ -20,17 +21,29 @@ import CaseEvidence from '../components/CaseEvidence';
  * of: ..." regardless of what the doctor chose.
  */
 
+/*
+ * `value` is the enum the API accepts and must not change. `labelKey`/`hintKey`
+ * are the words the doctor reads; `label`/`hint` remain as the English
+ * fallback.
+ *
+ * The labels here are the imperative form the doctor chooses from ("Issue
+ * prescription"), which is not the same string as the past-tense form shown
+ * back to the assistant afterwards ("Prescription issued") in
+ * DoctorReviewPanel — hence a separate key namespace rather than reusing that
+ * one.
+ */
 const DECISIONS = [
-  { value: 'prescribe', label: 'Issue prescription', hint: 'Sign a prescription for this patient', needsMeds: true },
-  { value: 'treat_locally', label: 'Treat locally', hint: 'First-aid protocol care, no prescription' },
-  { value: 'follow_up', label: 'Follow up', hint: 'Review again after a set number of days', needsDays: true },
-  { value: 'refer_hospital', label: 'Refer to hospital', hint: 'Escalate to a higher centre', needsHospital: true },
-  { value: 'no_action_needed', label: 'No action needed', hint: 'Close the case with no intervention' }
+  { value: 'prescribe', labelKey: 'choose.prescribe', label: 'Issue prescription', hintKey: 'choose.prescribe.hint', hint: 'Sign a prescription for this patient', needsMeds: true },
+  { value: 'treat_locally', labelKey: 'choose.treatLocally', label: 'Treat locally', hintKey: 'choose.treatLocally.hint', hint: 'First-aid protocol care, no prescription' },
+  { value: 'follow_up', labelKey: 'choose.followUp', label: 'Follow up', hintKey: 'choose.followUp.hint', hint: 'Review again after a set number of days', needsDays: true },
+  { value: 'refer_hospital', labelKey: 'choose.refer', label: 'Refer to hospital', hintKey: 'choose.refer.hint', hint: 'Escalate to a higher centre', needsHospital: true },
+  { value: 'no_action_needed', labelKey: 'choose.noAction', label: 'No action needed', hintKey: 'choose.noAction.hint', hint: 'Close the case with no intervention' }
 ];
 
 const emptyMed = () => ({ name: '', strength: '', frequency: '', duration: '', instructions: '' });
 
 export default function DoctorCaseViewPage() {
+  const { t, formatNumber } = useI18n();
   const { id: visitId } = useParams();
   const navigate = useNavigate();
 
@@ -57,11 +70,11 @@ export default function DoctorCaseViewPage() {
       setVisit(res.data);
       setFetchError(null);
     } catch (err) {
-      setFetchError(err.response?.data?.error || err.message || 'Could not load the case file.');
+      setFetchError(err.response?.data?.error || err.message || t('case.loadFailed', 'Could not load the case file.'));
     } finally {
       setLoading(false);
     }
-  }, [visitId]);
+  }, [visitId, t]);
 
   useEffect(() => { fetchCase(); }, [fetchCase]);
 
@@ -96,16 +109,16 @@ export default function DoctorCaseViewPage() {
     setSubmitError(null);
 
     if (!diagnosis.trim()) {
-      setSubmitError('Enter a diagnosis before saving.');
+      setSubmitError(t('case.needDiagnosis', 'Enter a diagnosis before saving.'));
       return;
     }
     const cleanMeds = meds.filter((m) => m.name.trim());
     if (active?.needsMeds && !cleanMeds.length) {
-      setSubmitError('Add at least one medicine, or choose a different decision.');
+      setSubmitError(t('case.needMedicine', 'Add at least one medicine, or choose a different decision.'));
       return;
     }
     if (active?.needsHospital && !referralHospital.trim()) {
-      setSubmitError('Name the hospital you are referring to.');
+      setSubmitError(t('case.needHospital', 'Name the hospital you are referring to.'));
       return;
     }
 
@@ -123,7 +136,7 @@ export default function DoctorCaseViewPage() {
       setSaved(true);
       setTimeout(() => navigate('/doctor/queue'), 1200);
     } catch (err) {
-      setSubmitError(err.response?.data?.error || 'The review could not be saved.');
+      setSubmitError(err.response?.data?.error || t('case.saveFailed', 'The review could not be saved.'));
     } finally {
       setSubmitting(false);
     }
@@ -133,7 +146,7 @@ export default function DoctorCaseViewPage() {
   if (loading) {
     return (
       <div className="py-20 text-center text-xs text-ink-muted flex items-center justify-center gap-2">
-        <RefreshCw className="w-4 h-4 text-gov-600 animate-spin" /> Loading the case file…
+        <RefreshCw className="w-4 h-4 text-gov-600 animate-spin" /> {t('case.loading', 'Loading the case file…')}
       </div>
     );
   }
@@ -150,14 +163,14 @@ export default function DoctorCaseViewPage() {
             onClick={() => { setLoading(true); fetchCase(); }}
             className="px-4 py-2 rounded-field bg-gov-600 text-white font-semibold text-xs hover:bg-gov-700 inline-flex items-center gap-1.5"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Try again
+            <RefreshCw className="w-3.5 h-3.5" /> {t('common.retry', 'Try again')}
           </button>
           <button
             type="button"
             onClick={() => navigate('/doctor/queue')}
             className="px-4 py-2 rounded-field border border-line-strong text-ink-muted font-semibold text-xs hover:bg-surface-sunken"
           >
-            Back to queue
+            {t('case.backToQueue', 'Back to queue')}
           </button>
         </div>
       </div>
@@ -174,7 +187,7 @@ export default function DoctorCaseViewPage() {
             <button
               type="button"
               onClick={() => navigate('/doctor/queue')}
-              aria-label="Back to queue"
+              aria-label={t('case.backToQueue', 'Back to queue')}
               className="p-2 rounded-field bg-surface-sunken hover:bg-surface-sunken text-ink-muted shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -182,12 +195,15 @@ export default function DoctorCaseViewPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg sm:text-xl font-bold text-ink truncate">
-                  {patient.full_name || 'Patient'}
+                  {patient.full_name || t('common.patient', 'Patient')}
                 </h1>
                 <RiskBadge level={visit?.risk_level} />
               </div>
               <p className="text-xs text-ink-muted truncate">
-                {patient.age_display || '—'} · {patient.gender || '—'} ·{' '}
+                {patient.age_display || '—'}
+                {' · '}
+                {patient.gender ? t('gender.' + String(patient.gender).toLowerCase(), patient.gender) : '—'}
+                {' · '}
                 <span className="font-mono">{maskAadhaar(patient.aadhaar_number)}</span> ·{' '}
                 <code className="font-mono text-gov-600">{visit?.visit_code}</code>
               </p>
@@ -200,7 +216,7 @@ export default function DoctorCaseViewPage() {
             disabled={readOnly}
             className="w-full lg:w-auto px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-2"
           >
-            <Video className="w-4 h-4" /> Video consultation
+            <Video className="w-4 h-4" /> {t('case.videoConsultation', 'Video consultation')}
           </button>
         </div>
       </div>
@@ -210,8 +226,17 @@ export default function DoctorCaseViewPage() {
           <Lock className="w-4 h-4 shrink-0 mt-0.5" />
           <span>
             {alreadyReviewed
-              ? <><strong>Already reviewed.</strong> This case has been closed and cannot be reviewed again.</>
-              : <><strong>Read-only.</strong> This case is from a previous day. Ask an administrator to reassign it if it still needs review.</>}
+              ? (
+                <>
+                  <strong>{t('case.reviewedLead', 'Already reviewed.')}</strong>{' '}
+                  {t('case.reviewedBody', 'This case has been closed and cannot be reviewed again.')}
+                </>
+              ) : (
+                <>
+                  <strong>{t('queue.readOnlyLead', 'Read-only.')}</strong>{' '}
+                  {t('case.pastBody', 'This case is from a previous day. Ask an administrator to reassign it if it still needs review.')}
+                </>
+              )}
           </span>
         </div>
       )}
@@ -220,42 +245,61 @@ export default function DoctorCaseViewPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
           <span className="text-[11px] text-ink-muted font-medium flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5" /> Chief complaint
+            <Activity className="w-3.5 h-3.5" /> {t('case.chiefComplaint', 'Chief complaint')}
           </span>
           <p className="text-sm font-semibold text-ink mt-1 leading-snug">
-            {visit?.chief_complaint || 'Not recorded'}
+            {visit?.chief_complaint || t('common.notRecorded', 'Not recorded')}
           </p>
           {visit?.symptom_duration && (
-            <p className="text-[11px] text-ink-muted mt-0.5">for {visit.symptom_duration}</p>
+            <p className="text-[11px] text-ink-muted mt-0.5">
+              {t('case.forDuration', 'for {duration}', { duration: visit.symptom_duration })}
+            </p>
           )}
         </div>
 
         <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
           <span className="text-[11px] text-ink-muted font-medium flex items-center gap-1.5">
-            <Thermometer className="w-3.5 h-3.5" /> Vitals
+            <Thermometer className="w-3.5 h-3.5" /> {t('section.vitals', 'Vitals')}
           </span>
           {vitals ? (
             <div className="text-xs text-ink mt-1 space-y-0.5">
-              <p>BP {vitals.blood_pressure_systolic ?? '—'}/{vitals.blood_pressure_diastolic ?? '—'} mmHg</p>
+              {/* Units stay as printed international notation — mmHg, °F, bpm
+                  are read the same everywhere and a localised unit on a vitals
+                  line is a misreading waiting to happen. Only the field names
+                  are translated. */}
+              <p>
+                {t('vital.bpShort', 'BP')} {vitals.blood_pressure_systolic ?? '—'}/{vitals.blood_pressure_diastolic ?? '—'} mmHg
+              </p>
               <p>{vitals.temperature_f ?? '—'}°F · SpO₂ {vitals.spo2_percent ?? '—'}%</p>
-              <p>Pulse {vitals.pulse_bpm ?? '—'} · RR {vitals.respiratory_rate ?? '—'}</p>
+              <p>
+                {t('vital.pulse', 'Pulse')} {vitals.pulse_bpm ?? '—'} ·{' '}
+                {t('vital.rrShort', 'RR')} {vitals.respiratory_rate ?? '—'}
+              </p>
             </div>
           ) : (
-            <p className="text-xs text-ink-subtle mt-1">Not recorded</p>
+            <p className="text-xs text-ink-subtle mt-1">{t('common.notRecorded', 'Not recorded')}</p>
           )}
         </div>
 
         <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
-          <span className="text-[11px] text-ink-muted font-medium">History &amp; allergies</span>
-          <p className="text-xs text-ink mt-1">{visit?.medical_history || 'None reported'}</p>
-          <p className="text-xs text-tier-emergency mt-1">{visit?.known_allergies || 'No known allergies'}</p>
+          <span className="text-[11px] text-ink-muted font-medium">{t('case.historyAllergies', 'History & allergies')}</span>
+          <p className="text-xs text-ink mt-1">{visit?.medical_history || t('case.noneReported', 'None reported')}</p>
+          <p className="text-xs text-tier-emergency mt-1">
+            {visit?.known_allergies || t('case.noAllergies', 'No known allergies')}
+          </p>
         </div>
 
         <div className="bg-surface-raised p-4 rounded-card border border-line shadow-sm">
-          <span className="text-[11px] text-ink-muted font-medium">Attachments</span>
-          <p className="text-sm font-semibold text-ink mt-1">{documents.length} document(s)</p>
-          <p className="text-[11px] text-ink-muted">{symptoms.length} symptom note(s)</p>
-          <p className="text-[11px] text-ink-muted">{images.length} wound photo(s)</p>
+          <span className="text-[11px] text-ink-muted font-medium">{t('case.attachments', 'Attachments')}</span>
+          <p className="text-sm font-semibold text-ink mt-1">
+            {t('case.documentCount', '{count} document(s)', { count: formatNumber(documents.length) })}
+          </p>
+          <p className="text-[11px] text-ink-muted">
+            {t('case.symptomCount', '{count} symptom note(s)', { count: formatNumber(symptoms.length) })}
+          </p>
+          <p className="text-[11px] text-ink-muted">
+            {t('case.photoCount', '{count} wound photo(s)', { count: formatNumber(images.length) })}
+          </p>
         </div>
       </div>
 
@@ -267,9 +311,9 @@ export default function DoctorCaseViewPage() {
           <div className="bg-surface-raised rounded-card border border-line shadow-sm overflow-hidden">
             <div className="px-5 py-3 bg-gov-50 border-b border-gov-200 flex items-center gap-2">
               <Bot className="w-4 h-4 text-gov-600" />
-              <h2 className="text-sm font-bold text-blue-900">AI assistance</h2>
+              <h2 className="text-sm font-bold text-blue-900">{t('case.aiAssistance', 'AI assistance')}</h2>
               <span className="ml-auto text-[10px] font-semibold text-gov-700 bg-surface-raised px-2 py-0.5 rounded border border-gov-200">
-                Not a diagnosis
+                {t('case.notADiagnosis', 'Not a diagnosis')}
               </span>
             </div>
 
@@ -277,13 +321,13 @@ export default function DoctorCaseViewPage() {
               {assessment ? (
                 <>
                   <div>
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">Prepared summary</h3>
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">{t('case.preparedSummary', 'Prepared summary')}</h3>
                     <p className="text-xs text-ink leading-relaxed">{assessment.patient_summary}</p>
                   </div>
 
                   {Array.isArray(assessment.first_aid_steps) && assessment.first_aid_steps.length > 0 && (
                     <div>
-                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">Protocol first-aid steps</h3>
+                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-1">{t('case.protocolFirstAid', 'Protocol first-aid steps')}</h3>
                       <ul className="text-xs text-ink-muted space-y-1">
                         {assessment.first_aid_steps.map((s, i) => <li key={i}>• {s}</li>)}
                       </ul>
@@ -292,7 +336,7 @@ export default function DoctorCaseViewPage() {
 
                   {Array.isArray(assessment.warnings) && assessment.warnings.length > 0 && (
                     <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30">
-                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-tier-moderate mb-1">Warnings</h3>
+                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-tier-moderate mb-1">{t('case.warnings', 'Warnings')}</h3>
                       <ul className="text-xs text-tier-moderate space-y-1">
                         {assessment.warnings.map((w, i) => <li key={i}>• {w}</li>)}
                       </ul>
@@ -302,7 +346,10 @@ export default function DoctorCaseViewPage() {
                   <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
                     {assessment.recommended_next_action && (
                       <span className="text-[10px] font-bold px-2 py-1 rounded bg-gov-50 text-gov-700 border border-gov-200">
-                        {assessment.recommended_next_action.replace(/_/g, ' ')}
+                        {t(
+                          'nextAction.' + String(assessment.recommended_next_action).toLowerCase(),
+                          assessment.recommended_next_action.replace(/_/g, ' ')
+                        )}
                       </span>
                     )}
                     <span className="text-[10px] text-ink-subtle font-mono">{assessment.generated_by}</span>
@@ -310,7 +357,7 @@ export default function DoctorCaseViewPage() {
                 </>
               ) : (
                 <p className="text-xs text-ink-muted">
-                  No AI assessment was generated for this visit. Review the recorded data directly.
+                  {t('case.noAssessment', 'No AI assessment was generated for this visit. Review the recorded data directly.')}
                 </p>
               )}
             </div>
@@ -318,10 +365,13 @@ export default function DoctorCaseViewPage() {
 
           {symptoms.length > 0 && (
             <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">Recorded symptoms</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">{t('case.recordedSymptoms', 'Recorded symptoms')}</h3>
               <ul className="text-xs text-ink-muted space-y-1">
                 {symptoms.map((s, i) => (
-                  <li key={i}>• {s.description} <span className="text-ink-subtle">({s.source})</span></li>
+                  <li key={i}>
+                    • {s.description}{' '}
+                    <span className="text-ink-subtle">({t('symptomSource.' + s.source, s.source)})</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -334,7 +384,7 @@ export default function DoctorCaseViewPage() {
           <CaseEvidence documents={documents} images={images} />
           {assistant && (
             <div className="bg-surface-raised rounded-card border border-line shadow-sm p-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">Verified by</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-muted mb-2">{t('case.verifiedBy', 'Verified by')}</h3>
               <p className="text-xs font-semibold text-ink">{assistant.full_name}</p>
               {assistant.email && (
                 <a href={`mailto:${assistant.email}`} className="text-[11px] text-gov-600 hover:underline break-all">
@@ -342,7 +392,7 @@ export default function DoctorCaseViewPage() {
                 </a>
               )}
               <p className="text-[10px] text-ink-subtle mt-1">
-                Clinic assistant who recorded and sent this case.
+                {t('case.assistantNote', 'Clinic assistant who recorded and sent this case.')}
               </p>
             </div>
           )}
@@ -356,15 +406,15 @@ export default function DoctorCaseViewPage() {
           >
             <div className="px-5 py-3 bg-tier-lowBg border-b border-emerald-100 flex items-center gap-2">
               <ClipboardCheck className="w-4 h-4 text-tier-low" />
-              <h2 className="text-sm font-bold text-tier-low">Your decision</h2>
+              <h2 className="text-sm font-bold text-tier-low">{t('case.yourDecision', 'Your decision')}</h2>
               <span className="ml-auto text-[10px] font-semibold text-tier-low bg-surface-raised px-2 py-0.5 rounded border border-tier-low/30">
-                Final authority
+                {t('case.finalAuthority', 'Final authority')}
               </span>
             </div>
 
             <fieldset disabled={readOnly || saved} className="p-5 space-y-4 disabled:opacity-60">
               <div>
-                <label className="block text-xs font-semibold text-ink-muted mb-1.5">Decision</label>
+                <label className="block text-xs font-semibold text-ink-muted mb-1.5">{t('case.decision', 'Decision')}</label>
                 <div className="space-y-1.5">
                   {DECISIONS.map((d) => (
                     <label
@@ -382,8 +432,8 @@ export default function DoctorCaseViewPage() {
                         className="mt-0.5 accent-[rgb(var(--tier-low))]"
                       />
                       <span className="min-w-0">
-                        <span className="block text-xs font-semibold text-ink">{d.label}</span>
-                        <span className="block text-[11px] text-ink-muted">{d.hint}</span>
+                        <span className="block text-xs font-semibold text-ink">{t(d.labelKey, d.label)}</span>
+                        <span className="block text-[11px] text-ink-muted">{t(d.hintKey, d.hint)}</span>
                       </span>
                     </label>
                   ))}
@@ -392,25 +442,25 @@ export default function DoctorCaseViewPage() {
 
               <div>
                 <label htmlFor="diagnosis" className="block text-xs font-semibold text-ink-muted mb-1">
-                  Diagnosis <span className="text-tier-emergency">*</span>
+                  {t('case.diagnosis', 'Diagnosis')} <span className="text-tier-emergency">*</span>
                 </label>
                 <input
                   id="diagnosis"
                   value={diagnosis}
                   onChange={(e) => setDiagnosis(e.target.value)}
-                  placeholder="e.g. Acute viral febrile illness"
+                  placeholder={t('case.diagnosisPlaceholder', 'e.g. Acute viral febrile illness')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
                 />
               </div>
 
               <div>
-                <label htmlFor="notes" className="block text-xs font-semibold text-ink-muted mb-1">Clinical notes</label>
+                <label htmlFor="notes" className="block text-xs font-semibold text-ink-muted mb-1">{t('case.clinicalNotes', 'Clinical notes')}</label>
                 <textarea
                   id="notes"
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Advice, observations, anything the assistant should act on"
+                  placeholder={t('case.notesPlaceholder', 'Advice, observations, anything the assistant should act on')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
                 />
               </div>
@@ -418,13 +468,13 @@ export default function DoctorCaseViewPage() {
               {active?.needsHospital && (
                 <div>
                   <label htmlFor="hospital" className="block text-xs font-semibold text-ink-muted mb-1">
-                    Referring to <span className="text-tier-emergency">*</span>
+                    {t('case.referringTo', 'Referring to')} <span className="text-tier-emergency">*</span>
                   </label>
                   <input
                     id="hospital"
                     value={referralHospital}
                     onChange={(e) => setReferralHospital(e.target.value)}
-                    placeholder="e.g. District Hospital, Agra"
+                    placeholder={t('case.hospitalPlaceholder', 'e.g. District Hospital, Agra')}
                     className="w-full bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-tier-low outline-none"
                   />
                 </div>
@@ -432,7 +482,7 @@ export default function DoctorCaseViewPage() {
 
               {active?.needsDays && (
                 <div>
-                  <label htmlFor="followup" className="block text-xs font-semibold text-ink-muted mb-1">Follow up in (days)</label>
+                  <label htmlFor="followup" className="block text-xs font-semibold text-ink-muted mb-1">{t('case.followUpDays', 'Follow up in (days)')}</label>
                   <input
                     id="followup"
                     type="number"
@@ -448,13 +498,13 @@ export default function DoctorCaseViewPage() {
               {active?.needsMeds && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-ink-muted">Prescription</label>
+                    <label className="block text-xs font-semibold text-ink-muted">{t('rx.title', 'Prescription')}</label>
                     <button
                       type="button"
                       onClick={() => setMeds((p) => [...p, emptyMed()])}
                       className="text-[11px] font-semibold text-tier-low hover:underline flex items-center gap-1"
                     >
-                      <Plus className="w-3 h-3" /> Add medicine
+                      <Plus className="w-3 h-3" /> {t('case.addMedicine', 'Add medicine')}
                     </button>
                   </div>
 
@@ -465,14 +515,14 @@ export default function DoctorCaseViewPage() {
                           <input
                             value={m.name}
                             onChange={(e) => setMed(i, 'name', e.target.value)}
-                            placeholder="Medicine name"
+                            placeholder={t('field.medicineName', 'Medicine name')}
                             className="flex-1 bg-surface-raised border border-line-strong rounded px-2 py-1.5 text-xs outline-none focus:border-tier-low"
                           />
                           {meds.length > 1 && (
                             <button
                               type="button"
                               onClick={() => setMeds((p) => p.filter((_, idx) => idx !== i))}
-                              aria-label={`Remove medicine ${i + 1}`}
+                              aria-label={t('case.removeMedicine', 'Remove medicine {n}', { n: formatNumber(i + 1) })}
                               className="p-1.5 rounded text-tier-emergency hover:bg-tier-emergencyBg shrink-0"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -513,7 +563,7 @@ export default function DoctorCaseViewPage() {
                     onChange={(e) => setAgreedWithAi(e.target.checked)}
                     className="accent-[rgb(var(--tier-low))]"
                   />
-                  My decision agrees with the AI assessment
+                  {t('case.agreeWithAi', 'My decision agrees with the AI assessment')}
                 </label>
               )}
             </fieldset>
@@ -526,7 +576,7 @@ export default function DoctorCaseViewPage() {
               )}
               {saved && (
                 <div className="p-2.5 rounded-field bg-tier-lowBg border border-tier-low/30 text-[11px] text-tier-low flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Review saved. Returning to your queue…
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {t('case.reviewSaved', 'Review saved. Returning to your queue…')}
                 </div>
               )}
 
@@ -536,7 +586,11 @@ export default function DoctorCaseViewPage() {
                 className="w-full py-3 rounded-field bg-tier-low hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {readOnly ? 'Read-only' : submitting ? 'Saving…' : 'Save review'}
+                {readOnly
+                  ? t('case.readOnly', 'Read-only')
+                  : submitting
+                    ? t('common.saving', 'Saving…')
+                    : t('case.saveReview', 'Save review')}
               </button>
             </div>
           </form>

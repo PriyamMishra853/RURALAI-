@@ -1,0 +1,19 @@
+{
+  "app.name": "Rural Health Grid",
+  "auth.signin": "Hnathawktute lut na",
+  "auth.submit": "Lût",
+  "common.cancel": "Bansan",
+  "common.close": "Khar",
+  "common.no": "Aih",
+  "common.save": "Dahchhawng",
+  "common.yes": "Aw",
+  "lang.continue": "Kal zel",
+  "lang.switch": "Ṭawng",
+  "lang.title": "I ṭawng thlang rawh",
+  "nav.dashboard": "Dashboard",
+  "nav.patients": "Damlote",
+  "nav.signout": "Chhuahsan",
+  "role.assistant": "Clinic ṭanpuitu",
+  "role.doctor": "Doctor",
+  "tier.emergency": "Emergency"
+}

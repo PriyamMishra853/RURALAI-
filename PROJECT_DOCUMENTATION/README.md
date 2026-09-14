@@ -5,8 +5,9 @@ rather than from intent. Every claim in these files names the file, function,
 table, endpoint, migration or script that backs it.
 
 **Repository:** <https://github.com/PriyamMishra853/RURALAI->
-**Submission:** Smart India Hackathon 2026 — Problem Statement 3, *AI-Powered
-Virtual Clinic for Rural Healthcare*
+**Submission:** Smart India Hackathon 2026 — PS 26133, Government of Maharashtra:
+*Accessibility and quality of public healthcare services, particularly in rural
+and underserved areas*
 **Author:** Priyam Mishra
 
 ---
@@ -31,11 +32,13 @@ If you are evaluating this project and have limited time, read in this order:
 5. **[16 — Known Limitations and Risks](16-known-limitations-and-risks.md)** —
    the honest list, including defects found while writing this documentation.
 
-Everything in files 00–11 and 13–19 describes code that exists and runs today.
-**[12 — Next-Generation Model Development](12-next-generation-model-roadmap.md)**
-is the only forward-looking section. It is labelled as a roadmap, opens with a
-status line separating what runs today from what is being built, and is written
-entirely in future or in-progress tense.
+Everything in files 00–11 and 13–20 describes code that exists and runs today.
+Two documents are forward-looking, and both open with a status line separating
+what runs today from what is planned:
+**[12 — Next-Generation Model Development](12-next-generation-model-roadmap.md)**,
+the in-house clinical model programme, and **[Roadmap v3](ROADMAP_V3.md)**, the
+gap analysis against the problem statement and the phased plan for
+doctor-to-doctor referral, voice intake and learning from verified cases.
 
 ---
 
@@ -59,6 +62,7 @@ entirely in future or in-progress tense.
 | 10 | [Authorisation](10-authorisation.md) | Six-role model, full permission matrix per endpoint, district-scope enforcement, refusals per role |
 | 11 | [AI Model Training — built](11-ai-model-training.md) | Kaggle datasets, training scripts, the symptom→disease model and its measured accuracy, medicine index, RAG store, rule engine, inference API, hosted models and key pooling |
 | 12 | [Next-Generation Model Development — **roadmap**](12-next-generation-model-roadmap.md) | **In progress / planned.** In-house clinical model programme: compute, data curation, training methodology, evaluation, guardrails, and why an owned model differs architecturally from wiring up a public API |
+| — | [Roadmap v3 — **planned**](ROADMAP_V3.md) | **Planned, not implemented.** Gaps against PS 26133 checked against the code; specifications for doctor-to-doctor referral, the CHATBOX voice intake and learning from verified case histories; the target architecture; and an eight-phase plan ordered by dependency |
 
 ### Supporting
 
@@ -71,6 +75,7 @@ entirely in future or in-progress tense.
 | 17 | [Architecture Decision Record](17-architecture-decision-record.md) | 18 significant decisions, the alternatives, and why each was chosen |
 | 18 | [Glossary](18-glossary.md) | Clinical, Indian health-system and project-specific terms |
 | 19 | [Contributing and Conventions](19-contributing-and-conventions.md) | Coding conventions, invariants that must not be broken, review checklist |
+| 20 | [Internationalisation](20-internationalisation.md) | How the language choice reaches every screen, the AI prose and the printed report — and what is deliberately never translated |
 
 ### Regulatory and demonstration
 
@@ -78,6 +83,7 @@ entirely in future or in-progress tense.
 |---|---|
 | [Regulatory and Legal Compliance](legal/) | The statute that governs the project — Telemedicine Practice Guidelines 2020 cl. 3.7.4 — the full statutory map, the boundaries enforced in code with their file and line, and the Aadhaar residual point stated in full. **Page 1 of the letter is an unsigned template; no practitioner has signed it.** |
 | [Demonstration case pack](../demo/) | Five synthetic cases spanning LOW to EMERGENCY, with paper prescriptions and lab reports (one handwritten) for the OCR path, and a registration sheet keyed to the schema column names |
+| [SIH presentation Q&A](SIH_PRESENTATION_QA.md) | Sixty questions a technical panel is likely to ask, answered from the code, with the method behind every measured number |
 
 ---
 

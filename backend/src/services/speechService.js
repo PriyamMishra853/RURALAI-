@@ -1,5 +1,6 @@
 import { groq, groqChat, groqTranscribe } from '../config/groq.js';
 import { GROQ_SPEECH_MODEL, GROQ_TEXT_MODEL } from '../config/models.js';
+import { resolveLanguage, DEFAULT_LANGUAGE } from '../config/languages.js';
 
 /**
  * Speech-to-text with automatic language detection
@@ -222,6 +223,19 @@ Return strictly:
  *
  * Returns the original text on failure rather than an error. The read-aloud
  * button should still read something the assistant can use.
+ *
+ * ── Why the language list is no longer two entries ──────────────────────────
+ *
+ * This accepted Hindi and English and refused everything else, which made
+ * read-aloud the one part of the product that could not follow the language
+ * the user had chosen. An assistant working in Tamil got a Tamil interface and
+ * an English voice. `target` is now resolved against the shared registry, so
+ * it accepts a code ('ta'), an English name ('Tamil') or a browser tag
+ * ('ta-IN') — the old callers keep working unchanged.
+ *
+ * An unknown language still returns the source rather than an error: the
+ * button reads the English out loud, which is worse than a translation and
+ * much better than silence.
  */
 export const translateForSpeech = async (text, target = 'Hindi') => {
   const source = String(text || '').trim();
@@ -230,9 +244,15 @@ export const translateForSpeech = async (text, target = 'Hindi') => {
     return { ok: false, text: source, reason: 'That passage is too long to translate.' };
   }
 
-  const LANGS = { Hindi: 'Hindi (Devanagari script)', English: 'English' };
-  const targetName = LANGS[target];
-  if (!targetName) return { ok: false, text: source, reason: `Unsupported language: ${target}` };
+  const lang = resolveLanguage(target);
+  if (!lang) return { ok: false, text: source, reason: `Unsupported language: ${target}` };
+
+  // Asking a model to translate English into English burns a request, adds
+  // latency and can only make the text worse.
+  if (lang.code === DEFAULT_LANGUAGE) {
+    return { ok: true, text: source, target: lang.code };
+  }
+  const targetName = lang.promptName;
 
   try {
     const completion = await groqChat({
@@ -258,7 +278,9 @@ RULES:
 
     const out = completion?.choices?.[0]?.message?.content?.trim();
     if (!out) return { ok: false, text: source, reason: 'The translation came back empty.' };
-    return { ok: true, text: out, target };
+    // `target` echoes the canonical code, not whatever spelling came in, so the
+    // client can cache on it without three spellings of Hindi as three entries.
+    return { ok: true, text: out, target: lang.code, speech_tag: lang.speechTag };
   } catch (err) {
     console.warn('translation failed:', err.message);
     return { ok: false, text: source, reason: 'Translation is unavailable right now.' };

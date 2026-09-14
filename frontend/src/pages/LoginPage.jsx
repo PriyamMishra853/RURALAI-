@@ -56,10 +56,13 @@ export default function LoginPage() {
       // is the difference between "your network dropped" and "this build is
       // pointed at the wrong address".
       if (!err.response) {
-        setError(describeTransportFailure(err));
+        setError(describeTransportFailure(err, t));
         return;
       }
-      setError(err.response.data?.error || `Sign-in failed (HTTP ${err.response.status}).`);
+      setError(
+        err.response.data?.error
+        || t('auth.httpFailed', 'Sign-in failed (HTTP {status}).', { status: err.response.status })
+      );
     }
   };
 
@@ -80,10 +83,10 @@ export default function LoginPage() {
             </span>
             <span>
               <span className="block text-sm font-bold text-ink group-hover:text-gov-600 transition-colors">
-                Rural Health Grid
+                {t('app.name', 'Rural Health Grid')}
               </span>
               <span className="block text-[10px] text-ink-subtle uppercase tracking-wider">
-                Village Tele-Clinic Network
+                {t('app.subtitle', 'Village Tele-Clinic Network')}
               </span>
             </span>
           </Link>
@@ -95,12 +98,14 @@ export default function LoginPage() {
               </span>
               <h1 className="mt-3 font-display text-xl font-bold text-ink">{t('auth.signin', 'Staff Sign In')}</h1>
               <p className="mt-1 text-xs text-ink-muted leading-relaxed">
-                Your dashboard and the records you can reach are determined by the role
-                your administrator assigned to this account.
+                {t('auth.roleLede', 'Your dashboard and the records you can reach are determined by the role your administrator assigned to this account.')}
               </p>
             </div>
 
             <form onSubmit={submit} className="space-y-4">
+              {/* The placeholder stays literal: an email address is not
+                  prose, and a localised local-part is a hint nobody can type
+                  and no real account resembles. */}
               <Input
                 label={t('auth.email', 'Email address')}
                 id="email"
@@ -114,7 +119,7 @@ export default function LoginPage() {
 
               <div>
                 <label htmlFor="password" className="label">
-                  Password <span className="text-tier-emergency">*</span>
+                  {t('auth.passwordLabel', 'Password')} <span className="text-tier-emergency">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -149,12 +154,12 @@ export default function LoginPage() {
             {SHOW_DEMO && (
               <div className="mt-6 pt-5 border-t border-line">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5">
-                  <Info className="w-3 h-3" /> Demo build
+                  <Info className="w-3 h-3" /> {t('auth.demoBuild', 'Demo build')}
                 </p>
                 <div className="mt-2 grid gap-2">
                   {[
-                    { label: 'Clinic Assistant', value: DEMO_ASSISTANT },
-                    { label: 'Doctor', value: DEMO_DOCTOR }
+                    { label: t('role.assistant', 'Clinic Assistant'), value: DEMO_ASSISTANT },
+                    { label: t('role.doctor', 'Doctor'), value: DEMO_DOCTOR }
                   ].filter((a) => a.value).map((acc) => (
                     <button
                       key={acc.value}
@@ -168,8 +173,7 @@ export default function LoginPage() {
                   ))}
                 </div>
                 <p className="mt-2 text-[10px] text-ink-subtle leading-relaxed">
-                  Passwords are in <code className="font-mono">database/v2/DEMO_CREDENTIALS.md</code>,
-                  which is gitignored. Administrator accounts are never listed here.
+                  {t('auth.demoWhere', 'Passwords are in {file}, which is gitignored. Administrator accounts are never listed here.', { file: 'database/v2/DEMO_CREDENTIALS.md' })}
                 </p>
               </div>
             )}
@@ -177,14 +181,15 @@ export default function LoginPage() {
             <div className="mt-6 pt-5 border-t border-line flex items-start gap-2 text-[11px] text-ink-subtle">
               <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
               <p className="leading-relaxed">
-                Staff accounts are issued by an administrator. There is no public sign-up —
-                doctor and clinic assistant roles are assigned, not self-selected.
+                {t('auth.noSignup', 'Staff accounts are issued by an administrator. There is no public sign-up — doctor and clinic assistant roles are assigned, not self-selected.')}
               </p>
             </div>
           </Card>
 
           <p className="mt-4 text-center text-[11px] text-ink-subtle">
-            <Link to="/" className="hover:text-ink transition-colors">← Back to the public site</Link>
+            <Link to="/" className="hover:text-ink transition-colors">
+              {t('auth.backToPublic', '← Back to the public site')}
+            </Link>
           </p>
         </motion.div>
       </div>

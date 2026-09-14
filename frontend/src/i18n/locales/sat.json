@@ -1,0 +1,19 @@
+{
+  "app.name": "ᱟᱴᱳ ᱦᱚᱲᱢᱚ ᱜᱨᱤᱰ",
+  "auth.signin": "ᱥᱴᱟᱯᱷ ᱥᱟᱭᱤᱱ ᱤᱱ",
+  "auth.submit": "ᱥᱟᱭᱤᱱ ᱤᱱ",
+  "common.cancel": "ᱵᱟᱰᱟᱭ ᱢᱮ",
+  "common.close": "ᱵᱚᱸᱫ ᱢᱮ",
+  "common.no": "ᱵᱟᱝ",
+  "common.save": "ᱥᱟᱸᱪᱟᱣ ᱢᱮ",
+  "common.yes": "ᱦᱚᱭ",
+  "lang.continue": "ᱟᱭᱩᱨ ᱪᱟᱞᱟᱜ ᱢᱮ",
+  "lang.switch": "ᱯᱟᱹᱨᱥᱤ",
+  "lang.title": "ᱟᱢᱟᱜ ᱯᱟᱹᱨᱥᱤ ᱵᱟᱪᱷᱟᱣ ᱢᱮ",
+  "nav.dashboard": "ᱰᱮᱥᱵᱚᱨᱰ",
+  "nav.patients": "ᱨᱩᱶᱟᱹᱨ",
+  "nav.signout": "ᱥᱟᱭᱤᱱ ᱟᱩᱴ",
+  "role.assistant": "ᱠᱞᱤᱱᱤᱠ ᱜᱚᱲᱚ",
+  "role.doctor": "ᱰᱟᱠᱴᱟᱨ",
+  "tier.emergency": "ᱡᱚᱨᱩᱨᱤ"
+}

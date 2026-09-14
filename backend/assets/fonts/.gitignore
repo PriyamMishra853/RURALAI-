@@ -1,0 +1,4 @@
+# The font binaries themselves are not committed — see README.md.
+*.ttf
+*.otf
+*.ttc

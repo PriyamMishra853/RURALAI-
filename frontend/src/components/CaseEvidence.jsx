@@ -4,6 +4,7 @@ import {
   ChevronDown, ChevronRight, Pill, ImageOff
 } from 'lucide-react';
 import { Card, CardHeader, Badge, EmptyState, cn } from './ui';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * Everything the assistant captured, as the doctor sees it — spec §3.6.
@@ -37,19 +38,32 @@ function Collapsible({ icon: Icon, title, count, badge, children, defaultOpen = 
   );
 }
 
-function PrescriptionDoc({ doc }) {
+/*
+ * A verified/unverified chip, used on every document here.
+ *
+ * Extracted because the two documents rendered the same pair of badges from
+ * two copies of the same expression, and one of them would eventually be
+ * translated and the other forgotten.
+ */
+function VerifiedBadge({ verified, t }) {
+  return verified
+    ? <Badge tone="low"><CheckCircle2 className="w-3 h-3" /> {t('doc.verified', 'Verified')}</Badge>
+    : <Badge tone="moderate"><AlertTriangle className="w-3 h-3" /> {t('doc.unverified', 'Unverified')}</Badge>;
+}
+
+function PrescriptionDoc({ doc, t, formatNumber }) {
   const d = doc.extracted_data || {};
   const meds = d.medications || [];
   return (
     <div className="p-3 rounded-field bg-surface-sunken border border-line">
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-xs font-bold text-ink">
-          {d.doctor_name && d.doctor_name !== 'Unknown' ? `Dr ${d.doctor_name}` : 'Prescription'}
+          {d.doctor_name && d.doctor_name !== 'Unknown'
+            ? t('doc.drNamed', 'Dr {name}', { name: d.doctor_name })
+            : t('doc.prescription', 'Prescription')}
           {d.date && d.date !== 'Unknown' ? ` · ${d.date}` : ''}
         </span>
-        {doc.verified_at
-          ? <Badge tone="low"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>
-          : <Badge tone="moderate"><AlertTriangle className="w-3 h-3" /> Unverified</Badge>}
+        <VerifiedBadge verified={Boolean(doc.verified_at)} t={t} />
       </div>
 
       {meds.length ? (
@@ -67,19 +81,19 @@ function PrescriptionDoc({ doc }) {
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-ink-muted">No medication lines were read from this document.</p>
+        <p className="text-xs text-ink-muted">{t('doc.noMedLines', 'No medication lines were read from this document.')}</p>
       )}
 
       {d.diagnosis_notes && (
         <p className="mt-2 pt-2 border-t border-line text-xs text-ink-muted">
-          <span className="font-semibold text-ink">Noted: </span>{d.diagnosis_notes}
+          <span className="font-semibold text-ink">{t('doc.noted', 'Noted')}: </span>{d.diagnosis_notes}
         </p>
       )}
     </div>
   );
 }
 
-function LabReportDoc({ doc }) {
+function LabReportDoc({ doc, t, formatNumber }) {
   const d = doc.extracted_data || {};
   const panels = d.panels || [];
   const abnormal = d.abnormal_findings || [];
@@ -88,12 +102,14 @@ function LabReportDoc({ doc }) {
     <div className="p-3 rounded-field bg-surface-sunken border border-line">
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-xs font-bold text-ink">
-          {d.clinic_name && d.clinic_name !== 'Unknown' ? d.clinic_name : 'Laboratory report'}
-          {d.pages_read ? ` · ${d.pages_read} page(s)` : ''}
+          {d.clinic_name && d.clinic_name !== 'Unknown'
+            ? d.clinic_name
+            : t('doc.labReport', 'Laboratory report')}
+          {d.pages_read
+            ? ' · ' + t('doc.pagesRead', '{count} page(s)', { count: formatNumber(d.pages_read) })
+            : ''}
         </span>
-        {doc.verified_at
-          ? <Badge tone="low"><CheckCircle2 className="w-3 h-3" /> Verified</Badge>
-          : <Badge tone="moderate"><AlertTriangle className="w-3 h-3" /> Unverified</Badge>}
+        <VerifiedBadge verified={Boolean(doc.verified_at)} t={t} />
       </div>
 
       {panels.map((panel, i) => (
@@ -122,7 +138,7 @@ function LabReportDoc({ doc }) {
 
       {abnormal.length > 0 && (
         <div className="mt-2 p-2 rounded bg-tier-emergencyBg border border-tier-emergency/25">
-          <p className="text-[11px] font-bold text-tier-emergency">Outside reference range</p>
+          <p className="text-[11px] font-bold text-tier-emergency">{t('lab.outsideRange', 'Outside reference range')}</p>
           {abnormal.map((a, i) => (
             <p key={i} className="text-[11px] text-tier-emergency">• {a}</p>
           ))}
@@ -130,13 +146,15 @@ function LabReportDoc({ doc }) {
       )}
 
       {d.impression && (
-        <p className="mt-2 text-xs text-ink-muted"><span className="font-semibold text-ink">Impression: </span>{d.impression}</p>
+        <p className="mt-2 text-xs text-ink-muted">
+          <span className="font-semibold text-ink">{t('lab.impressionLabel', 'Impression')}: </span>{d.impression}
+        </p>
       )}
     </div>
   );
 }
 
-function WoundImage({ image }) {
+function WoundImage({ image, t }) {
   const obs = image.observation || {};
   const [broken, setBroken] = useState(false);
   const severity = image.severity_impression || obs.severity_impression;
@@ -149,7 +167,7 @@ function WoundImage({ image }) {
             <a href={image.image_url} target="_blank" rel="noreferrer">
               <img
                 src={image.image_url}
-                alt="Clinical photograph"
+                alt={t('doc.clinicalPhoto', 'Clinical photograph')}
                 onError={() => setBroken(true)}
                 className="w-full h-32 sm:h-28 object-cover rounded border border-line"
               />
@@ -157,7 +175,7 @@ function WoundImage({ image }) {
           ) : (
             <div className="w-full h-32 sm:h-28 rounded border border-dashed border-line flex flex-col items-center justify-center text-ink-subtle">
               <ImageOff className="w-5 h-5" />
-              <span className="text-[10px] mt-1">Image unavailable</span>
+              <span className="text-[10px] mt-1">{t('doc.imageUnavailable', 'Image unavailable')}</span>
             </div>
           )}
         </div>
@@ -165,7 +183,9 @@ function WoundImage({ image }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Badge tone={severity === 'HIGH' ? 'emergency' : severity === 'MEDIUM' ? 'moderate' : 'low'}>
-              {severity || 'observed'}
+              {severity
+                ? t('severity.' + String(severity).toLowerCase(), severity)
+                : t('severity.observed', 'observed')}
             </Badge>
             {obs.body_region && obs.body_region !== 'Unknown' && (
               <span className="text-[11px] text-ink-muted">{obs.body_region}</span>
@@ -176,21 +196,26 @@ function WoundImage({ image }) {
 
           {obs.extent?.approximate_area && obs.extent.approximate_area !== 'Unknown' && (
             <p className="mt-1 text-[11px] text-ink-muted">
-              Extent: {obs.extent.approximate_area}
+              {t('doc.extent', 'Extent')}: {obs.extent.approximate_area}
               {obs.extent.spread_pattern && obs.extent.spread_pattern !== 'Unknown' ? ` · ${obs.extent.spread_pattern}` : ''}
             </p>
           )}
 
           {(obs.possible_conditions || []).length > 0 && (
             <div className="mt-2">
-              <p className="text-[11px] font-bold text-ink">Appearance consistent with</p>
+              <p className="text-[11px] font-bold text-ink">{t('doc.consistentWith', 'Appearance consistent with')}</p>
               {obs.possible_conditions.map((c, i) => (
                 <p key={i} className="text-[11px] text-ink-muted">
-                  • {c.description} <span className="text-ink-subtle">({c.confidence} confidence)</span>
+                  • {c.description}{' '}
+                  <span className="text-ink-subtle">
+                    ({t('scan.confidence', '{level} confidence', {
+                      level: t('scan.confidence.' + c.confidence, c.confidence)
+                    })})
+                  </span>
                 </p>
               ))}
               <p className="text-[10px] text-ink-subtle mt-1">
-                Computer-vision observation only — not a diagnosis.
+                {t('doc.cvOnly', 'Computer-vision observation only — not a diagnosis.')}
               </p>
             </div>
           )}
@@ -201,6 +226,7 @@ function WoundImage({ image }) {
 }
 
 export default function CaseEvidence({ documents = [], images = [], className }) {
+  const { t, formatNumber } = useI18n();
   const prescriptions = documents.filter((d) => d.document_type === 'prescription');
   const reports = documents.filter((d) => d.document_type === 'lab_report');
   const other = documents.filter((d) => !['prescription', 'lab_report'].includes(d.document_type));
@@ -210,44 +236,52 @@ export default function CaseEvidence({ documents = [], images = [], className })
   return (
     <Card className={className}>
       <CardHeader
-        title="Evidence captured by the assistant"
-        subtitle="Prescriptions, laboratory reports and clinical photographs"
+        title={t('evidence.title', 'Evidence captured by the assistant')}
+        subtitle={t('evidence.subtitle', 'Prescriptions, laboratory reports and clinical photographs')}
         icon={FileText}
       />
       <div className="p-4 sm:p-5 space-y-3">
         {nothing ? (
           <EmptyState
             icon={FileText}
-            title="No documents or photographs attached"
-            description="The assistant recorded symptoms and vitals only for this visit."
+            title={t('evidence.none', 'No documents or photographs attached')}
+            description={t('evidence.noneHint', 'The assistant recorded symptoms and vitals only for this visit.')}
           />
         ) : (
           <>
             {prescriptions.length > 0 && (
-              <Collapsible icon={Pill} title="Paper prescriptions" count={prescriptions.length}>
-                {prescriptions.map((d) => <PrescriptionDoc key={d.id} doc={d} />)}
+              <Collapsible icon={Pill} title={t('evidence.prescriptions', 'Paper prescriptions')} count={formatNumber(prescriptions.length)}>
+                {prescriptions.map((d) => (
+                  <PrescriptionDoc key={d.id} doc={d} t={t} formatNumber={formatNumber} />
+                ))}
               </Collapsible>
             )}
 
             {reports.length > 0 && (
-              <Collapsible icon={FlaskConical} title="Laboratory / test reports" count={reports.length}>
-                {reports.map((d) => <LabReportDoc key={d.id} doc={d} />)}
+              <Collapsible icon={FlaskConical} title={t('evidence.reports', 'Laboratory / test reports')} count={formatNumber(reports.length)}>
+                {reports.map((d) => (
+                  <LabReportDoc key={d.id} doc={d} t={t} formatNumber={formatNumber} />
+                ))}
               </Collapsible>
             )}
 
             {images.length > 0 && (
-              <Collapsible icon={Camera} title="Clinical photographs" count={images.length}>
-                {images.map((img) => <WoundImage key={img.id} image={img} />)}
+              <Collapsible icon={Camera} title={t('evidence.photographs', 'Clinical photographs')} count={formatNumber(images.length)}>
+                {images.map((img) => <WoundImage key={img.id} image={img} t={t} />)}
               </Collapsible>
             )}
 
             {other.length > 0 && (
-              <Collapsible icon={FileText} title="Other documents" count={other.length} defaultOpen={false}>
+              <Collapsible icon={FileText} title={t('evidence.other', 'Other documents')} count={formatNumber(other.length)} defaultOpen={false}>
                 {other.map((d) => (
                   <div key={d.id} className="p-3 rounded-field bg-surface-sunken border border-line">
-                    <p className="text-xs font-bold text-ink capitalize">{String(d.document_type).replace('_', ' ')}</p>
+                    <p className="text-xs font-bold text-ink capitalize">
+                      {t('docType.' + d.document_type, String(d.document_type).replace('_', ' '))}
+                    </p>
                     <p className="text-xs text-ink-muted mt-1 line-clamp-2">
-                      {d.extracted_data?.raw_text_summary || d.ocr_text || 'No text extracted.'}
+                      {d.extracted_data?.raw_text_summary
+                        || d.ocr_text
+                        || t('doc.noText', 'No text extracted.')}
                     </p>
                   </div>
                 ))}

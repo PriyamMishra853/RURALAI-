@@ -2,9 +2,11 @@
 
 > **Status: PLANNED. Nothing described in this document is implemented yet.**
 >
-> The system as it runs today is frozen at tag **`sih2026-demo-checkpoint`**
-> (commit `a28118c`) and on branch **`checkpoint/sih2026-demo`**. Every phase
-> below is built alongside that state, and must leave it runnable.
+> The system as it runs in production today is frozen at tag
+> **`sih2026-live-checkpoint`** (commit `437b877`) and on branch
+> **`checkpoint/sih2026-demo`**. The earlier tag `sih2026-demo-checkpoint`
+> (`a28118c`) marks the state before the multilingual release. Every phase below
+> is built alongside the live checkpoint, and must leave it runnable.
 
 **Problem statement:** SIH 2026 · PS 26133 · Government of Maharashtra —
 *Accessibility and quality of public healthcare services, particularly in rural
@@ -71,7 +73,7 @@ Every "today" entry below was checked against the code, not recalled.
 | Facility dashboards | Admin analytics, aggregated in the database | Counts activity, not the outcomes the PS names |
 | Frontline health-worker support | Assistant-led intake, voice notes, OCR, 32-language interface | Typing the intake form is the slowest step → **F2** |
 | Low-connectivity environments | Client-side compression, asynchronous extraction, 120 s upload deadline | **No offline capability.** No service worker exists, so a dropped connection stops registration |
-| Multilingual interaction | 32-language UI; speech-to-text in 7 languages including Marathi; browser text-to-speech | Translations unreviewed by native speakers; no patient-facing voice channel |
+| Multilingual interaction | 32-language interface; the chosen language reaches the AI prose and the printed PDF report ([20 — Internationalisation](20-internationalisation.md)); speech-to-text in 7 languages including Marathi; browser text-to-speech | Coverage is thin outside Hindi: of 993 interface strings, Hindi has 37% and **Marathi 8%**, most regional languages 1–3%. Only Hindi and English are reviewed by native speakers. No patient-facing voice channel |
 | Emergency escalation | EMERGENCY tier routes to referral; 108 prominent | Facility capability data is unsourced, so ranking runs on `unverified` |
 | Interoperable records on approved standards | ABHA as an optional field | No FHIR, no ABDM Health Information Provider/User integration, no consent manager |
 
@@ -178,6 +180,9 @@ delivery confined to one process · Aadhaar used as a primary key.
   the UI is what makes the product recognisable to the people who would use it.
 - **Marathi is already supported** by speech-to-text, which makes Maharashtra the
   natural first region for F2.
+- **Marathi interface coverage is 8%.** Of 993 interface strings, 82 are in
+  Marathi and the rest fall back to English. For a Maharashtra deployment this is
+  the first gap to close, ahead of any new feature.
 
 ---
 
@@ -376,6 +381,17 @@ growing real-world set, evaluated, and promoted only with human approval.
 Every new version is trained offline, evaluated against fixed benchmarks, run in
 shadow, and approved by a person before it serves a single patient.
 
+**How it relates to [12 — Next-Generation Model Development](12-next-generation-model-roadmap.md).**
+Doc 12 owns the in-house clinical language model — compute, training
+methodology, evaluation gates, guardrails and staged rollout — and its
+data-curation harness is already being built as its P0. F3 does not duplicate
+that programme. It adds what the programme needs and does not yet cover:
+**consent for training as a separate purpose**, **ethics committee approval as a
+hard gate**, continuous capture of complete histories including CHATBOX
+provenance (F2) and specialist opinions (F1), retraining of the statistical
+symptom classifier, and a model registry that extends doc 12's version pinning
+so both models are served from one source of truth.
+
 #### A complete history
 
 For each reviewed visit: intake fields with their provenance (from F2), vitals,
@@ -388,9 +404,12 @@ decision, any specialist opinion (from F1), and — once follow-up exists (Phase
 - **Only a doctor's recorded diagnosis is a label.** The model's own candidates
   are never labels. A model trained on suggestions doctors accepted learns to
   agree with itself.
-- `doctor_reviews.agreed_with_ai` already records whether the doctor agreed with
-  the AI. Cases where they did are tracked separately and analysed for automation
-  bias, not simply added.
+- `doctor_reviews.agreed_with_ai` records whether the doctor agreed with the AI.
+  Doc 12 uses it as the preference signal for tuning the language model (§5.3).
+  The same signal carries an automation-bias risk — a doctor agreeing with a
+  plausible suggestion is not independent confirmation — so its rate is
+  monitored per model, as doc 12's concordance monitoring intends, and a rise
+  without a matching gain in accuracy is treated as a warning, not a win.
 - A specialist opinion refines a label; a follow-up outcome confirms or corrects
   it.
 - `/diagnose` already returns the symptom phrases it could not match. Those are a
@@ -439,10 +458,11 @@ human sign-off ──► promotion ──► drift monitoring ──► rollback
   guidelines for AI in healthcare, apply to using patient data this way. **Ethics
   committee approval is required before real patient data is used for training.**
   This is a gate, not paperwork to do alongside.
-- **TPG 2020, cl. 3.7.4.** Retraining improves the candidate list. It never
-  licenses the model to diagnose or prescribe. Any language model fine-tuned in
-  this programme is fine-tuned for extraction and summarisation, never for
-  diagnosis or medication.
+- **TPG 2020, cl. 3.7.4.** Retraining improves what the doctor is shown. It never
+  licenses a model to diagnose for, or prescribe to, a patient. Nothing
+  model-authored about diagnosis or medication reaches the health worker; any
+  medication reasoning stays on the doctor's review surface, bounded by the
+  signed formulary, as doc 12 §7 sets out.
 - **The rule-engine floor is unchanged by learning.** A retrained model can make
   triage more informed. It cannot lower a tier the rules set.
 
@@ -616,8 +636,8 @@ Effort is relative: **S** small, **M** medium, **L** large, **XL** very large.
 
 | Deliverable | Status |
 |---|---|
-| Demo state tagged `sih2026-demo-checkpoint` and branched `checkpoint/sih2026-demo` | Done |
-| Maharashtra district masters, demo staff, patients and referral hospitals | In progress |
+| Production state tagged `sih2026-live-checkpoint` (`437b877`) and branched `checkpoint/sih2026-demo`; the earlier state tagged `sih2026-demo-checkpoint` (`a28118c`) | Done |
+| Maharashtra district masters, demo staff, patients and referral hospitals | Done — seeded on production 2026-09-14: 36 districts, 216 clinical staff, 900 patients. The referral-hospital code ships with the next release |
 | Migrations 12 and 13 confirmed applied on production | To verify |
 | Seed command removed from the Railway start configuration | To verify |
 | Feature-flag mechanism, default off | Planned |
@@ -731,6 +751,8 @@ patients are visible. Follow-up adherence is a measured number.
 reversibly.
 
 **Scope.**
+- Built on doc 12's curation harness (its P0), not a second one; language-model
+  training, evaluation gates and staged rollout follow doc 12's P1–P9
 - Separate learning plane; one-way data flow
 - Consent check and de-identification; clinician QA sampling
 - Versioned datasets with manifests and datasheets
@@ -743,7 +765,8 @@ reversibly.
 - Extraction-model improvement for the CHATBOX from confirmed transcripts
 
 **Depends on.** Phase 2 (provenance), Phase 1 (specialist labels), Phase 3
-(consent). **Ethics committee approval before any real patient data is used.**
+(consent), doc 12 P0 (curation harness). **Ethics committee approval before any
+real patient data is used.**
 
 **Exit criteria.** A retrained model is promoted only after beating the current
 one on the frozen benchmarks, running in shadow, and receiving human sign-off.
@@ -800,7 +823,7 @@ Not code, and not optional. Several phases cannot finish without these.
 |---|---|
 | Facility capability and empanelment data — PM-JAY, MJPJAY — sourced and ingested | Phase 1 facility ranking; Phase 7 |
 | Formulary signed by a registered medical practitioner | Any medication advice in production |
-| Native-speaker review of translations, starting with Marathi and Hindi | Phase 2; production use |
+| Marathi translation to full coverage (8% today), then native-speaker review of Marathi and Hindi | Phase 2; any Maharashtra deployment |
 | Ethics committee approval for training on patient data | **Phase 5 — hard gate** |
 | Data-protection impact assessment for voice recording and training use | Phase 2, Phase 5 |
 
@@ -815,6 +838,9 @@ The checkpoint is only useful if it still runs when someone needs it.
 ```bash
 git switch checkpoint/sih2026-demo
 ```
+
+or, read-only, `git checkout sih2026-live-checkpoint`. The older tag
+`sih2026-demo-checkpoint` returns the state before the multilingual release.
 
 **Host it.** Point the Railway service and the Vercel project at the
 `checkpoint/sih2026-demo` branch and redeploy. Switch them back to `main` to

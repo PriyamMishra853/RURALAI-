@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, FolderOpen, X, RotateCcw, Check, Loader2, FileText, Plus } from 'lucide-react';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * File capture with two sources: the device file manager, and the camera.
@@ -32,6 +33,7 @@ export default function FileCaptureInput({
   disabled = false,
   busy = false
 }) {
+  const { t, formatNumber } = useI18n();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [facingMode, setFacingMode] = useState('environment');
@@ -78,10 +80,12 @@ export default function FileCaptureInput({
     } catch (err) {
       const reason =
         err.name === 'NotAllowedError'
-          ? 'Camera permission was denied. Allow camera access for this site, or use "Choose files".'
+          ? t('capture.denied', 'Camera permission was denied. Allow camera access for this site, or use “Choose files”.')
           : err.name === 'NotFoundError'
-            ? 'No camera was found on this device.'
-            : `The camera could not be opened (${err.name}).`;
+            ? t('capture.notFound', 'No camera was found on this device.')
+            // The DOMException name is deliberately left untranslated: it is
+            // diagnostic, and a localised error name is unsearchable.
+            : t('capture.openFailed', 'The camera could not be opened ({reason}).', { reason: err.name });
       setCameraError(reason);
     } finally {
       setStarting(false);
@@ -135,7 +139,9 @@ export default function FileCaptureInput({
         <label className="block text-xs font-semibold text-ink-muted">{label}</label>
         {files.length > 0 && (
           <span className="text-[11px] text-ink-muted">
-            {files.length} file{files.length === 1 ? '' : 's'} ready
+            {files.length === 1
+              ? t('capture.fileReady', '{count} file ready', { count: formatNumber(files.length) })
+              : t('capture.filesReady', '{count} files ready', { count: formatNumber(files.length) })}
           </span>
         )}
       </div>
@@ -154,7 +160,7 @@ export default function FileCaptureInput({
           */
           className="px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 dark:bg-gov-500 dark:hover:bg-gov-400 dark:text-gov-950 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm min-h-[2.5rem]"
         >
-          <Camera className="w-4 h-4" /> Open camera
+          <Camera className="w-4 h-4" /> {t('capture.openCamera', 'Open camera')}
         </button>
         <button
           type="button"
@@ -162,7 +168,7 @@ export default function FileCaptureInput({
           disabled={disabled || busy}
           className="px-4 py-2.5 rounded-field bg-surface-raised hover:bg-surface-sunken disabled:opacity-50 text-ink border border-line-strong text-xs font-semibold flex items-center gap-2 min-h-[2.5rem]"
         >
-          <FolderOpen className="w-4 h-4" /> Choose files
+          <FolderOpen className="w-4 h-4" /> {t('capture.chooseFiles', 'Choose files')}
         </button>
 
         <input
@@ -202,7 +208,7 @@ export default function FileCaptureInput({
                 ) : (
                   <div className="text-center p-1">
                     <FileText className="w-5 h-5 text-ink-subtle mx-auto" />
-                    <span className="text-[9px] text-ink-muted block mt-1">PDF</span>
+                    <span className="text-[9px] text-ink-muted block mt-1">PDF</span>{/* a file format, not a word */}
                   </div>
                 )}
               </div>
@@ -210,7 +216,7 @@ export default function FileCaptureInput({
                 type="button"
                 onClick={() => removeAt(i)}
                 disabled={busy}
-                aria-label={`Remove ${f.name}`}
+                aria-label={t('capture.remove', 'Remove {name}', { name: f.name })}
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-tier-emergency hover:opacity-90 text-white flex items-center justify-center shadow"
               >
                 <X className="w-3 h-3" />
@@ -228,7 +234,12 @@ export default function FileCaptureInput({
           <div className="w-full max-w-2xl space-y-3">
             <div className="flex items-center justify-between text-white">
               <span className="text-sm font-semibold">{label}</span>
-              <button type="button" onClick={closeCamera} aria-label="Close camera" className="p-2 hover:bg-surface-raised/10 rounded-field">
+              <button
+                type="button"
+                onClick={closeCamera}
+                aria-label={t('capture.closeCamera', 'Close camera')}
+                className="p-2 hover:bg-surface-raised/10 rounded-field"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -237,7 +248,7 @@ export default function FileCaptureInput({
               <video ref={videoRef} playsInline muted className="w-full h-full object-contain" />
               {starting && (
                 <div className="absolute inset-0 flex items-center justify-center text-white text-xs gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Starting camera…
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('capture.starting', 'Starting camera…')}
                 </div>
               )}
               {cameraError && (
@@ -249,7 +260,9 @@ export default function FileCaptureInput({
 
             {multiple && files.length > 0 && (
               <p className="text-center text-[11px] text-white/70">
-                {files.length} page{files.length === 1 ? '' : 's'} captured — keep shooting, then select Done.
+                {files.length === 1
+                  ? t('capture.pageCaptured', '{count} page captured — keep shooting, then select Done.', { count: formatNumber(files.length) })
+                  : t('capture.pagesCaptured', '{count} pages captured — keep shooting, then select Done.', { count: formatNumber(files.length) })}
               </p>
             )}
 
@@ -257,7 +270,7 @@ export default function FileCaptureInput({
               <button
                 type="button"
                 onClick={flipCamera}
-                aria-label="Switch camera"
+                aria-label={t('capture.switch', 'Switch camera')}
                 className="p-3 rounded-full bg-surface-raised/10 hover:bg-surface-raised/20 text-white"
               >
                 <RotateCcw className="w-5 h-5" />
@@ -267,7 +280,7 @@ export default function FileCaptureInput({
                 type="button"
                 onClick={shoot}
                 disabled={starting || !!cameraError}
-                aria-label="Take photo"
+                aria-label={t('capture.take', 'Take photo')}
                 className="w-16 h-16 rounded-full bg-surface-raised hover:bg-surface-sunken disabled:opacity-40 border-4 border-white/40 flex items-center justify-center"
               >
                 {multiple ? <Plus className="w-6 h-6 text-ink" /> : <Camera className="w-6 h-6 text-ink" />}
@@ -276,7 +289,7 @@ export default function FileCaptureInput({
               <button
                 type="button"
                 onClick={closeCamera}
-                aria-label="Done"
+                aria-label={t('common.done', 'Done')}
                 className="p-3 rounded-full bg-tier-low hover:opacity-90 text-white"
               >
                 <Check className="w-5 h-5" />

@@ -36,3 +36,21 @@ export const ROLE_LABEL = {
 };
 
 export const homeFor = (role) => HOME_ROUTE[role] || '/';
+
+/**
+ * Translation key per role.
+ *
+ * ROLE_LABEL above stays as the English fallback — it is what `t()` renders
+ * when a locale has not translated the role yet, and it keeps the handful of
+ * non-React call sites working. Anything rendering to a user should use
+ * `t(ROLE_KEY[role], ROLE_LABEL[role])` so the sidebar caption and the user
+ * card are not the two English words left on an otherwise Hindi screen.
+ */
+export const ROLE_KEY = {
+  [ROLES.SUPER_ADMIN]: 'role.superAdmin',
+  [ROLES.STATE_ADMIN]: 'role.stateAdmin',
+  [ROLES.DISTRICT_ADMIN]: 'role.districtAdmin',
+  [ROLES.DOCTOR]: 'role.doctor',
+  [ROLES.CLINIC_ASSISTANT]: 'role.assistant',
+  [ROLES.AUDITOR]: 'role.auditor'
+};

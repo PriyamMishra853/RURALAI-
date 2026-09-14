@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Camera, Loader2, CheckCircle2, AlertTriangle, X, ScanLine, Upload, Aperture } from 'lucide-react';
 import api from '../services/api';
 import { prepareAll, DOCUMENT } from '../services/imagePrep';
+import { useT } from '../i18n/index.jsx';
 
 /**
  * Read a health / ABHA card to help fill the registration form.
@@ -23,10 +24,17 @@ import { prepareAll, DOCUMENT } from '../services/imagePrep';
  * value shows what would be replaced before anything replaces it.
  */
 
+/* [catalogue key, English fallback]. The left-hand keys are the form's own
+   field names and match what the API returns. */
 const FIELD_LABELS = {
-  full_name: 'Name',
-  gender: 'Sex',
-  date_of_birth: 'Date of birth'
+  full_name: ['field.name', 'Name'],
+  gender: ['field.sex', 'Sex'],
+  date_of_birth: ['field.dob', 'Date of birth']
+};
+
+const fieldLabel = (t, key) => {
+  const entry = FIELD_LABELS[key];
+  return entry ? t(entry[0], entry[1]) : key;
 };
 
 const CONFIDENCE_TONE = {
@@ -36,6 +44,7 @@ const CONFIDENCE_TONE = {
 };
 
 export default function HealthCardScanner({ form, onApply }) {
+  const t = useT();
   const fileRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -77,8 +86,8 @@ export default function HealthCardScanner({ form, onApply }) {
     } catch (err) {
       setError(
         err.name === 'NotAllowedError'
-          ? 'Camera permission was refused. Allow it in the browser, or upload a photo instead.'
-          : 'No camera is available on this device. Upload a photo instead.'
+          ? t('scan.cameraDenied', 'Camera permission was refused. Allow it in the browser, or upload a photo instead.')
+          : t('scan.cameraMissing', 'No camera is available on this device. Upload a photo instead.')
       );
     }
   };
@@ -121,7 +130,7 @@ export default function HealthCardScanner({ form, onApply }) {
       });
       setResult(res.data);
     } catch (err) {
-      setError(err.response?.data?.error || 'The card could not be read. Enter the details by hand.');
+      setError(err.response?.data?.error || t('scan.unreadable', 'The card could not be read. Enter the details by hand.'));
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -141,11 +150,10 @@ export default function HealthCardScanner({ form, onApply }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-xs font-bold text-ink flex items-center gap-1.5">
-            <ScanLine className="w-4 h-4 text-gov-600" /> Scan a health card (optional)
+            <ScanLine className="w-4 h-4 text-gov-600" /> {t('scan.title', 'Scan a health card (optional)')}
           </h3>
           <p className="text-[11px] text-ink-muted mt-0.5">
-            Photograph an ABHA or health card to read the name, sex and date of birth.
-            Nothing is filled in until you accept it.
+            {t('scan.subtitle', 'Photograph an ABHA or health card to read the name, sex and date of birth. Nothing is filled in until you accept it.')}
           </p>
         </div>
         <div className="shrink-0 flex items-center gap-2">
@@ -156,19 +164,19 @@ export default function HealthCardScanner({ form, onApply }) {
             className="px-3 py-2 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
           >
             {busy
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Reading…</>
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('scan.reading', 'Reading…')}</>
               : cameraOn
-                ? <><Aperture className="w-4 h-4" /> Capture</>
-                : <><Camera className="w-4 h-4" /> Use camera</>}
+                ? <><Aperture className="w-4 h-4" /> {t('scan.capture', 'Capture')}</>
+                : <><Camera className="w-4 h-4" /> {t('scan.useCamera', 'Use camera')}</>}
           </button>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            title="Upload a photo or PDF instead"
+            title={t('scan.uploadHint', 'Upload a photo or PDF instead')}
             className="px-3 py-2 rounded-field border border-line text-ink-muted hover:bg-surface-raised disabled:opacity-50 text-xs font-semibold flex items-center gap-1.5"
           >
-            <Upload className="w-4 h-4" /> Upload
+            <Upload className="w-4 h-4" /> {t('scan.upload', 'Upload')}
           </button>
         </div>
         <input
@@ -190,9 +198,11 @@ export default function HealthCardScanner({ form, onApply }) {
             <div className="absolute inset-6 border-2 border-dashed border-white/40 rounded pointer-events-none" />
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-ink-muted">Hold the card inside the frame, then press Capture.</p>
+            <p className="text-[11px] text-ink-muted">
+              {t('scan.frameHint', 'Hold the card inside the frame, then press Capture.')}
+            </p>
             <button type="button" onClick={stopCamera} className="text-[11px] text-ink-subtle hover:text-ink">
-              Cancel
+              {t('common.cancel', 'Cancel')}
             </button>
           </div>
         </div>
@@ -209,26 +219,28 @@ export default function HealthCardScanner({ form, onApply }) {
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${CONFIDENCE_TONE[result.confidence] || CONFIDENCE_TONE.low}`}>
-              {result.confidence} confidence
+              {t('scan.confidence', '{level} confidence', {
+                level: t('scan.confidence.' + result.confidence, result.confidence)
+              })}
             </span>
             <button
               type="button"
               onClick={() => setResult(null)}
               className="text-[11px] text-ink-subtle hover:text-ink flex items-center gap-1"
             >
-              <X className="w-3 h-3" /> Dismiss
+              <X className="w-3 h-3" /> {t('common.dismiss', 'Dismiss')}
             </button>
           </div>
 
           {result.confidence === 'low' && (
             <p className="text-[11px] text-tier-moderate">
-              The image was hard to read. Check every value against the card before accepting it.
+              {t('scan.lowConfidence', 'The image was hard to read. Check every value against the card before accepting it.')}
             </p>
           )}
 
           {proposals.length === 0 ? (
             <p className="text-[11px] text-ink-muted">
-              Nothing usable was read from this card. Enter the details by hand.
+              {t('scan.nothingUsable', 'Nothing usable was read from this card. Enter the details by hand.')}
             </p>
           ) : (
             <ul className="space-y-1.5">
@@ -237,16 +249,16 @@ export default function HealthCardScanner({ form, onApply }) {
                 const same = String(current || '') === String(value);
                 return (
                   <li key={key} className="flex items-center gap-2 text-[11px] bg-surface-raised border border-line rounded-field px-2.5 py-2">
-                    <span className="text-ink-muted w-24 shrink-0">{FIELD_LABELS[key]}</span>
+                    <span className="text-ink-muted w-24 shrink-0">{fieldLabel(t, key)}</span>
                     <span className="font-semibold text-ink truncate flex-1">{value}</span>
 
                     {same ? (
                       <span className="text-tier-low flex items-center gap-1 shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> matches
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {t('scan.matches', 'matches')}
                       </span>
                     ) : applied[key] ? (
                       <span className="text-tier-low flex items-center gap-1 shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> applied
+                        <CheckCircle2 className="w-3.5 h-3.5" /> {t('scan.applied', 'applied')}
                       </span>
                     ) : (
                       <button
@@ -255,7 +267,9 @@ export default function HealthCardScanner({ form, onApply }) {
                         className="shrink-0 px-2 py-1 rounded bg-gov-600 hover:bg-gov-700 text-white font-semibold"
                       >
                         {/* Naming what is being lost, rather than a bare "Use". */}
-                        {current ? `Replace “${String(current).slice(0, 18)}”` : 'Use'}
+                        {current
+                          ? t('scan.replace', 'Replace “{value}”', { value: String(current).slice(0, 18) })
+                          : t('scan.use', 'Use')}
                       </button>
                     )}
                   </li>
@@ -266,14 +280,17 @@ export default function HealthCardScanner({ form, onApply }) {
 
           {result.rejected?.length > 0 && (
             <p className="text-[11px] text-ink-subtle">
-              Not read from this card: {result.rejected.map((k) => FIELD_LABELS[k] || k).join(', ')}. Enter by hand.
+              {t('scan.notRead', 'Not read from this card: {fields}. Enter by hand.', {
+                fields: result.rejected.map((k) => fieldLabel(t, k)).join(', ')
+              })}
             </p>
           )}
 
           {result.fields?.year_of_birth && !result.fields?.date_of_birth && (
             <p className="text-[11px] text-ink-muted">
-              The card shows only a year of birth ({result.fields.year_of_birth}). Enter the full date, or the
-              patient&apos;s stated age.
+              {t('scan.yearOnly', 'The card shows only a year of birth ({year}). Enter the full date, or the patient’s stated age.', {
+                year: result.fields.year_of_birth
+              })}
             </p>
           )}
         </div>

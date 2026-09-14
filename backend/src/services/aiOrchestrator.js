@@ -3,6 +3,7 @@ import { getDiseaseCandidates } from './aiInferenceClient.js';
 import { GROQ_TEXT_MODEL } from '../config/models.js';
 import { retrieveClinicalProtocols } from './ragEngine.js';
 import { calculateRiskLevel } from './riskEngine.js';
+import { LANGUAGE_BY_CODE, DEFAULT_LANGUAGE } from '../config/languages.js';
 // formularyService is deliberately not imported. This orchestrator builds the
 // assessment the clinic assistant reads, and that assessment names no medicine
 // — see §7 below. The formulary still governs the doctor's prescribing.
@@ -28,6 +29,44 @@ NON-NEGOTIABLE SAFETY & LEGAL RULES:
 6. Base protocol guidance only on the retrieved approved protocols provided to you.
 7. Clearly separate: patient observations, AI assistance, and decisions reserved for the doctor.`;
 
+/**
+ * The language instruction, appended to the system prompt.
+ *
+ * ── What is translated, and what is emphatically not ────────────────────────
+ *
+ * The assessment has two kinds of field and they need opposite treatment.
+ *
+ * Prose — the summary, the first-aid steps, the warnings — is read by a clinic
+ * assistant standing with the patient, often reading it aloud to them. That
+ * has to be in their language or it does not do its job. This is the reason
+ * the whole language feature exists.
+ *
+ * Enums — `risk_level`, `recommended_next_action` — are contract. They are
+ * compared in code, stored in Postgres, matched in tests and used to decide
+ * what happens to the patient. A translated `risk_level` would not match
+ * RISK_RANK, and the model's tier would silently stop being able to raise the
+ * triage level. The prompt says so explicitly, and §6 below re-derives every
+ * tier-dependent field from `finalRiskLevel` afterwards, so a model that
+ * ignores the instruction degrades to "could not raise the tier" rather than
+ * to a mis-triaged case.
+ *
+ * Protocol titles and sources are citations of MoHFW documents. A translated
+ * citation cannot be looked up, so only the guidance text moves.
+ */
+const languageDirective = (lang) => `
+
+OUTPUT LANGUAGE: ${lang.promptName}.
+
+Write these fields in ${lang.promptName}, in plain everyday language a village health worker and their patient can follow:
+  patient_summary, key_symptoms, duration, important_history, missing_information,
+  observations, first_aid_steps, warnings, and the "guidance" inside protocol_matches.
+
+Write these fields in ENGLISH, exactly as specified, because they are machine-read identifiers and not prose:
+  risk_level, recommended_next_action, requires_doctor,
+  and the "title", "source" and "version" inside protocol_matches.
+
+Keep untranslated wherever they appear: numbers, units (°F, mmHg, bpm, %), and any English clinical term that has no everyday equivalent a patient would recognise.`;
+
 const RISK_RANK = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 
 export const runFullPatientAssessment = async (patientContext) => {
@@ -36,8 +75,13 @@ export const runFullPatientAssessment = async (patientContext) => {
     visit = {},
     vitals = {},
     verifiedDocuments = [],
-    imageObservations = []
+    imageObservations = [],
+    // The language the request was made in. Defaults to English so every
+    // existing caller — and every test — behaves exactly as before.
+    language = DEFAULT_LANGUAGE
   } = patientContext;
+
+  const lang = LANGUAGE_BY_CODE[language] || LANGUAGE_BY_CODE[DEFAULT_LANGUAGE];
 
   // ---- Merge OCR document data ----
   const ocrMedications = verifiedDocuments.flatMap((d) => d.medications || []);
@@ -215,7 +259,15 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
         temperature: 0.1,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'system',
+            // English adds no directive: the prompt already produces English,
+            // and an instruction to "write in English" is a token of noise on
+            // the overwhelmingly common path.
+            content: lang.code === DEFAULT_LANGUAGE
+              ? SYSTEM_PROMPT
+              : SYSTEM_PROMPT + languageDirective(lang)
+          },
           { role: 'user', content: userPrompt }
         ]
       });
@@ -234,7 +286,12 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
           ...parsed,
           risk_level: finalRiskLevel,
           warnings: Array.from(new Set([...(parsed.warnings || []), ...riskWarnings])),
-          generated_by: `groq:${GROQ_TEXT_MODEL}`
+          generated_by: `groq:${GROQ_TEXT_MODEL}`,
+          // Which language the prose above is actually in. The client needs
+          // this: the read-aloud control must not translate a passage that is
+          // already in the target language, and a degraded assessment (below)
+          // stays English whatever was asked for.
+          language: lang.code
         };
       } else {
         degradedReason = 'LLM response did not match the required schema';
@@ -244,6 +301,18 @@ TASK: Produce the doctor-ready clinical handoff. Return strictly a valid JSON ob
       console.warn('Groq LLM assessment failed, using rule-engine assessment:', llmErr.message);
     }
   }
+
+  /*
+   * A degraded assessment is English, whatever language was asked for.
+   *
+   * The fallback text below is assembled in this file without a model, and
+   * there is no model available to translate it — that is what "degraded"
+   * means here. Saying so in the response is better than letting the client
+   * assume the prose is in the user's language: the read-aloud control reads
+   * `language` and will translate an English passage rather than mispronounce
+   * it with the wrong voice.
+   */
+  if (degradedReason) finalAssessment.language = DEFAULT_LANGUAGE;
 
   if (degradedReason && finalRiskLevel === 'LOW') {
     finalRiskLevel = 'MEDIUM';

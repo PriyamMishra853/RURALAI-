@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Stethoscope, CheckCircle2, BadgeCheck } from 'lucide-react';
 import api from '../services/api';
+import { useT } from '../i18n/index.jsx';
 
 /**
  * Doctor selection grid for the clinic assistant portal.
@@ -13,6 +14,7 @@ import api from '../services/api';
  *  - compact: smaller cards for use inside modals
  */
 export default function DoctorSelectGrid({ multiSelect = false, selected, onChange, compact = false }) {
+  const t = useT();
   const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,9 +22,9 @@ export default function DoctorSelectGrid({ multiSelect = false, selected, onChan
   useEffect(() => {
     api.get('/doctor/directory')
       .then((res) => setDoctors(res.data?.doctors || []))
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load the doctor directory'))
+      .catch((err) => setError(err.response?.data?.error || t('doctor.directoryFailed', 'Failed to load the doctor directory')))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   const isSelected = (doc) =>
     multiSelect
@@ -39,7 +41,11 @@ export default function DoctorSelectGrid({ multiSelect = false, selected, onChan
   };
 
   if (loading) {
-    return <div className="p-4 text-center text-xs text-ink-muted">Loading available doctors...</div>;
+    return (
+      <div className="p-4 text-center text-xs text-ink-muted">
+        {t('doctor.loadingDirectory', 'Loading available doctors…')}
+      </div>
+    );
   }
   if (error) {
     return <div className="p-4 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-xs text-tier-emergency font-medium">{error}</div>;
@@ -47,7 +53,7 @@ export default function DoctorSelectGrid({ multiSelect = false, selected, onChan
   if (doctors.length === 0) {
     return (
       <div className="p-4 rounded-field border border-dashed border-line-strong text-center text-xs text-ink-muted">
-        No doctors are registered yet. Run the doctor seeding script or register a doctor account.
+        {t('doctor.noneRegistered', 'No doctors are registered yet. Run the doctor seeding script or register a doctor account.')}
       </div>
     );
   }
@@ -78,7 +84,9 @@ export default function DoctorSelectGrid({ multiSelect = false, selected, onChan
             </div>
 
             <div className="mt-2 font-bold text-xs text-ink">{doc.name}</div>
-            <div className="text-[11px] font-semibold text-gov-700">{doc.specialization}</div>
+            <div className="text-[11px] font-semibold text-gov-700">
+              {t('specialty.' + String(doc.specialization || '').toLowerCase().replace(/[^a-z]+/g, ''), doc.specialization)}
+            </div>
             {!compact && doc.qualification && (
               <div className="text-[10px] text-ink-muted mt-0.5 leading-snug">{doc.qualification}</div>
             )}

@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, AlertTriangle, AlertOctagon, Siren } from 'lucide-react';
 import { cn } from './ui';
+import { useT } from '../i18n/index.jsx';
 
 /**
  * The triage tier, as a visual system.
@@ -28,8 +29,25 @@ const NORMALISE = {
 
 export const normaliseTier = (level) => NORMALISE[String(level || 'LOW').toUpperCase()] || 'low';
 
+/**
+ * Tier appearance and wording.
+ *
+ * The colours live here; the words live in the catalogue and are reached
+ * through the keys below. Splitting them that way matters more for triage than
+ * for ordinary copy: a tier's colour is fixed clinical semantics that must not
+ * vary by locale, while its label is the part a health worker actually reads
+ * and therefore the part that has to be in their language.
+ *
+ * The English strings stay in this file as the fallback `t()` renders for a
+ * locale that has not translated a tier yet — a raw key where a triage level
+ * should be is not a degraded screen, it is an unusable one.
+ */
 export const TIER_META = {
   low: {
+    key: 'low',
+    labelKey: 'tier.low',
+    headlineKey: 'tier.low.headline',
+    blurbKey: 'tier.low.blurb',
     label: 'Low risk',
     Icon: ShieldCheck,
     badge: 'bg-tier-lowBg text-tier-low border-tier-low/40',
@@ -40,6 +58,10 @@ export const TIER_META = {
     blurb: 'The assistant can act on this now. Queued for the doctor’s daily review.'
   },
   moderate: {
+    key: 'moderate',
+    labelKey: 'tier.moderate',
+    headlineKey: 'tier.moderate.headline',
+    blurbKey: 'tier.moderate.blurb',
     label: 'Moderate risk',
     Icon: AlertTriangle,
     badge: 'bg-tier-moderateBg text-tier-moderate border-tier-moderate/40',
@@ -50,6 +72,10 @@ export const TIER_META = {
     blurb: 'A doctor must see this patient before treatment. Book now or find one available.'
   },
   high: {
+    key: 'high',
+    labelKey: 'tier.high',
+    headlineKey: 'tier.high.headline',
+    blurbKey: 'tier.high.blurb',
     label: 'High risk',
     Icon: AlertOctagon,
     badge: 'bg-tier-high text-white border-tier-high',
@@ -60,6 +86,10 @@ export const TIER_META = {
     blurb: 'Escalated to the top of the doctor’s queue. Do not wait for the daily round.'
   },
   emergency: {
+    key: 'emergency',
+    labelKey: 'tier.emergency',
+    headlineKey: 'tier.emergency.headline',
+    blurbKey: 'tier.emergency.blurb',
     label: 'Emergency',
     Icon: Siren,
     badge: 'bg-tier-emergency text-white border-tier-emergency',
@@ -71,12 +101,32 @@ export const TIER_META = {
   }
 };
 
+/**
+ * TIER_META for one tier with its words already translated.
+ *
+ * Every consumer needs the same three strings resolved the same way, and doing
+ * it at each call site is how one screen ends up saying "High risk" while the
+ * badge beside it says the translated equivalent.
+ */
+export function useTier(level) {
+  const t = useT();
+  const key = normaliseTier(level);
+  const meta = TIER_META[key];
+
+  return {
+    ...meta,
+    key,
+    label: t(meta.labelKey, meta.label),
+    headline: t(meta.headlineKey, meta.headline),
+    blurb: t(meta.blurbKey, meta.blurb)
+  };
+}
+
 /* ------------------------------------------------------------------ Badge */
 
 export function TierBadge({ level, size = 'md', pulse = false, className }) {
-  const key = normaliseTier(level);
-  const meta = TIER_META[key];
-  const { Icon } = meta;
+  const meta = useTier(level);
+  const { Icon, key } = meta;
 
   return (
     <span
@@ -98,9 +148,8 @@ export function TierBadge({ level, size = 'md', pulse = false, className }) {
 /* --------------------------------------------------------------- Tier card */
 
 export function TierBanner({ level, children, className }) {
-  const key = normaliseTier(level);
-  const meta = TIER_META[key];
-  const { Icon } = meta;
+  const meta = useTier(level);
+  const { Icon, key } = meta;
 
   return (
     <motion.div
@@ -167,6 +216,7 @@ export function DangerZone({ children, className }) {
 
 /** Used on the landing page to explain the model to a non-clinical audience. */
 export function TierLegend({ className }) {
+  const t = useT();
   return (
     <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3', className)}>
       {TIER_KEYS.map((key, i) => {
@@ -183,10 +233,12 @@ export function TierLegend({ className }) {
           >
             <div className="flex items-center gap-2">
               <Icon className={cn('w-4 h-4', meta.text)} />
-              <span className={cn('text-xs font-bold uppercase tracking-wide', meta.text)}>{meta.label}</span>
+              <span className={cn('text-xs font-bold uppercase tracking-wide', meta.text)}>
+                {t(meta.labelKey, meta.label)}
+              </span>
             </div>
-            <p className="text-xs font-semibold text-ink mt-2">{meta.headline}</p>
-            <p className="text-[11px] text-ink-muted mt-1 leading-relaxed">{meta.blurb}</p>
+            <p className="text-xs font-semibold text-ink mt-2">{t(meta.headlineKey, meta.headline)}</p>
+            <p className="text-[11px] text-ink-muted mt-1 leading-relaxed">{t(meta.blurbKey, meta.blurb)}</p>
           </motion.div>
         );
       })}

@@ -1,5 +1,6 @@
 import React, { useState, useId, useMemo } from 'react';
 import { Table2 } from 'lucide-react';
+import { useI18n } from '../../i18n/index.jsx';
 
 /**
  * Charts for the admin dashboard.
@@ -14,9 +15,28 @@ import { Table2 } from 'lucide-react';
  * They are never the only carrier of meaning: every series is named in a
  * legend or a direct label, and every chart offers a table view, so the
  * figures survive colour blindness, a monochrome print, and a screen reader.
+ *
+ * ── Numbers, axes and the table view are localised ──────────────────────────
+ *
+ * A chart is mostly text: axis ticks, the legend, the direct labels, the table
+ * behind it and the aria-label a screen reader announces. All of it now goes
+ * through the selected locale. `fmt` was pinned to en-IN, which meant an admin
+ * reading a Kannada console got Kannada headings above Latin-numeral axes —
+ * and, more to the point, an aria-label in English.
+ *
+ * Percentages stay in Latin digits with a '%' sign: every locale here writes
+ * them that way, and Intl's percent style would add its own spacing rules to
+ * a string that is already tight against a bar.
  */
 
-const fmt = (n) => new Intl.NumberFormat('en-IN').format(n ?? 0);
+/**
+ * Number formatter for a locale, built once per render of a chart.
+ *
+ * Kept as a factory rather than a hook call inside each chart so the pure
+ * drawing helpers below (`line`, `area`, tick labels) can take it as an
+ * argument instead of becoming components.
+ */
+const makeFmt = (formatNumber) => (n) => formatNumber(n ?? 0);
 
 /** The table behind every chart — the accessible reading of the same numbers. */
 function DataTable({ columns, rows, caption }) {
@@ -46,6 +66,7 @@ function DataTable({ columns, rows, caption }) {
 }
 
 function ChartFrame({ title, subtitle, children, table, action }) {
+  const { t } = useI18n();
   const [showTable, setShowTable] = useState(false);
   return (
     <div className="bg-surface-raised rounded-card border border-line shadow-sm p-4 sm:p-5">
@@ -61,7 +82,9 @@ function ChartFrame({ title, subtitle, children, table, action }) {
               type="button"
               onClick={() => setShowTable((v) => !v)}
               aria-pressed={showTable}
-              title={showTable ? 'Show chart' : 'Show the numbers as a table'}
+              title={showTable
+                ? t('chart.showChart', 'Show chart')
+                : t('chart.showTable', 'Show the numbers as a table')}
               className={`p-1.5 rounded-field border text-ink-muted hover:bg-surface-sunken transition-colors ${
                 showTable ? 'border-gov-300 bg-gov-50' : 'border-line'
               }`}
@@ -84,6 +107,8 @@ function ChartFrame({ title, subtitle, children, table, action }) {
  * author liked, which is the most common way a chart misleads.
  */
 export function TrendChart({ data = [] }) {
+  const { t, formatNumber, formatDate } = useI18n();
+  const fmt = makeFmt(formatNumber);
   const id = useId();
   const [hover, setHover] = useState(null);
 
@@ -101,30 +126,36 @@ export function TrendChart({ data = [] }) {
     : '';
 
   const ticks = [0, Math.round(max / 2), max];
-  const dayLabel = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+  // The T00:00:00 suffix keeps a bare yyyy-mm-dd from being read as UTC and
+  // rendering as the previous day in IST.
+  const dayLabel = (iso) => formatDate(`${iso}T00:00:00`, { day: 'numeric', month: 'short' });
 
   return (
     <ChartFrame
-      title="Visits over the last 14 days"
-      subtitle="All visits, with the urgent share (high and emergency) beneath"
+      title={t('chart.trend.title', 'Visits over the last 14 days')}
+      subtitle={t('chart.trend.subtitle', 'All visits, with the urgent share (high and emergency) beneath')}
       table={<DataTable
-        caption="Visits per day for the last fourteen days"
-        columns={['Date', 'Visits', 'Urgent']}
+        caption={t('chart.trend.caption', 'Visits per day for the last fourteen days')}
+        columns={[
+          t('chart.col.date', 'Date'),
+          t('admin.visits', 'Visits'),
+          t('chart.col.urgent', 'Urgent')
+        ]}
         rows={data.map((d) => [dayLabel(d.date), fmt(d.visits), fmt(d.urgent)])}
       />}
     >
       {/* Legend: two series, so identity never rests on colour alone. */}
       <div className="flex items-center gap-4 mb-2 text-[11px] text-ink-muted">
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-0.5 rounded" style={{ background: 'rgb(var(--chart-1))' }} /> All visits
+          <span className="w-3 h-0.5 rounded" style={{ background: 'rgb(var(--chart-1))' }} /> {t('chart.allVisits', 'All visits')}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-0.5 rounded" style={{ background: 'rgb(var(--chart-2))' }} /> Urgent
+          <span className="w-3 h-0.5 rounded" style={{ background: 'rgb(var(--chart-2))' }} /> {t('chart.col.urgent', 'Urgent')}
         </span>
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img"
-           aria-label={`Visits per day over fourteen days, peaking at ${fmt(max)}`}>
+           aria-label={t('chart.trend.aria', 'Visits per day over fourteen days, peaking at {max}', { max: fmt(max) })}>
         <defs>
           <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgb(var(--chart-1))" stopOpacity="0.18" />
@@ -178,7 +209,11 @@ export function TrendChart({ data = [] }) {
 
       <p className="text-[11px] text-ink-muted h-4 mt-1" aria-live="polite">
         {hover !== null && data[hover]
-          ? `${dayLabel(data[hover].date)} — ${fmt(data[hover].visits)} visits, ${fmt(data[hover].urgent)} urgent`
+          ? t('chart.trend.hover', '{date} — {visits} visits, {urgent} urgent', {
+            date: dayLabel(data[hover].date),
+            visits: fmt(data[hover].visits),
+            urgent: fmt(data[hover].urgent)
+          })
           : ''}
       </p>
     </ChartFrame>
@@ -194,11 +229,16 @@ export function TrendChart({ data = [] }) {
  * the ramp only reinforces it.
  */
 export function RiskChart({ distribution = {} }) {
+  const { t, formatNumber } = useI18n();
+  const fmt = makeFmt(formatNumber);
+
+  // The tier names come from the shared tier vocabulary, so this chart cannot
+  // say something different from the badge next to it.
   const rows = [
-    { key: 'emergency', label: 'Emergency', step: 4 },
-    { key: 'high', label: 'High', step: 3 },
-    { key: 'moderate', label: 'Moderate', step: 2 },
-    { key: 'low', label: 'Low', step: 1 }
+    { key: 'emergency', label: t('tier.emergency', 'Emergency'), step: 4 },
+    { key: 'high', label: t('tier.high', 'High risk'), step: 3 },
+    { key: 'moderate', label: t('tier.moderate', 'Moderate risk'), step: 2 },
+    { key: 'low', label: t('tier.low', 'Low risk'), step: 1 }
   ].map((r) => ({ ...r, count: Number(distribution[r.key] || 0) }));
 
   const total = rows.reduce((n, r) => n + r.count, 0);
@@ -206,9 +246,15 @@ export function RiskChart({ distribution = {} }) {
 
   return (
     <ChartFrame
-      title="Risk mix across all visits"
-      subtitle={`${fmt(total)} visits triaged, worst first`}
-      table={<DataTable caption="Visits by risk tier" columns={['Tier', 'Visits', 'Share']}
+      title={t('chart.risk.title', 'Risk mix across all visits')}
+      subtitle={t('chart.risk.subtitle', '{count} visits triaged, worst first', { count: fmt(total) })}
+      table={<DataTable
+        caption={t('chart.risk.caption', 'Visits by risk tier')}
+        columns={[
+          t('chart.col.tier', 'Tier'),
+          t('admin.visits', 'Visits'),
+          t('chart.col.share', 'Share')
+        ]}
         rows={rows.map((r) => [r.label, fmt(r.count), total ? `${((r.count / total) * 100).toFixed(1)}%` : '—'])} />}
     >
       <div className="space-y-2.5">
@@ -220,7 +266,10 @@ export function RiskChart({ distribution = {} }) {
                 {fmt(r.count)}{total ? <span className="text-ink-subtle"> · {((r.count / total) * 100).toFixed(0)}%</span> : null}
               </span>
             </div>
-            <div className="h-2.5 rounded-full bg-surface-sunken overflow-hidden" title={`${r.label}: ${fmt(r.count)} visits`}>
+            <div
+              className="h-2.5 rounded-full bg-surface-sunken overflow-hidden"
+              title={t('chart.risk.barTitle', '{tier}: {count} visits', { tier: r.label, count: fmt(r.count) })}
+            >
               <div
                 className="h-full rounded-full transition-[width] duration-500"
                 style={{ width: `${Math.max(r.count ? 2 : 0, (r.count / max) * 100)}%`, background: `rgb(var(--chart-sev-${r.step}))` }}
@@ -240,17 +289,23 @@ export function RiskChart({ distribution = {} }) {
  * bar its own colour would imply a distinction between rows that does not
  * exist.
  */
-export function BarList({ title, subtitle, items = [], valueLabel = 'Count', emptyText = 'No data yet.' }) {
+export function BarList({ title, subtitle, items = [], valueLabel, emptyText }) {
+  const { t, formatNumber } = useI18n();
+  const fmt = makeFmt(formatNumber);
+  // Defaults resolved here rather than in the signature, so the common case
+  // gets the translated word and a caller can still pass its own.
+  const value = valueLabel || t('chart.col.count', 'Count');
+  const empty = emptyText || t('chart.noData', 'No data yet.');
   const max = Math.max(1, ...items.map((i) => Number(i.count) || 0));
   return (
     <ChartFrame
       title={title}
       subtitle={subtitle}
-      table={<DataTable caption={title} columns={[title, valueLabel]}
+      table={<DataTable caption={title} columns={[title, value]}
         rows={items.map((i) => [i.name ?? i.label, fmt(i.count)])} />}
     >
       {items.length === 0 ? (
-        <p className="text-[11px] text-ink-muted py-6 text-center">{emptyText}</p>
+        <p className="text-[11px] text-ink-muted py-6 text-center">{empty}</p>
       ) : (
         <div className="space-y-2">
           {items.map((i) => {
@@ -280,17 +335,20 @@ export function BarList({ title, subtitle, items = [], valueLabel = 'Count', emp
  * to plot against, and the number itself is the message.
  */
 export function VisitFunnel({ visits = {} }) {
+  const { t, formatNumber } = useI18n();
+  const fmt = makeFmt(formatNumber);
+
   const cells = [
-    { label: 'Visits today', value: visits.today, hint: 'Opened today' },
-    { label: 'Treated', value: visits.treated, hint: 'Decision recorded' },
-    { label: 'Awaiting a doctor', value: visits.awaiting_doctor, hint: 'In a queue now' },
-    { label: 'In consultation', value: visits.in_consultation, hint: 'On a call' },
-    { label: 'Referred', value: visits.referred, hint: 'Sent to hospital' }
-  ];
+    { k: 'today', label: t('funnel.today', 'Visits today'), hint: t('funnel.today.hint', 'Opened today') },
+    { k: 'treated', label: t('funnel.treated', 'Treated'), hint: t('funnel.treated.hint', 'Decision recorded') },
+    { k: 'awaiting_doctor', label: t('funnel.awaiting', 'Awaiting a doctor'), hint: t('funnel.awaiting.hint', 'In a queue now') },
+    { k: 'in_consultation', label: t('funnel.inConsultation', 'In consultation'), hint: t('funnel.inConsultation.hint', 'On a call') },
+    { k: 'referred', label: t('funnel.referred', 'Referred'), hint: t('funnel.referred.hint', 'Sent to hospital') }
+  ].map((c) => ({ ...c, value: visits[c.k] }));
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
       {cells.map((c) => (
-        <div key={c.label} className="bg-surface-raised rounded-card border border-line shadow-sm p-3">
+        <div key={c.k} className="bg-surface-raised rounded-card border border-line shadow-sm p-3">
           <div className="text-xl font-bold text-ink tabular-nums">{fmt(c.value)}</div>
           <div className="text-[11px] font-semibold text-ink mt-0.5">{c.label}</div>
           <div className="text-[10px] text-ink-subtle">{c.hint}</div>

@@ -1,9 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Siren, MapPin, Navigation, Phone, Loader2, AlertTriangle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import api from '../services/api';
 import { Button, Card, cn } from './ui';
+import { useI18n } from '../i18n/index.jsx';
+import { serverText } from '../i18n/serverLabels.js';
 
 /**
  * Emergency referral — where to take this patient, and how to get there.
@@ -26,64 +28,59 @@ import { Button, Card, cn } from './ui';
  *   the worst thing this feature could cause.
  */
 
-const COPY = {
-  en: {
-    title: 'Refer to hospital now',
-    confirmFirst: 'Phone before you travel',
-    confirmBody: 'Bed availability is not published live. Call and confirm the hospital can admit this patient before setting off.',
-    call: 'Call 108 — ambulance',
-    directions: 'Start directions',
-    locating: 'Finding your location…',
-    useLocation: 'Use my location for accurate distance',
-    alternatives: 'Other hospitals',
-    straightLine: 'straight-line distance',
-    byRoad: 'by road',
-    fromDistrict: 'Distance measured from your clinic district — location not available',
-    fromGps: 'Distance from your current location',
-    insecure: 'Location needs a secure (https) connection. Open the main site address rather than a preview link.',
-    denied: 'Location permission is blocked for this site. Allow it in your browser settings, or continue with your clinic district.',
-    noFix: 'No location fix yet — showing distance from your clinic district.',
-    noGeo: 'This device cannot report a location — showing distance from your clinic district.',
-    outOfBounds: 'That location reading looked wrong, so your clinic district was used instead.',
-    loadFailed: 'Could not load hospital details. Call 108 for an ambulance.',
-    callHospital: 'Call the hospital',
-    confirmCapacity: 'Call to confirm capacity before travelling',
-    capabilityUnverified: 'Services not verified — ask when you call',
-    capabilityConfirmed: 'Listed for this kind of case',
-    nabh: 'NABH accredited',
-    beds: 'licensed beds',
-    ratingNote: 'Public review score — not a measure of clinical quality',
-    whyFirst: 'Why this one'
-  },
-  hi: {
-    title: 'अभी अस्पताल भेजें',
-    confirmFirst: 'जाने से पहले फ़ोन करें',
-    confirmBody: 'बिस्तर की उपलब्धता लाइव नहीं मिलती। मरीज़ को ले जाने से पहले फ़ोन करके पुष्टि करें कि अस्पताल भर्ती कर सकता है।',
-    call: '108 पर कॉल करें — एम्बुलेंस',
-    directions: 'रास्ता देखें',
-    locating: 'आपकी लोकेशन खोजी जा रही है…',
-    useLocation: 'सही दूरी के लिए मेरी लोकेशन लें',
-    alternatives: 'अन्य अस्पताल',
-    straightLine: 'सीधी दूरी',
-    byRoad: 'सड़क मार्ग से',
-    fromDistrict: 'दूरी आपके ज़िले से मापी गई — लोकेशन उपलब्ध नहीं',
-    fromGps: 'आपकी वर्तमान लोकेशन से दूरी',
-    insecure: 'लोकेशन के लिए सुरक्षित (https) कनेक्शन चाहिए। प्रीव्यू लिंक नहीं, मुख्य साइट पता खोलें।',
-    denied: 'इस साइट के लिए लोकेशन की अनुमति बंद है। ब्राउज़र सेटिंग में चालू करें, या ज़िले से दूरी देखें।',
-    noFix: 'अभी लोकेशन नहीं मिली — आपके ज़िले से दूरी दिखाई जा रही है।',
-    noGeo: 'यह डिवाइस लोकेशन नहीं बता सकता — ज़िले से दूरी दिखाई जा रही है।',
-    outOfBounds: 'लोकेशन ठीक नहीं लगी, इसलिए आपके ज़िले से दूरी दिखाई गई है।',
-    loadFailed: 'अस्पताल की जानकारी नहीं मिली। एम्बुलेंस के लिए 108 पर कॉल करें।',
-    callHospital: 'अस्पताल को कॉल करें',
-    confirmCapacity: 'जाने से पहले फ़ोन करके जगह की पुष्टि करें',
-    capabilityUnverified: 'सुविधाओं की पुष्टि नहीं — कॉल करके पूछें',
-    capabilityConfirmed: 'इस तरह के मामले के लिए सूचीबद्ध',
-    nabh: 'NABH मान्यता प्राप्त',
-    beds: 'स्वीकृत बिस्तर',
-    ratingNote: 'सार्वजनिक रेटिंग — चिकित्सा गुणवत्ता का माप नहीं',
-    whyFirst: 'यह क्यों'
-  }
+/**
+ * The English wording for this panel, and the key each string lives under.
+ *
+ * ── Why this used to be a two-language table, and why it no longer is ───────
+ *
+ * This file carried its own `COPY = { en, hi }` object — the only screen in the
+ * product with hand-written translations built in. That worked for Hindi and
+ * for nothing else: an assistant working in Odia or Tamil got this emergency
+ * panel in English while the rest of the interface was in their language. The
+ * strings now come from the shared catalogue, so all of them are covered.
+ *
+ * The Hindi that was here has been moved into locales/hi.json rather than
+ * rewritten. It was checked wording on a referral screen and there was no
+ * reason to re-translate it.
+ *
+ * The bilingual display is KEPT deliberately — see the render below. On an
+ * emergency screen, showing the English underneath is not clutter: an
+ * ambulance dispatcher or a hospital switchboard may be reading over the
+ * health worker's shoulder, and the translated line is not guaranteed to be
+ * reviewed for every locale.
+ */
+const EN = {
+  approxMinutes: '~{minutes} min',
+  title: 'Refer to hospital now',
+  confirmFirst: 'Phone before you travel',
+  confirmBody: 'Bed availability is not published live. Call and confirm the hospital can admit this patient before setting off.',
+  call: 'Call 108 — ambulance',
+  directions: 'Start directions',
+  locating: 'Finding your location…',
+  useLocation: 'Use my location for accurate distance',
+  alternatives: 'Other hospitals',
+  straightLine: 'straight-line distance',
+  byRoad: 'by road',
+  fromDistrict: 'Distance measured from your clinic district — location not available',
+  fromGps: 'Distance from your current location',
+  insecure: 'Location needs a secure (https) connection. Open the main site address rather than a preview link.',
+  denied: 'Location permission is blocked for this site. Allow it in your browser settings, or continue with your clinic district.',
+  noFix: 'No location fix yet — showing distance from your clinic district.',
+  noGeo: 'This device cannot report a location — showing distance from your clinic district.',
+  outOfBounds: 'That location reading looked wrong, so your clinic district was used instead.',
+  loadFailed: 'Could not load hospital details. Call 108 for an ambulance.',
+  callHospital: 'Call the hospital',
+  confirmCapacity: 'Call to confirm capacity before travelling',
+  capabilityUnverified: 'Services not verified — ask when you call',
+  capabilityConfirmed: 'Listed for this kind of case',
+  nabh: 'NABH accredited',
+  beds: 'licensed beds',
+  ratingNote: 'Public review score — not a measure of clinical quality',
+  whyFirst: 'Why this one'
 };
+
+/** Catalogue key for a string in EN. */
+const key = (name) => 'referral.' + name;
 
 /**
  * One facility, with the four things that decide whether to go there.
@@ -97,10 +94,11 @@ const COPY = {
  * verified" is worse copy than silence and better medicine: it sends the
  * health worker to the phone, which is the only place the answer exists.
  */
-function Hospital({ h, t, compact }) {
+function Hospital({ h, t, num, compact }) {
   const km = h.road_distance_km ?? h.straight_line_km;
   const label = h.road_distance_km != null ? t.byRoad : t.straightLine;
-  const time = h.driving_time_text || (h.travel_minutes != null ? `~${h.travel_minutes} min` : null);
+  const time = h.driving_time_text
+    || (h.travel_minutes != null ? t.approxMinutes.replace('{minutes}', num(h.travel_minutes)) : null);
 
   const costTone = {
     government: 'text-tier-low',
@@ -116,7 +114,7 @@ function Hospital({ h, t, compact }) {
       <p className="text-xs text-ink-muted flex items-center gap-1.5 mt-0.5 flex-wrap">
         <MapPin className="w-3.5 h-3.5 shrink-0" />
         {h.district}
-        {km != null && <> · {km} km {label}</>}
+        {km != null && <> · {num(km)} km {label}</>}
         {time && <> · {time}</>}
       </p>
 
@@ -133,25 +131,38 @@ function Hospital({ h, t, compact }) {
             <span className="text-tier-low font-semibold">{t.capabilityConfirmed}</span>
           )}
           {h.nabh_accredited === true && <span>{t.nabh}</span>}
-          {h.licensed_beds != null && <span>{h.licensed_beds} {t.beds}</span>}
+          {h.licensed_beds != null && <span>{num(h.licensed_beds)} {t.beds}</span>}
         </div>
       )}
 
       {!compact && h.public_rating != null && (
         <p className="text-[11px] text-ink-subtle mt-1">
-          {h.public_rating} ★ — {t.ratingNote}
+          {num(h.public_rating)} ★ — {t.ratingNote}
         </p>
       )}
     </div>
   );
 }
 
-export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', className }) {
+export default function ReferralPanel({ visitId, riskLevel, className }) {
+  // `language` was a prop naming one of two hardcoded tables. The panel now
+  // follows the selected interface language like everything else.
+  const { t: translate, lang, formatNumber } = useI18n();
   const tier = String(riskLevel || '').toUpperCase();
   const applies = tier === 'EMERGENCY' || tier === 'HIGH';
 
-  const t = COPY[language === 'English' ? 'en' : 'hi'];
-  const en = COPY.en;
+  /*
+   * `t(name)` is the reader's language; `EN[name]` is the English. The panel
+   * shows both when they differ — see the note on EN above.
+   */
+  const t = useMemo(() => {
+    const out = {};
+    for (const name of Object.keys(EN)) out[name] = translate(key(name), EN[name]);
+    return out;
+  }, [translate]);
+
+  const en = EN;
+  const bilingual = lang !== 'en';
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -245,7 +256,7 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
       <div className="bg-tier-emergency px-4 py-2.5">
         <p className="text-white font-bold text-sm flex items-center gap-2">
           <Siren className="w-4 h-4" /> {t.title}
-          {t !== en && <span className="font-normal opacity-80">· {en.title}</span>}
+          {bilingual && <span className="font-normal opacity-80">· {en.title}</span>}
         </p>
       </div>
 
@@ -258,7 +269,7 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
             <AlertTriangle className="w-4 h-4 shrink-0" /> {t.confirmFirst}
           </p>
           <p className="text-[11px] text-ink mt-1">{t.confirmBody}</p>
-          {t !== en && <p className="text-[11px] text-ink-muted mt-1">{en.confirmBody}</p>}
+          {bilingual && <p className="text-[11px] text-ink-muted mt-1">{en.confirmBody}</p>}
         </div>
 
         <a
@@ -284,7 +295,7 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
 
         {primary && (
           <div className="space-y-3">
-            <Hospital h={primary} t={t} />
+            <Hospital h={primary} t={t} num={formatNumber} />
 
             {/* How the distance was derived, said plainly — a centroid figure
                 and a real one are different claims. */}
@@ -326,13 +337,13 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
                   className="text-[11px] text-ink-muted hover:text-ink flex items-center gap-1"
                 >
                   {showAlts ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  {t.alternatives} ({data.alternatives.length})
+                  {t.alternatives} ({formatNumber(data.alternatives.length)})
                 </button>
                 {showAlts && (
                   <div className="mt-2 divide-y divide-line border-t border-line">
                     {data.alternatives.map((h) => (
                       <div key={h.name} className="flex items-center justify-between gap-3 py-2">
-                        <Hospital h={h} t={t} compact />
+                        <Hospital h={h} t={t} num={formatNumber} compact />
                         {h.directions_url && (
                           <a
                             href={h.directions_url}
@@ -359,7 +370,7 @@ export default function ReferralPanel({ visitId, riskLevel, language = 'Hindi', 
               <a
                 key={l.number}
                 href={`tel:${l.number}`}
-                title={l.label}
+                title={serverText(translate, l, 'label')}
                 className="px-2.5 py-1.5 rounded-field border border-line text-[11px] font-semibold text-ink-muted hover:bg-surface-sunken"
               >
                 {l.number}

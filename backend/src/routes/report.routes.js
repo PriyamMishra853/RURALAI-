@@ -6,6 +6,7 @@ import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { renderReport, REPORT_TYPES } from '../services/reportPdfService.js';
 import { buildTierWorkflow } from '../services/tierWorkflowService.js';
 import { ROLES } from '../config/roles.js';
+import { languageForRequest } from '../config/languages.js';
 
 /**
  * PDF hardcopy of an assessment — spec §3.6.
@@ -92,7 +93,14 @@ router.get(
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
-    const doc = renderReport(type, { patient, visit, assessment, workflow });
+    // The sheet the patient carries home, in the language the consultation
+    // happened in. reportLocale falls back to English — and says so on the
+    // document — when no font for the script is installed.
+    const doc = renderReport(
+      type,
+      { patient, visit, assessment, workflow },
+      languageForRequest(req).code
+    );
     doc.pipe(res);
   }
 );

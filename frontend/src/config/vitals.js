@@ -14,11 +14,19 @@
  *
  * Height and weight are excluded per the field spec — they are measured, not
  * defaulted, and vary far too much to guess.
+ *
+ * Each field carries a `labelKey` next to its English `label`. The label is the
+ * fallback, so an untranslated locale still reads "Pulse" rather than a dotted
+ * key beside a number a health worker is about to act on. Units are NOT
+ * translated: mmHg, bpm and °F are international notation, and a localised
+ * unit on a vitals chart is a misreading waiting to happen.
  */
+import { plainT } from '../i18n/plain.js';
 
 export const VITAL_FIELDS = [
   {
     key: 'temperature',
+    labelKey: 'vital.temperature',
     label: 'Temperature',
     unit: '°F',
     normal: 98.6,
@@ -32,6 +40,7 @@ export const VITAL_FIELDS = [
   },
   {
     key: 'blood_pressure_systolic',
+    labelKey: 'vital.blood_pressure_systolic',
     label: 'Systolic BP',
     unit: 'mmHg',
     normal: 120,
@@ -43,6 +52,7 @@ export const VITAL_FIELDS = [
   },
   {
     key: 'blood_pressure_diastolic',
+    labelKey: 'vital.blood_pressure_diastolic',
     label: 'Diastolic BP',
     unit: 'mmHg',
     normal: 80,
@@ -54,6 +64,7 @@ export const VITAL_FIELDS = [
   },
   {
     key: 'pulse',
+    labelKey: 'vital.pulse',
     label: 'Pulse',
     unit: 'bpm',
     normal: 78,
@@ -65,6 +76,7 @@ export const VITAL_FIELDS = [
   },
   {
     key: 'spo2',
+    labelKey: 'vital.spo2',
     label: 'SpO₂',
     unit: '%',
     normal: 98,
@@ -76,6 +88,7 @@ export const VITAL_FIELDS = [
   },
   {
     key: 'respiratory_rate',
+    labelKey: 'vital.respiratory_rate',
     label: 'Respiratory rate',
     unit: '/min',
     normal: 16,
@@ -89,8 +102,8 @@ export const VITAL_FIELDS = [
 
 /** Measured, never defaulted — left blank for the assistant to fill. */
 export const MEASURED_FIELDS = [
-  { key: 'weight', label: 'Weight', unit: 'kg', min: 0.5, max: 500, step: 0.1, decimals: 1 },
-  { key: 'height', label: 'Height', unit: 'cm', min: 20, max: 250, step: 0.5, decimals: 1 }
+  { key: 'weight', labelKey: 'vital.weight', label: 'Weight', unit: 'kg', min: 0.5, max: 500, step: 0.1, decimals: 1 },
+  { key: 'height', labelKey: 'vital.height', label: 'Height', unit: 'cm', min: 20, max: 250, step: 0.5, decimals: 1 }
 ];
 
 /** Starting state: typical adult values for the six, blanks for the two. */
@@ -104,12 +117,15 @@ export const defaultVitals = () => {
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
 
 /** Hard-limit check for one field. Returns a message, or null. */
-export const checkField = (field, value) => {
+export const checkField = (field, value, t = plainT) => {
   const n = num(value);
   if (n === null) return null;
-  if (Number.isNaN(n)) return `${field.label} must be a number.`;
+  const name = t(field.labelKey, field.label);
+  if (Number.isNaN(n)) return t('validate.mustBeNumber', '{field} must be a number.', { field: name });
   if (n < field.min || n > field.max) {
-    return `${field.label} must be between ${field.min} and ${field.max} ${field.unit}.`;
+    return t('validate.outOfRange', '{field} must be between {min} and {max} {unit}.', {
+      field: name, min: field.min, max: field.max, unit: field.unit
+    });
   }
   return null;
 };
@@ -124,17 +140,17 @@ export const isAbnormal = (field, value) => {
 };
 
 /** Whole-form validation. Returns { errors: {key: msg}, message } */
-export const validateVitals = (vitals) => {
+export const validateVitals = (vitals, t = plainT) => {
   const errors = {};
   for (const f of [...VITAL_FIELDS, ...MEASURED_FIELDS]) {
-    const msg = checkField(f, vitals[f.key]);
+    const msg = checkField(f, vitals[f.key], t);
     if (msg) errors[f.key] = msg;
   }
 
   const sys = num(vitals.blood_pressure_systolic);
   const dia = num(vitals.blood_pressure_diastolic);
   if (sys !== null && dia !== null && dia >= sys) {
-    errors.blood_pressure_diastolic = 'Diastolic must be lower than systolic. Check the reading.';
+    errors.blood_pressure_diastolic = t('validate.diastolic', 'Diastolic must be lower than systolic. Check the reading.');
   }
 
   const first = Object.values(errors)[0] || null;

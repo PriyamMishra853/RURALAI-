@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, CheckCircle2, Edit3, Save, AlertCircle, Sparkles, Loader2, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
+import { useT } from '../i18n/index.jsx';
 
 /**
  * Mandatory human verification of an OCR extraction, before it can reach the
@@ -24,7 +25,19 @@ import api from '../services/api';
 const emptyMed = () => ({ name: '', strength: '', frequency: '', duration: '', instructions: '' });
 const emptyTest = () => ({ name: '', value: '', unit: '', reference_range: '', flag: 'unknown' });
 
+/*
+ * `flag` is stored and compared, so the values stay English; only the option
+ * captions are translated.
+ */
+const FLAGS = [
+  { value: 'unknown', key: 'lab.flag.unknown', label: '—' },
+  { value: 'normal', key: 'lab.flag.normal', label: 'Normal' },
+  { value: 'high', key: 'lab.flag.high', label: 'High' },
+  { value: 'low', key: 'lab.flag.low', label: 'Low' }
+];
+
 export default function OCRVerificationModal({ documentId, visitId, initialData, rawText, onVerified, onClose }) {
+  const t = useT();
   const isLabReport = initialData?.document_type === 'lab_report';
 
   const [medications, setMedications] = useState(initialData?.medications || []);
@@ -69,7 +82,9 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
     next[pIdx] = { ...next[pIdx], tests: next[pIdx].tests.filter((_, idx) => idx !== tIdx) };
     setPanels(next);
   };
-  const addPanel = () => setPanels([...panels, { panel_name: 'New panel', tests: [] }]);
+  // The panel name is user-editable content that ends up in the record, so the
+  // starting value is translated the same way a placeholder would be.
+  const addPanel = () => setPanels([...panels, { panel_name: t('lab.newPanel', 'New panel'), tests: [] }]);
 
   const handleInterpret = async () => {
     setInterpreting(true);
@@ -87,7 +102,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
       });
       setAiInterpretation(res.data);
     } catch (err) {
-      setInterpretError(err.response?.data?.error || 'Interpretation failed.');
+      setInterpretError(err.response?.data?.error || t('lab.interpretFailed', 'Interpretation failed.'));
     } finally {
       setInterpreting(false);
     }
@@ -117,7 +132,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
       if (onVerified) onVerified(res.data.document.extracted_data);
       if (onClose) onClose();
     } catch (err) {
-      setSaveError(err.response?.data?.error || err.message || 'Verification failed.');
+      setSaveError(err.response?.data?.error || err.message || t('ocr.verifyFailed', 'Verification failed.'));
     } finally {
       setSaving(false);
     }
@@ -139,13 +154,15 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
             </div>
             <div>
               <h3 className="text-base font-bold text-ink flex items-center gap-2">
-                {isLabReport ? 'Verify Lab Report' : 'Verify Prescription'}
+                {isLabReport
+                  ? t('ocr.verifyLab', 'Verify Lab Report')
+                  : t('ocr.verifyRx', 'Verify Prescription')}
                 <span className="text-[10px] font-semibold bg-tier-moderateBg text-tier-moderate px-2 py-0.5 rounded border border-tier-moderate/30">
-                  Verification required
+                  {t('ocr.required', 'Verification required')}
                 </span>
               </h3>
               <p className="text-xs text-ink-muted">
-                Correct anything the reader misread before this joins the patient record.
+                {t('ocr.correctHint', 'Correct anything the reader misread before this joins the patient record.')}
               </p>
             </div>
           </div>
@@ -154,7 +171,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
         <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
           <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30 text-xs text-tier-moderate flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-tier-moderate shrink-0 mt-0.5" />
-            <span>OCR extractions do not automatically enter the record. Check every value against the document before confirming.</span>
+            <span>{t('ocr.notice', 'OCR extractions do not automatically enter the record. Check every value against the document before confirming.')}</span>
           </div>
 
           {saveError && (
@@ -167,15 +184,15 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
             <>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">Medications</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">{t('section.medications', 'Medications')}</h4>
                   <button type="button" onClick={addMed} className="text-xs text-gov-600 hover:text-gov-700 font-semibold flex items-center gap-1">
-                    <Plus className="w-3.5 h-3.5" /> Add
+                    <Plus className="w-3.5 h-3.5" /> {t('common.add', 'Add')}
                   </button>
                 </div>
 
                 {medications.length === 0 && (
                   <p className="text-xs text-ink-muted p-3 border border-dashed border-line-strong rounded-field text-center">
-                    No medications were read. Add them manually below.
+                    {t('ocr.noMeds', 'No medications were read. Add them manually below.')}
                   </p>
                 )}
 
@@ -184,15 +201,15 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
                     <div key={idx} className="p-3.5 rounded-field bg-surface-sunken border border-line flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
                       {editingMed === idx ? (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full">
-                          <input value={med.name} onChange={(e) => updateMed(idx, 'name', e.target.value)} placeholder="Medicine name" className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
-                          <input value={med.strength} onChange={(e) => updateMed(idx, 'strength', e.target.value)} placeholder="Strength (e.g. 500mg)" className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
-                          <input value={med.frequency} onChange={(e) => updateMed(idx, 'frequency', e.target.value)} placeholder="Frequency" className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
-                          <input value={med.duration} onChange={(e) => updateMed(idx, 'duration', e.target.value)} placeholder="Duration" className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
+                          <input value={med.name} onChange={(e) => updateMed(idx, 'name', e.target.value)} placeholder={t('field.medicineName', 'Medicine name')} className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
+                          <input value={med.strength} onChange={(e) => updateMed(idx, 'strength', e.target.value)} placeholder={t('field.strength', 'Strength (e.g. 500mg)')} className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
+                          <input value={med.frequency} onChange={(e) => updateMed(idx, 'frequency', e.target.value)} placeholder={t('field.frequency', 'Frequency')} className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
+                          <input value={med.duration} onChange={(e) => updateMed(idx, 'duration', e.target.value)} placeholder={t('field.duration', 'Duration')} className="bg-surface-raised border border-line-strong text-xs text-ink rounded px-2.5 py-1.5 focus:border-gov-500 outline-none" />
                         </div>
                       ) : (
                         <div className="flex-1">
                           <div className="font-semibold text-sm text-ink flex items-center gap-2">
-                            {med.name || <span className="text-ink-subtle italic">Unnamed</span>}
+                            {med.name || <span className="text-ink-subtle italic">{t('ocr.unnamed', 'Unnamed')}</span>}
                             {med.strength && <span className="text-xs bg-surface-sunken text-ink-muted px-2 py-0.5 rounded font-medium">{med.strength}</span>}
                           </div>
                           <div className="text-xs text-ink-muted mt-1">
@@ -203,14 +220,14 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
                       <div className="flex items-center gap-2 shrink-0">
                         {editingMed === idx ? (
                           <button type="button" onClick={() => setEditingMed(null)} className="px-3 py-1.5 rounded-field bg-tier-low hover:opacity-90 text-white text-xs font-medium flex items-center gap-1">
-                            <Save className="w-3.5 h-3.5" /> Save
+                            <Save className="w-3.5 h-3.5" /> {t('common.save', 'Save')}
                           </button>
                         ) : (
                           <button type="button" onClick={() => setEditingMed(idx)} className="px-2.5 py-1 rounded-field bg-surface-sunken hover:bg-slate-300 text-ink-muted text-xs font-medium flex items-center gap-1">
-                            <Edit3 className="w-3.5 h-3.5" /> Edit
+                            <Edit3 className="w-3.5 h-3.5" /> {t('common.edit', 'Edit')}
                           </button>
                         )}
-                        <button type="button" onClick={() => removeMed(idx)} aria-label="Remove medication" className="p-1.5 rounded-field text-ink-subtle hover:text-tier-emergency hover:bg-tier-emergencyBg">
+                        <button type="button" onClick={() => removeMed(idx)} aria-label={t('ocr.removeMed', 'Remove medication')} className="p-1.5 rounded-field text-ink-subtle hover:text-tier-emergency hover:bg-tier-emergencyBg">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -220,7 +237,9 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">Diagnosis / context on the prescription</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">
+                  {t('ocr.diagnosisContext', 'Diagnosis / context on the prescription')}
+                </label>
                 <textarea rows={2} value={diagnosisNotes} onChange={(e) => setDiagnosisNotes(e.target.value)}
                   className="w-full bg-surface-raised border border-line-strong rounded-field p-2.5 text-xs text-ink focus:border-gov-500 outline-none" />
               </div>
@@ -229,15 +248,15 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
             <>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">Test panels</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">{t('lab.panels', 'Test panels')}</h4>
                   <button type="button" onClick={addPanel} className="text-xs text-gov-600 hover:text-gov-700 font-semibold flex items-center gap-1">
-                    <Plus className="w-3.5 h-3.5" /> Add panel
+                    <Plus className="w-3.5 h-3.5" /> {t('lab.addPanel', 'Add panel')}
                   </button>
                 </div>
 
                 {panels.length === 0 && (
                   <p className="text-xs text-ink-muted p-3 border border-dashed border-line-strong rounded-field text-center">
-                    No test values were read from this report.
+                    {t('lab.noTests', 'No test values were read from this report.')}
                   </p>
                 )}
 
@@ -254,23 +273,22 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
                       <div className="space-y-1.5">
                         {panel.tests.map((t, tIdx) => (
                           <div key={tIdx} className="grid grid-cols-12 gap-1.5 items-center">
-                            <input value={t.name} onChange={(e) => updateTest(pIdx, tIdx, 'name', e.target.value)} placeholder="Test name" className="col-span-4 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
-                            <input value={t.value} onChange={(e) => updateTest(pIdx, tIdx, 'value', e.target.value)} placeholder="Value" className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none font-mono" />
-                            <input value={t.unit} onChange={(e) => updateTest(pIdx, tIdx, 'unit', e.target.value)} placeholder="Unit" className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
-                            <input value={t.reference_range} onChange={(e) => updateTest(pIdx, tIdx, 'reference_range', e.target.value)} placeholder="Reference" className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
+                            <input value={t.name} onChange={(e) => updateTest(pIdx, tIdx, 'name', e.target.value)} placeholder={t('field.testName', 'Test name')} className="col-span-4 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
+                            <input value={t.value} onChange={(e) => updateTest(pIdx, tIdx, 'value', e.target.value)} placeholder={t('field.value', 'Value')} className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none font-mono" />
+                            <input value={t.unit} onChange={(e) => updateTest(pIdx, tIdx, 'unit', e.target.value)} placeholder={t('field.unit', 'Unit')} className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
+                            <input value={t.reference_range} onChange={(e) => updateTest(pIdx, tIdx, 'reference_range', e.target.value)} placeholder={t('field.reference', 'Reference')} className="col-span-2 bg-surface-raised border border-line-strong text-[11px] rounded px-2 py-1 focus:border-gov-500 outline-none" />
                             <select value={t.flag} onChange={(e) => updateTest(pIdx, tIdx, 'flag', e.target.value)} className={`col-span-1 text-[10px] rounded px-1 py-1 border outline-none ${flagClass(t.flag)}`}>
-                              <option value="unknown">—</option>
-                              <option value="normal">Normal</option>
-                              <option value="high">High</option>
-                              <option value="low">Low</option>
+                              {FLAGS.map((f) => (
+                                <option key={f.value} value={f.value}>{t(f.key, f.label)}</option>
+                              ))}
                             </select>
-                            <button type="button" onClick={() => removeTest(pIdx, tIdx)} aria-label="Remove test" className="col-span-1 p-1 rounded text-ink-subtle hover:text-tier-emergency">
+                            <button type="button" onClick={() => removeTest(pIdx, tIdx)} aria-label={t('lab.removeTest', 'Remove test')} className="col-span-1 p-1 rounded text-ink-subtle hover:text-tier-emergency">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         ))}
                         <button type="button" onClick={() => addTest(pIdx)} className="text-[11px] text-gov-600 hover:text-gov-700 font-semibold mt-1">
-                          + Add test row
+                          {t('lab.addTestRow', '+ Add test row')}
                         </button>
                       </div>
                     </div>
@@ -279,9 +297,11 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">Impression printed on report (optional)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">
+                  {t('lab.impression', 'Impression printed on report (optional)')}
+                </label>
                 <textarea rows={2} value={impression} onChange={(e) => setImpression(e.target.value)}
-                  placeholder="Copy the lab's own impression/comments section here if it has one"
+                  placeholder={t('lab.impressionHint', 'Copy the lab’s own impression/comments section here if it has one')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field p-2.5 text-xs text-ink focus:border-gov-500 outline-none" />
               </div>
 
@@ -289,7 +309,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
               <div className="p-4 rounded-field bg-gov-50 border border-gov-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-gov-600 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4" /> AI interpretation of these values
+                    <Sparkles className="w-4 h-4" /> {t('lab.aiTitle', 'AI interpretation of these values')}
                   </h4>
                   <button
                     type="button"
@@ -298,11 +318,11 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
                     className="px-3 py-1.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5"
                   >
                     {interpreting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                    {aiInterpretation ? 'Re-run' : 'Interpret with AI'}
+                    {aiInterpretation ? t('lab.rerun', 'Re-run') : t('lab.interpret', 'Interpret with AI')}
                   </button>
                 </div>
                 <p className="text-[11px] text-purple-800">
-                  Reasons about the pattern in the values above — never a diagnosis, and always doctor-reviewed.
+                  {t('lab.aiHint', 'Reasons about the pattern in the values above — never a diagnosis, and always doctor-reviewed.')}
                 </p>
 
                 {interpretError && <p className="text-[11px] text-tier-emergency font-semibold">{interpretError}</p>}
@@ -314,24 +334,34 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
                     {aiInterpretation.possible_conditions?.map((c, i) => (
                       <div key={i} className="text-[11px] bg-surface-raised rounded-field p-2.5 border border-purple-100">
                         <div className="font-semibold text-ink">
-                          {c.description} <span className="text-ink-subtle font-normal">({c.confidence} confidence)</span>
+                          {c.description}{' '}
+                          <span className="text-ink-subtle font-normal">
+                            ({t('scan.confidence', '{level} confidence', {
+                              level: t('scan.confidence.' + c.confidence, c.confidence)
+                            })})
+                          </span>
                         </div>
                         {c.supporting_values?.length > 0 && (
-                          <div className="text-ink-muted mt-0.5">Based on: {c.supporting_values.join(', ')}</div>
+                          <div className="text-ink-muted mt-0.5">
+                            {t('lab.basedOn', 'Based on: {values}', { values: c.supporting_values.join(', ') })}
+                          </div>
                         )}
                         {c.doctor_should_confirm && (
-                          <div className="text-ink-muted mt-0.5 italic">Doctor should confirm: {c.doctor_should_confirm}</div>
+                          <div className="text-ink-muted mt-0.5 italic">
+                            {t('lab.doctorConfirm', 'Doctor should confirm: {what}', { what: c.doctor_should_confirm })}
+                          </div>
                         )}
                       </div>
                     ))}
 
                     {aiInterpretation.urgency_flags?.length > 0 && (
                       <div className="p-2 rounded-field bg-tier-emergencyBg border border-tier-emergency/30 text-[11px] text-tier-emergency">
-                        <strong>Flagged for urgency:</strong> {aiInterpretation.urgency_flags.join('; ')}
+                        <strong>{t('lab.urgencyFlags', 'Flagged for urgency:')}</strong>{' '}
+                        {aiInterpretation.urgency_flags.join('; ')}
                       </div>
                     )}
                     <p className="text-[10px] text-gov-600">
-                      Observation only, not a diagnosis — saved with this report for the reviewing doctor.
+                      {t('lab.observationOnly', 'Observation only, not a diagnosis — saved with this report for the reviewing doctor.')}
                     </p>
                   </div>
                 )}
@@ -341,7 +371,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
 
           {rawText && (
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">Raw OCR text</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted mb-1">{t('ocr.rawText', 'Raw OCR text')}</h4>
               <pre className="p-3 rounded-field bg-surface-sunken border border-line text-[11px] text-ink-muted overflow-x-auto max-h-32 whitespace-pre-wrap">
                 {rawText}
               </pre>
@@ -351,7 +381,7 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
 
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-line">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-medium text-ink-muted hover:text-ink border border-line rounded-field bg-surface-sunken">
-            Cancel
+            {t('common.cancel', 'Cancel')}
           </button>
           <button
             type="button"
@@ -359,7 +389,8 @@ export default function OCRVerificationModal({ documentId, visitId, initialData,
             disabled={saving}
             className="px-5 py-2 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-60 text-white font-semibold text-xs shadow-sm flex items-center gap-2"
           >
-            <CheckCircle2 className="w-4 h-4" /> {saving ? 'Saving…' : 'Confirm & attach to visit'}
+            <CheckCircle2 className="w-4 h-4" />{' '}
+            {saving ? t('common.saving', 'Saving…') : t('ocr.confirmAttach', 'Confirm & attach to visit')}
           </button>
         </div>
       </div>

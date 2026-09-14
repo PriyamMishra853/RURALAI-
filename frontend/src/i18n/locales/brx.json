@@ -1,0 +1,22 @@
+{
+  "app.name": "गामिनि दैहा गिरिड",
+  "auth.signin": "स्टाफ साइन इन",
+  "auth.submit": "साइन इन",
+  "common.cancel": "नेवसि",
+  "common.close": "बन्द खालाम",
+  "common.no": "नङा",
+  "common.save": "दोन",
+  "common.yes": "नंगौ",
+  "lang.continue": "गिदिंआव थां",
+  "lang.switch": "राव",
+  "lang.title": "नोंथांनि राव सायख",
+  "nav.dashboard": "डेशबर्ड",
+  "nav.patients": "बिरामि",
+  "nav.signout": "साइन आउट",
+  "role.assistant": "क्लिनिक मददगिरि",
+  "role.doctor": "डाक्टार",
+  "tier.emergency": "आपातकाल",
+  "tier.high": "गोबां",
+  "tier.low": "खमै गोबां",
+  "tier.moderate": "गेजेर"
+}

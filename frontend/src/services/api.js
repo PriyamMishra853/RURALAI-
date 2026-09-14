@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { getToken, clearSession } from './session.js';
+import { currentLang } from '../i18n/index.jsx';
+import { plainT } from '../i18n/plain.js';
 
 const DEPLOYED_API = 'https://ruralai-production-220.up.railway.app/api';
 
@@ -130,8 +132,13 @@ const api = axios.create({
  * portal, a carrier hiccup — and "could not reach the server" gives no way to
  * tell that from a genuinely misconfigured address. Naming the host and the
  * cause is what makes it reportable.
+ *
+ * `t` is optional and defaults to the English renderer. This is not a
+ * component and cannot use a hook, so a caller inside React passes its own
+ * translator — LoginPage does, because this text is the first thing a health
+ * worker sees when sign-in fails and it is the whole explanation.
  */
-export const describeTransportFailure = (error) => {
+export const describeTransportFailure = (error, t = plainT) => {
   const host = (() => {
     // A same-origin base has no host of its own; name the site instead, which
     // is what the person is actually looking at.
@@ -143,12 +150,20 @@ export const describeTransportFailure = (error) => {
 
   if (error?.code === 'ECONNABORTED' || /timeout/i.test(error?.message || '')) {
     const secs = Math.round((error?.config?.timeout || DEFAULT_TIMEOUT_MS) / 1000);
-    return `The server at ${host} did not answer within ${secs} seconds. The connection may be weak — try again.`;
+    return t(
+      'net.timeout',
+      'The server at {host} did not answer within {seconds} seconds. The connection may be weak — try again.',
+      { host, seconds: secs }
+    );
   }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return 'This device is offline. Reconnect and try again.';
+    return t('common.offline', 'This device is offline. Reconnect and try again.');
   }
-  return `Could not reach ${host}. Check the connection, and make sure you are on the main site address rather than a preview link.`;
+  return t(
+    'net.unreachable',
+    'Could not reach {host}. Check the connection, and make sure you are on the main site address rather than a preview link.',
+    { host }
+  );
 };
 
 api.interceptors.request.use((config) => {
@@ -158,6 +173,22 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  /*
+   * Tell the API which language to answer in.
+   *
+   * Set here rather than at the call sites so nothing can be forgotten: every
+   * request the app makes carries it, including the ones added later. The
+   * server reads it in config/languages.js#languageForRequest and uses it for
+   * the text it generates — AI narrative, referral wording, PDF reports —
+   * while enum values, drug names and audit records stay canonical.
+   *
+   * X-Language rather than Accept-Language: the browser sets Accept-Language
+   * itself from OS preferences, and that is a different claim from the
+   * language the user explicitly chose in this app. Sending both lets the
+   * server prefer the deliberate choice and fall back to the browser's guess.
+   */
+  config.headers['X-Language'] = currentLang();
 
   // Applied here rather than at each call site so a new upload screen cannot
   // reintroduce the bug by forgetting to ask for more time.

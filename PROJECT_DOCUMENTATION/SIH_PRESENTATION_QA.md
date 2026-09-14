@@ -66,22 +66,26 @@ Three concrete ways:
    front of a human as a *draft*. `patient_documents.verified_at` is the only thing
    that promotes an OCR extraction to clinical data, and only a person sets it.
 
-### Q4. Your PS is from Maharashtra. Your data is 75 Uttar Pradesh districts. Explain.
+### Q4. Your PS is from Maharashtra. Is the system actually set up for Maharashtra?
 
-Straight answer: the deployed dataset is UP because that is where the pilot data and
-the district-hospital coordinates were sourced.
+Yes, and it runs both states side by side. It was piloted on Uttar Pradesh's 75
+districts; Maharashtra's 36 districts are now seeded at the same density — 180
+doctors, 36 clinic assistants, district administrators for Pune, Nagpur, Mumbai City
+and Chhatrapati Sambhajinagar, and 900 synthetic patients with visits.
 
-**Nothing about the architecture is UP-specific.** Regions are two tables — `states`
-and `districts` — and every clinical row is scoped by `district_id`, not by a
-hardcoded list. Porting to Maharashtra's 36 districts is:
+That was a data exercise, not a rewrite, because **nothing in the architecture is
+state-specific.** Regions are two tables — `states` and `districts` — and every
+clinical row is scoped by `district_id`, not by a hardcoded list. Adding Maharashtra
+took three things:
 
-1. Insert 36 district rows.
-2. Run `ingestFacilities.js` against a Maharashtra facility source.
-3. Nothing else.
+1. District masters under the existing `MH` state row.
+2. An additive seed, `seedMaharashtra.js`, in ID ranges that cannot collide with
+   Uttar Pradesh. It counts UP rows before and after, and they did not change.
+3. A per-state referral file, `mh_district_hospitals.json`, loaded beside the UP one.
 
-The referral dataset carries per-field provenance precisely so a new state's data can
-be ingested with citations rather than hand-edited. I would rather show you a working
-system on real UP coordinates than a Maharashtra demo on invented ones.
+What is still thin, stated plainly: Maharashtra's hospital records carry ownership
+and facility type only. Capability and scheme empanelment — PM-JAY, and
+Maharashtra's own MJPJAY — are unsourced, and the referral screen says so.
 
 ### Q5. Why should a district health officer trust this over an existing eSanjeevani deployment?
 
@@ -112,7 +116,7 @@ doctor without leaving the sub-centre.
 Four tiers, deliberately few:
 
 ```
-React 19 + Vite SPA  ──HTTPS──►  Node 20 / Express API  ──►  Supabase Postgres
+React 18 + Vite SPA  ──HTTPS──►  Node 20 / Express API  ──►  Supabase Postgres
    (Vercel)                          (Railway)                  (19 tables, RLS)
         │                                 │
         │                                 ├──loopback──►  Python FastAPI
@@ -688,8 +692,8 @@ for unknown and never `[]`.
 
 Because the alternative is fabricating clinical data, which is worse than useless.
 
-The 75 records carry `ownership: government` and `facility_type: district_hospital` —
-both of which follow from each record's own definition — and every other field is null
+The 111 records — 75 in Uttar Pradesh, 36 in Maharashtra — carry ownership and facility
+type only where those follow from the record itself, and every other field is null
 with per-field provenance. A fabricated `blood_bank` sends a haemorrhaging patient to a
 hospital that cannot transfuse them.
 
@@ -742,10 +746,16 @@ alphabet, and that reader is the entire point. Urdu, Kashmiri and Sindhi set
 
 ### Q47. Why no i18n library?
 
-The app already ships three large dependencies, and this needs three things: a key
-lookup, a fallback chain and a stored preference. i18next is ~40 KB over a rural
-connection to solve what forty lines solve — which would have broken the very
-constraint (performance on poor links) that the feature exists to serve.
+The app already ships three large dependencies, and this needs four things: a key
+lookup, a fallback chain, a stored preference and lazy loading. i18next is ~40 KB over
+a rural connection to solve what about a hundred lines solve — which would have
+broken the very constraint (performance on poor links) that the feature exists to
+serve.
+
+Locales load lazily. English is bundled because it is the fallback; every other
+language is its own chunk, so a Hindi user downloads English and Hindi and none of
+the others. The same choice reaches the AI's prose and the printed PDF report —
+see `20-internationalisation.md`.
 
 The fallback chain is **chosen language → English → the English written at the call
 site**. A missing translation renders a real sentence, never `nav.dashboard`. That
@@ -755,9 +765,12 @@ to ship.
 
 ### Q48. Are the translations reliable?
 
-English is complete. The other 31 carry the strings every user meets before they can do
-anything — the gate, sign-in, navigation, roles, triage tiers, common actions — and
-deepen as speakers review them.
+English is the reference, at 993 interface strings. Coverage elsewhere is uneven, and
+measured rather than estimated by `frontend/scripts/i18n-status.mjs`: **Hindi 37%,
+Marathi and ten other major languages 8%, the remaining regional languages 1–3%.**
+Every untranslated string falls back to English, so no screen breaks — but a Marathi
+speaker today reads mostly English beyond the core screens, and for a Maharashtra
+deployment that is the first thing to fix.
 
 **No qualified speaker has reviewed most of them, and the selector says so.**
 `languages.js` carries a `reviewed` flag per locale and the UI shows an "unreviewed"
@@ -769,7 +782,7 @@ than by fluent English they cannot read. But they are told.
 
 ### Q49. What is your test coverage?
 
-**221 tests across 14 suites**, all passing. They are not coverage-chasing; they pin the
+**265 tests across 15 suites**, all passing. They are not coverage-chasing; they pin the
 invariants that would be dangerous to break:
 
 - `medicationBoundary.test.js` — plants a model-authored medication, asserts discard
@@ -803,7 +816,7 @@ result.
 It should not, yet, and I would not claim otherwise. What I would claim is that it is
 engineered like something intended for production rather than for a demo:
 
-- 221 tests pinning safety invariants, not happy paths
+- 265 tests pinning safety invariants, not happy paths
 - Row-level security in the database, not just checks in the application
 - Audit rows recording *why* a decision was made, not only what
 - Build-marked deploys so "what is running" is answerable
@@ -946,14 +959,14 @@ it in.
 
 | Metric | Value |
 |---|---|
-| Tests | 221 passing, 14 suites |
+| Tests | 265 passing, 15 suites |
 | Database tables / migrations | 19 / 13 |
 | Roles | 6 (SUPER_ADMIN, STATE_ADMIN, DISTRICT_ADMIN, DOCTOR, CLINIC_ASSISTANT, AUDITOR) |
 | Languages | 32 (22 Eighth Schedule + English + 9 regional) |
 | Symptom model training rows | 244,938 of 246,945 |
 | Diseases / symptoms | 582 kept of 773 / 377 |
 | Model top-5 accuracy | 0.9743 (Bernoulli NB) |
-| Districts modelled | 75 (UP), architecture state-agnostic |
+| Districts modelled | 111 — 75 Uttar Pradesh, 36 Maharashtra |
 | Document upload after optimisation | 188 KB, 6.0 s (from 470 KB, 11.4 s) |
 | Measured uplink | ~43 KB/s |
 | Vision response size | 1,657 B (from 1,056,003 B) |
@@ -965,7 +978,7 @@ it in.
 - Most facility capability data is **unsourced**, and the UI says `unverified`.
 - Most translations are **unreviewed by native speakers**, and the selector says so.
 - There has been **no field trial**; no clinical outcome number is claimed.
-- The deployed dataset is **UP, not Maharashtra**; the architecture is state-agnostic.
+- All patient data in both states is **synthetic**; no real patient is in the system.
 - CSP is **disabled** in helmet — a real policy is a documented open gap.
 - Rate limiting is **per-process**, not shared.
 

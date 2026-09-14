@@ -2,6 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "//": "autoPort is false because port 3000 is not incidental here. The API's CORS allowlist names http://localhost:3000 explicitly - see resolveAllowedOrigins in backend/src/config/env.js and CORS_ALLOWED_ORIGINS in backend/.env.example. On any other port the browser blocks every API call, and per the comment in LoginPage.jsx that failure surfaces to the user as 'invalid email or password' rather than as a CORS problem. Free the port instead of moving off it.",
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -9,6 +10,7 @@
         "dev"
       ],
       "port": 3000,
+      "autoPort": false,
       "cwd": "frontend"
     }
   ]

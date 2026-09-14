@@ -8,6 +8,7 @@ import {
   GENDERS, digitsOnly, formatAadhaar, ageDisplay, validatePatient, toPayload, AADHAAR_RE
 } from '../config/patientFields';
 import { UserPlus, Search, Loader2, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { useI18n } from '../i18n/index.jsx';
 
 /**
  * Patient registration.
@@ -50,6 +51,7 @@ const inputClass = (bad) =>
   }`;
 
 export default function PatientRegistrationPage() {
+  const { t, formatNumber } = useI18n();
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
@@ -66,8 +68,11 @@ export default function PatientRegistrationPage() {
   useEffect(() => {
     api.get('/regions/states')
       .then((r) => setStates(r.data.states || []))
-      .catch(() => setBanner({ kind: 'error', text: 'Could not load the state list. Check your connection.' }));
-  }, []);
+      .catch(() => setBanner({
+        kind: 'error',
+        text: t('register.statesFailed', 'Could not load the state list. Check your connection.')
+      }));
+  }, [t]);
 
   // District suggestions follow the selected state. Seeded for UP only, so this
   // is a datalist rather than a select — any Indian district must be enterable.
@@ -86,14 +91,14 @@ export default function PatientRegistrationPage() {
   const blur = (key) => setTouched((t) => ({ ...t, [key]: true }));
   const showError = (key) => (touched[key] ? errors[key] : undefined);
 
-  const age = useMemo(() => ageDisplay(form.date_of_birth), [form.date_of_birth]);
+  const age = useMemo(() => ageDisplay(form.date_of_birth, t), [form.date_of_birth, t]);
   const aadhaarDigits = digitsOnly(form.aadhaar_number);
 
   /** Step 1 — is this Aadhaar already on the register at this clinic? */
   const checkAadhaar = async () => {
     if (!AADHAAR_RE.test(aadhaarDigits)) {
       setTouched((t) => ({ ...t, aadhaar_number: true }));
-      setErrors((e) => ({ ...e, aadhaar_number: 'Must be exactly 12 digits.' }));
+      setErrors((e) => ({ ...e, aadhaar_number: t('validate.aadhaarDigits', 'Must be exactly 12 digits.') }));
       return;
     }
     setChecking(true);
@@ -106,7 +111,10 @@ export default function PatientRegistrationPage() {
       if (err.response?.status === 404) {
         setStep('details');    // not on the register: continue to the form
       } else {
-        setBanner({ kind: 'error', text: err.response?.data?.error || 'Could not check that Aadhaar number.' });
+        setBanner({
+          kind: 'error',
+          text: err.response?.data?.error || t('register.lookupFailed', 'Could not check that Aadhaar number.')
+        });
       }
     } finally {
       setChecking(false);
@@ -115,11 +123,11 @@ export default function PatientRegistrationPage() {
 
   const submit = async (e) => {
     e.preventDefault();
-    const found = validatePatient(form);
+    const found = validatePatient(form, t);
     setErrors(found);
     setTouched(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, true])));
     if (Object.keys(found).length) {
-      setBanner({ kind: 'error', text: 'Some fields need attention. They are marked below.' });
+      setBanner({ kind: 'error', text: t('register.fixFields', 'Some fields need attention. They are marked below.') });
       return;
     }
 
@@ -127,12 +135,12 @@ export default function PatientRegistrationPage() {
     setBanner(null);
     try {
       const res = await api.post('/patients', toPayload(form));
-      setBanner({ kind: 'ok', text: `${res.data.full_name} registered.` });
+      setBanner({ kind: 'ok', text: t('register.done', '{name} registered.', { name: res.data.full_name }) });
       setTimeout(() => navigate('/assistant/dashboard'), 900);
     } catch (err) {
       // The API returns per-field messages; surface them on the inputs.
       if (err.response?.data?.fields) setErrors(err.response.data.fields);
-      setBanner({ kind: 'error', text: err.response?.data?.error || 'Registration failed.' });
+      setBanner({ kind: 'error', text: err.response?.data?.error || t('register.failed', 'Registration failed.') });
     } finally {
       setSaving(false);
     }
@@ -147,9 +155,13 @@ export default function PatientRegistrationPage() {
           <UserPlus className="w-4 h-4" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-ink">Register Patient</h1>
+          <h1 className="text-lg font-bold text-ink">{t('nav.register', 'Register Patient')}</h1>
           <p className="text-xs text-ink-muted">
-            {user?.district ? `${user.district} sub-centre` : 'Your sub-centre'} · the Aadhaar number is the patient's record number
+            {user?.district
+              ? t('assistant.subCentre', '{district} sub-centre', { district: user.district })
+              : t('register.yourSubCentre', 'Your sub-centre')}
+            {' · '}
+            {t('register.aadhaarIsKey', 'the Aadhaar number is the patient’s record number')}
           </p>
         </div>
       </div>
@@ -171,14 +183,14 @@ export default function PatientRegistrationPage() {
       {/* ---------------- Step 1: Aadhaar ---------------- */}
       <div className="bg-surface-raised rounded-field border border-line p-5 space-y-4">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-bold text-ink">1. Aadhaar number</h2>
+          <h2 className="text-sm font-bold text-ink">{t('register.step1', '1. Aadhaar number')}</h2>
           {step === 'details' && (
             <button
               type="button"
               onClick={() => { setStep('aadhaar'); setExisting(null); }}
               className="text-[11px] text-gov-600 hover:underline"
             >
-              Change
+              {t('common.change', 'Change')}
             </button>
           )}
         </div>
@@ -192,7 +204,7 @@ export default function PatientRegistrationPage() {
             onBlur={() => blur('aadhaar_number')}
             disabled={step === 'details'}
             placeholder="1234 5678 9012"
-            aria-label="Aadhaar number"
+            aria-label={t('field.aadhaar', 'Aadhaar number')}
             className={`${inputClass(showError('aadhaar_number'))} font-mono tracking-wider disabled:bg-surface-sunken disabled:text-ink-muted`}
           />
           {step === 'aadhaar' && (
@@ -203,27 +215,40 @@ export default function PatientRegistrationPage() {
               className="px-4 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-50 text-white text-sm font-semibold flex items-center gap-2 shrink-0"
             >
               {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Check
+              {t('common.check', 'Check')}
             </button>
           )}
         </div>
         {showError('aadhaar_number')
           ? <p className="text-[11px] text-tier-emergency">{showError('aadhaar_number')}</p>
-          : <p className="text-[11px] text-ink-subtle">{aadhaarDigits.length}/12 digits</p>}
+          : (
+            <p className="text-[11px] text-ink-subtle">
+              {t('register.digitCount', '{count}/12 digits', { count: formatNumber(aadhaarDigits.length) })}
+            </p>
+          )}
 
         {/* Already on the register — skip re-typing everything. */}
         {existing && (
           <div className="p-3 rounded-field bg-tier-moderateBg border border-tier-moderate/30 space-y-2">
-            <p className="text-xs font-semibold text-tier-moderate">Already registered at this clinic</p>
+            <p className="text-xs font-semibold text-tier-moderate">
+              {t('register.alreadyRegistered', 'Already registered at this clinic')}
+            </p>
             <p className="text-xs text-tier-moderate">
-              {existing.full_name} · {existing.age_display || `${existing.age_years} yr`} · {existing.gender} · {existing.village_line1}
+              {existing.full_name}
+              {' · '}
+              {existing.age_display
+                || t('field.ageYears', '{age} yr', { age: formatNumber(existing.age_years) })}
+              {' · '}
+              {t('gender.' + String(existing.gender || '').toLowerCase(), existing.gender)}
+              {' · '}
+              {existing.village_line1}
             </p>
             <button
               type="button"
               onClick={() => navigate('/assistant/dashboard')}
               className="text-[11px] font-semibold text-tier-moderate hover:underline flex items-center gap-1"
             >
-              Open the existing record <ArrowRight className="w-3 h-3" />
+              {t('register.openExisting', 'Open the existing record')} <ArrowRight className="w-3 h-3" />
             </button>
           </div>
         )}
@@ -232,7 +257,7 @@ export default function PatientRegistrationPage() {
       {/* ---------------- Step 2: Details ---------------- */}
       {step === 'details' && (
         <form onSubmit={submit} className="bg-surface-raised rounded-field border border-line p-5 space-y-5">
-          <h2 className="text-sm font-bold text-ink">2. Patient details</h2>
+          <h2 className="text-sm font-bold text-ink">{t('register.step2', '2. Patient details')}</h2>
 
           {/* Sits above the fields, after the Aadhaar step, so it can fill them
               in — but it only ever proposes. `set` marks the field touched the
@@ -241,18 +266,18 @@ export default function PatientRegistrationPage() {
           <HealthCardScanner form={form} onApply={set} />
 
           <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Patient name" required error={showError('full_name')}>
+            <Field label={t('field.patientName', 'Patient name')} required error={showError('full_name')}>
               <input
                 value={form.full_name}
                 onChange={(e) => set('full_name', e.target.value)}
                 onBlur={() => blur('full_name')}
                 autoComplete="off"
-                placeholder="Full name"
+                placeholder={t('field.fullName', 'Full name')}
                 className={inputClass(showError('full_name'))}
               />
             </Field>
 
-            <Field label="Gender" required error={showError('gender')}>
+            <Field label={t('field.gender', 'Gender')} required error={showError('gender')}>
               <div className="flex gap-2">
                 {GENDERS.map((g) => (
                   <button
@@ -265,17 +290,17 @@ export default function PatientRegistrationPage() {
                         : 'bg-surface-raised border-line-strong text-ink-muted hover:border-gov-300'
                     }`}
                   >
-                    {g.label}
+                    {t(g.key, g.label)}
                   </button>
                 ))}
               </div>
             </Field>
 
             <Field
-              label="Date of birth"
+              label={t('field.dob', 'Date of birth')}
               required
               error={showError('date_of_birth')}
-              hint="Age is calculated from this — it is never typed in."
+              hint={t('register.dobHint', 'Age is calculated from this — it is never typed in.')}
             >
               <input
                 type="date"
@@ -287,13 +312,22 @@ export default function PatientRegistrationPage() {
               />
             </Field>
 
-            <Field label="Age" hint="Calculated automatically">
+            <Field label={t('field.age', 'Age')} hint={t('register.ageHint', 'Calculated automatically')}>
               <div className="w-full bg-surface-sunken border border-line rounded-field px-3 py-2.5 text-sm font-semibold text-ink-muted">
-                {age || <span className="font-normal text-ink-subtle">Enter date of birth</span>}
+                {age || (
+                  <span className="font-normal text-ink-subtle">
+                    {t('register.enterDob', 'Enter date of birth')}
+                  </span>
+                )}
               </div>
             </Field>
 
-            <Field label="Phone number" required error={showError('phone')} hint="10 digits, starting 6-9">
+            <Field
+              label={t('field.phoneNumber', 'Phone number')}
+              required
+              error={showError('phone')}
+              hint={t('validate.phoneFormat', '10 digits, starting 6-9.')}
+            >
               <div className="flex">
                 <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-line-strong bg-surface-sunken text-sm text-ink-muted">
                   +91
@@ -312,40 +346,40 @@ export default function PatientRegistrationPage() {
           </div>
 
           <div className="pt-1 border-t border-line">
-            <h3 className="text-xs font-bold text-ink mt-4 mb-3">Address</h3>
+            <h3 className="text-xs font-bold text-ink mt-4 mb-3">{t('field.address', 'Address')}</h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2 grid gap-2">
-                <Field label="Village" required error={showError('village_line1')}>
+                <Field label={t('field.village', 'Village')} required error={showError('village_line1')}>
                   <input
                     value={form.village_line1}
                     onChange={(e) => set('village_line1', e.target.value)}
                     onBlur={() => blur('village_line1')}
-                    placeholder="Line 1 — village or hamlet"
+                    placeholder={t('register.line1', 'Line 1 — village or hamlet')}
                     className={inputClass(showError('village_line1'))}
                   />
                 </Field>
                 <input
                   value={form.village_line2}
                   onChange={(e) => set('village_line2', e.target.value)}
-                  placeholder="Line 2 — landmark or tola (optional)"
+                  placeholder={t('register.line2', 'Line 2 — landmark or tola (optional)')}
                   className={inputClass(false)}
                 />
               </div>
 
-              <Field label="State" required error={showError('address_state_id')}>
+              <Field label={t('field.state', 'State')} required error={showError('address_state_id')}>
                 <select
                   value={form.address_state_id}
                   onChange={(e) => { set('address_state_id', e.target.value); set('address_district', ''); }}
                   onBlur={() => blur('address_state_id')}
                   className={inputClass(showError('address_state_id'))}
                 >
-                  <option value="">Select a state</option>
-                  <optgroup label="States">
+                  <option value="">{t('register.selectState', 'Select a state')}</option>
+                  <optgroup label={t('register.states', 'States')}>
                     {states.filter((s) => s.region_type === 'state').map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </optgroup>
-                  <optgroup label="Union Territories">
+                  <optgroup label={t('register.unionTerritories', 'Union Territories')}>
                     {states.filter((s) => s.region_type === 'union_territory').map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
@@ -354,10 +388,12 @@ export default function PatientRegistrationPage() {
               </Field>
 
               <Field
-                label="District"
+                label={t('field.district', 'District')}
                 required
                 error={showError('address_district')}
-                hint={districts.length ? `${districts.length} districts suggested` : 'Type the district name'}
+                hint={districts.length
+                  ? t('register.districtsSuggested', '{count} districts suggested', { count: formatNumber(districts.length) })
+                  : t('register.typeDistrict', 'Type the district name')}
               >
                 <input
                   list="district-options"
@@ -365,7 +401,9 @@ export default function PatientRegistrationPage() {
                   onChange={(e) => set('address_district', e.target.value)}
                   onBlur={() => blur('address_district')}
                   disabled={!form.address_state_id}
-                  placeholder={form.address_state_id ? 'Start typing…' : 'Select a state first'}
+                  placeholder={form.address_state_id
+                    ? t('register.startTyping', 'Start typing…')
+                    : t('register.selectStateFirst', 'Select a state first')}
                   className={`${inputClass(showError('address_district'))} disabled:bg-surface-sunken`}
                 />
                 <datalist id="district-options">
@@ -373,7 +411,12 @@ export default function PatientRegistrationPage() {
                 </datalist>
               </Field>
 
-              <Field label="PIN code" required error={showError('pin_code')} hint="6 digits">
+              <Field
+                label={t('field.pin', 'PIN code')}
+                required
+                error={showError('pin_code')}
+                hint={t('register.sixDigits', '6 digits')}
+              >
                 <input
                   inputMode="numeric"
                   value={form.pin_code}
@@ -393,14 +436,14 @@ export default function PatientRegistrationPage() {
               className="px-5 py-2.5 rounded-field bg-gov-600 hover:bg-gov-700 disabled:opacity-60 text-white text-sm font-semibold flex items-center gap-2"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {saving ? 'Saving…' : 'Register patient'}
+              {saving ? t('common.saving', 'Saving…') : t('nav.register', 'Register Patient')}
             </button>
             <button
               type="button"
               onClick={() => navigate('/assistant/dashboard')}
               className="px-5 py-2.5 rounded-field border border-line-strong text-ink-muted text-sm font-semibold hover:bg-surface-sunken"
             >
-              Cancel
+              {t('common.cancel', 'Cancel')}
             </button>
           </div>
         </form>

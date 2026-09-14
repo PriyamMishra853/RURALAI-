@@ -5,8 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "npx vite --port 3000 --host",
-    "build": "npx vite build",
-    "preview": "npx vite preview"
+    "build": "node scripts/i18n-extract.mjs --soft && npx vite build",
+    "preview": "npx vite preview",
+    "i18n:extract": "node scripts/i18n-extract.mjs",
+    "i18n:check": "node scripts/i18n-extract.mjs --check",
+    "i18n:status": "node scripts/i18n-status.mjs",
+    "i18n:translate": "node scripts/i18n-translate.mjs",
+    "i18n:soft": "node scripts/i18n-extract.mjs --soft"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

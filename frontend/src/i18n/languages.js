@@ -79,3 +79,27 @@ export const suggestedLanguage = () => {
   }
   return null;
 };
+
+/**
+ * A tag Intl will actually accept.
+ *
+ * Most of the regional languages here are valid ISO 639-3 codes with no CLDR
+ * data behind them: `new Intl.NumberFormat('bgc')` throws or silently falls
+ * back, and a thrown formatter in a render is a blank screen. Each is mapped to
+ * the closest language that does have data, chosen by script and region so the
+ * numerals, date order and grouping a reader sees are the ones they expect.
+ */
+const INTL_FALLBACK = {
+  mai: 'hi', kok: 'mr', doi: 'hi', brx: 'hi', sat: 'hi',
+  bho: 'hi', awa: 'hi', mag: 'hi', raj: 'hi', hne: 'hi', bgc: 'hi',
+  tcy: 'kn', mni: 'bn', kha: 'en', lus: 'en', sd: 'ur', ks: 'ur'
+};
+
+/**
+ * Every locale here is Indian, so the region subtag is not a guess — it is the
+ * difference between dd/mm/yyyy and mm/dd/yyyy on a clinical record.
+ */
+export const intlTag = (code) => {
+  const base = INTL_FALLBACK[code] || code;
+  return base === 'en' ? 'en-IN' : `${base}-IN`;
+};

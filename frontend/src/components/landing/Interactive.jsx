@@ -5,6 +5,7 @@ import {
   Mic, FileText, Camera, Bot, Video, ClipboardCheck
 } from 'lucide-react';
 import { cn, Card } from '../ui';
+import { useT, useI18n } from '../../i18n/index.jsx';
 
 /* ------------------------------------------------------------------ Counter */
 
@@ -17,6 +18,11 @@ import { cn, Card } from '../ui';
  */
 export function Counter({ to, suffix = '', duration = 1.4, className }) {
   const ref = useRef(null);
+  // Was hardcoded to en-IN. A statistic in Latin digits under a Kannada
+  // caption is the same half-translated screen this change exists to remove;
+  // the lakh/crore grouping en-IN gave is preserved for every Indian locale
+  // by intlTag() in languages.js.
+  const { formatNumber } = useI18n();
   const reduced = useReducedMotion();
   const inView = useInView(ref, { once: true, margin: '-60px' });
   const motionValue = useMotionValue(0);
@@ -46,16 +52,35 @@ export function Counter({ to, suffix = '', duration = 1.4, className }) {
 
   return (
     <span ref={ref} className={className}>
-      {display.toLocaleString('en-IN')}{suffix}
+      {formatNumber(display)}{suffix}
     </span>
   );
 }
 
 /* ------------------------------------------------------- Tier explorer */
 
+/**
+ * The four tiers, as the public page explains them.
+ *
+ * Every string carries a catalogue key beside its English text. The English is
+ * not dead weight — it is what `t()` falls back to, so a locale that has only
+ * translated the navigation still renders this section as readable prose
+ * rather than as a column of dotted keys.
+ *
+ * `outputs` keeps one key per bullet rather than one key for the list: the
+ * bullets render as separate rows with their own icons, and a translator
+ * handed the list as a single blob has no way to preserve that.
+ */
 const TIERS = [
   {
     key: 'low',
+    labelKey: 'landing.tier.low.label',
+    headlineKey: 'landing.tier.low.headline',
+    noteKey: 'landing.tier.low.note',
+    outputKeys: [
+      'landing.tier.low.out1', 'landing.tier.low.out2', 'landing.tier.low.out3',
+      'landing.tier.low.out4', 'landing.tier.low.out5'
+    ],
     label: 'Low',
     Icon: ShieldCheck,
     accent: 'text-tier-low',
@@ -74,6 +99,13 @@ const TIERS = [
   },
   {
     key: 'moderate',
+    labelKey: 'landing.tier.moderate.label',
+    headlineKey: 'landing.tier.moderate.headline',
+    noteKey: 'landing.tier.moderate.note',
+    outputKeys: [
+      'landing.tier.moderate.out1', 'landing.tier.moderate.out2', 'landing.tier.moderate.out3',
+      'landing.tier.moderate.out4', 'landing.tier.moderate.out5'
+    ],
     label: 'Moderate',
     Icon: AlertTriangle,
     accent: 'text-tier-moderate',
@@ -92,6 +124,13 @@ const TIERS = [
   },
   {
     key: 'high',
+    labelKey: 'landing.tier.high.label',
+    headlineKey: 'landing.tier.high.headline',
+    noteKey: 'landing.tier.high.note',
+    outputKeys: [
+      'landing.tier.high.out1', 'landing.tier.high.out2', 'landing.tier.high.out3',
+      'landing.tier.high.out4', 'landing.tier.high.out5'
+    ],
     label: 'High',
     Icon: AlertOctagon,
     accent: 'text-tier-high',
@@ -110,6 +149,13 @@ const TIERS = [
   },
   {
     key: 'emergency',
+    labelKey: 'landing.tier.emergency.label',
+    headlineKey: 'landing.tier.emergency.headline',
+    noteKey: 'landing.tier.emergency.note',
+    outputKeys: [
+      'landing.tier.emergency.out1', 'landing.tier.emergency.out2', 'landing.tier.emergency.out3',
+      'landing.tier.emergency.out4', 'landing.tier.emergency.out5'
+    ],
     label: 'Emergency',
     Icon: Siren,
     accent: 'text-tier-emergency',
@@ -137,34 +183,37 @@ const TIERS = [
  */
 export function TierExplorer() {
   const [active, setActive] = useState('low');
-  const tier = TIERS.find((t) => t.key === active);
+  const tr = useT();
+  const tier = TIERS.find((x) => x.key === active);
 
   return (
     <div className="grid lg:grid-cols-12 gap-5">
       {/* Selector */}
       <div className="lg:col-span-4 flex lg:flex-col gap-2 overflow-x-auto pb-1 lg:pb-0">
-        {TIERS.map((t) => {
-          const on = t.key === active;
+        {TIERS.map((item) => {
+          const on = item.key === active;
           return (
             <button
-              key={t.key}
+              key={item.key}
               type="button"
-              onClick={() => setActive(t.key)}
+              onClick={() => setActive(item.key)}
               aria-pressed={on}
               className={cn(
                 'flex-1 lg:flex-none text-left p-3.5 rounded-card border transition-all min-w-[9rem]',
                 on
-                  ? `bg-surface-raised border-transparent ring-2 ${t.ring} shadow-raised`
+                  ? `bg-surface-raised border-transparent ring-2 ${item.ring} shadow-raised`
                   : 'bg-surface-raised/60 border-line hover:border-line-strong'
               )}
             >
               <div className="flex items-center gap-2">
-                <t.Icon className={cn('w-4 h-4 shrink-0', t.accent)} />
-                <span className={cn('text-sm font-bold', on ? t.accent : 'text-ink')}>{t.label}</span>
+                <item.Icon className={cn('w-4 h-4 shrink-0', item.accent)} />
+                <span className={cn('text-sm font-bold', on ? item.accent : 'text-ink')}>
+                  {tr(item.labelKey, item.label)}
+                </span>
               </div>
               <div className="mt-2 h-1 rounded-full bg-line overflow-hidden">
                 <motion.div
-                  className={cn('h-full rounded-full', t.bar)}
+                  className={cn('h-full rounded-full', item.bar)}
                   initial={false}
                   animate={{ width: on ? '100%' : '18%' }}
                   transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -192,18 +241,19 @@ export function TierExplorer() {
             <Card className="p-5 sm:p-6 h-full">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wide', tier.chip)}>
-                  <tier.Icon className="w-3.5 h-3.5" /> {tier.label} risk
+                  <tier.Icon className="w-3.5 h-3.5" />{' '}
+                  {tr('landing.tier.chip', '{label} risk', { label: tr(tier.labelKey, tier.label) })}
                 </span>
               </div>
 
               <h3 className={cn('mt-3 font-display text-xl font-bold', tier.accent)}>
-                {tier.headline}
+                {tr(tier.headlineKey, tier.headline)}
               </h3>
 
               <ul className="mt-4 space-y-2.5">
                 {tier.outputs.map((o, i) => (
                   <motion.li
-                    key={o}
+                    key={tier.outputKeys[i]}
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.3, delay: 0.06 + i * 0.05 }}
@@ -212,13 +262,13 @@ export function TierExplorer() {
                     <span className={cn('w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5', tier.chip)}>
                       <Check className="w-2.5 h-2.5" />
                     </span>
-                    <span className="leading-relaxed">{o}</span>
+                    <span className="leading-relaxed">{tr(tier.outputKeys[i], o)}</span>
                   </motion.li>
                 ))}
               </ul>
 
               <p className="mt-4 pt-4 border-t border-line text-xs text-ink-subtle leading-relaxed">
-                {tier.note}
+                {tr(tier.noteKey, tier.note)}
               </p>
             </Card>
           </motion.div>
@@ -231,16 +281,17 @@ export function TierExplorer() {
 /* ----------------------------------------------------- Workflow timeline */
 
 const STEPS = [
-  { n: '01', title: 'Register', Icon: FileText, body: 'Aadhaar, name, gender, date of birth, address, phone. Age is derived — never typed, so it cannot go stale.' },
-  { n: '02', title: 'Capture', Icon: Mic, body: 'Symptoms spoken in the local dialect or typed, vitals pre-filled to typical adult values, onset and history.' },
-  { n: '03', title: 'Digitise', Icon: Camera, body: 'Prescriptions, multi-page lab reports and wound photographs — camera or file, with mandatory human verification.' },
-  { n: '04', title: 'Assess', Icon: Bot, body: 'Rules engine triages against approved MoHFW protocols. The model may raise the tier and can never lower it.' },
-  { n: '05', title: 'Consult', Icon: Video, body: 'Video consultation, load-balanced across the district roster by speciality and current load.' },
-  { n: '06', title: 'Decide', Icon: ClipboardCheck, body: 'A registered practitioner signs every prescription, referral and clinical decision. Nothing is automatic.' }
+  { n: '01', k: 'register', title: 'Register', Icon: FileText, body: 'Aadhaar, name, gender, date of birth, address, phone. Age is derived — never typed, so it cannot go stale.' },
+  { n: '02', k: 'capture', title: 'Capture', Icon: Mic, body: 'Symptoms spoken in the local dialect or typed, vitals pre-filled to typical adult values, onset and history.' },
+  { n: '03', k: 'digitise', title: 'Digitise', Icon: Camera, body: 'Prescriptions, multi-page lab reports and wound photographs — camera or file, with mandatory human verification.' },
+  { n: '04', k: 'assess', title: 'Assess', Icon: Bot, body: 'Rules engine triages against approved MoHFW protocols. The model may raise the tier and can never lower it.' },
+  { n: '05', k: 'consult', title: 'Consult', Icon: Video, body: 'Video consultation, load-balanced across the district roster by speciality and current load.' },
+  { n: '06', k: 'decide', title: 'Decide', Icon: ClipboardCheck, body: 'A registered practitioner signs every prescription, referral and clinical decision. Nothing is automatic.' }
 ];
 
 /** Scroll-driven timeline. The line fills as the reader moves through it. */
 export function WorkflowTimeline() {
+  const t = useT();
   const ref = useRef(null);
   const inView = useInView(ref, { once: true, margin: '-80px' });
 
@@ -278,9 +329,13 @@ export function WorkflowTimeline() {
                 <div className="min-w-0">
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono text-xs text-ink-subtle">{s.n}</span>
-                    <h3 className="text-sm font-bold text-ink">{s.title}</h3>
+                    <h3 className="text-sm font-bold text-ink">
+                      {t('landing.step.' + s.k + '.title', s.title)}
+                    </h3>
                   </div>
-                  <p className="mt-1 text-xs text-ink-muted leading-relaxed">{s.body}</p>
+                  <p className="mt-1 text-xs text-ink-muted leading-relaxed">
+                    {t('landing.step.' + s.k + '.body', s.body)}
+                  </p>
                 </div>
               </div>
             </Card>
