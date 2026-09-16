@@ -656,13 +656,13 @@ Flags available for every later phase.
 > - **F1 doctor-to-doctor referral** (`doctor_referral`): migration 15 applied and deployed.
 > - **Closed-loop hospital referral** (`referral_tracking`): migration 16, a follow-up
 >   worklist for assistants (overdue first), a no-login acknowledgement link for the
->   receiving hospital printed on the referral slip, notifications back to the clinic,
->   and **referral completion now measured** in `baseline_metrics()`. Migration 16 was
->   validated on production in a rolled-back transaction and is not applied.
+>   receiving hospital printed on the referral slip as text and as a QR code,
+>   notifications back to the clinic, and **referral completion now measured** in
+>   `baseline_metrics()`. Migration 16 was validated on production in a rolled-back
+>   transaction and is not applied.
 >
 > **Not done:** referral status on the assistant's case view (it is on the dashboard
-> worklist), the three-way consult on the SFU path, and a QR code on the slip — the
-> link is printed as text.
+> worklist), and the three-way consult on the SFU path.
 
 **Goal.** One referral engine serving both directions: doctor to doctor (F1) and
 doctor to facility (closed loop).

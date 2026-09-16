@@ -643,7 +643,8 @@ The public token is 192 random bits, stored only as a SHA-256 hash, expires afte
 per 10 min). Unknown, malformed and expired tokens all answer the same **404**.
 Hospital actions are audited with no staff actor and `via: "hospital_link"`, and
 notify the referring staff (`REFERRAL_REACHED`, `REFERRAL_OUTCOME`). Printing the
-HIGH referral PDF prints the referral code and a fresh link.
+HIGH referral PDF prints the referral code and a fresh link, as text and as a QR
+code encoding the same URL. If the QR cannot be made the slip prints without it.
 
 `not_reached` reasons: `cost` `transport` `distance` `family_refused` `improved`
 `died_before_arrival` `other`. Outcomes: `admitted` `treated_discharged`
