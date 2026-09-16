@@ -684,13 +684,19 @@ completion is a measured number.
 
 ### Phase 2 — CHATBOX voice intake · *L*
 
-> **Status:** the reading half is **built behind `voice_intake`** — a pure rules
-> module (spoken numbers, blood pressure, duration, and the vitals limits shared
-> with the manual form) plus `POST /api/ai/intake-extract`, with 29 tests. It
-> stores nothing: no audio, no transcript, no draft. The CHATBOX itself —
-> push-to-talk capture, spoken read-back, voice-marked fields in the form,
-> consent and transcript retention — is not started, and neither is the
-> per-field provenance column the learning system depends on.
+> **Status:** **built behind `voice_intake`**, end to end but unproven. A pure
+> rules module (spoken numbers, blood pressure, duration, and the vitals limits
+> shared with the manual form), `POST /api/ai/intake-extract` (29 tests), and a
+> CHATBOX button on the assessment screen: push to talk, the proposal shown
+> before anything moves, numbers read back aloud, and every voice-filled field
+> marked *heard — check it* until the assistant touches it. It stores nothing —
+> no audio, no transcript, no draft.
+>
+> **Not done:** consent capture and a transcript retention policy (which is
+> exactly why it stores nothing yet); the per-field provenance column F3 depends
+> on; the scripted audio test set; and the measurement this feature exists to
+> justify — intake time against the manual baseline. It has never been run
+> against a real microphone, because that needs the flag on in a deployment.
 
 **Goal.** Voice-driven intake that fills the manual form, measured against typing.
 
