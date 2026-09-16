@@ -160,6 +160,12 @@ decommissioning a model is a config change rather than a code change.
 | `GOOGLE_MAPS_API_KEY` | Upgrades referral straight-line distance to live driving distance. Entirely optional — the straight-line answer is computed first and stands if the call fails |
 | `DEMO_ACCOUNT_PASSWORD` | Shared password for seeded demo accounts. Written to a gitignored credentials file, never compiled into the frontend bundle |
 | `FEATURE_FLAGS` | Comma-separated optional features: `baseline_metrics`, `doctor_referral`, `voice_intake`. Unset means everything is off, which is the demo checkpoint's behaviour. Unknown names are ignored with a warning, never enabled. Apply the feature's migration before switching it on |
+| `RATE_LIMIT_AI_PER_MIN` | AI and OCR calls **per signed-in user** per minute. Default 20. Not per clinic: a centre shares one public address, so an address-keyed limit is a limit on the whole building |
+| `RATE_LIMIT_PATIENT_SEARCH` | Patient lookups per signed-in user per 5 minutes. Default 60 |
+| `RATE_LIMIT_GLOBAL_PER_MIN` | Runaway guard for everything under `/api`, keyed by address because it runs before anyone is identified. Default 1200 — a whole centre's budget, not one person's |
+| `RATE_LIMIT_LOGIN_FAILURES` | Failed sign-ins per address **and account** per 15 minutes. Default 10. Successful sign-ins never count |
+| `SHUTDOWN_GRACE_MS` | How long a deploy waits for in-flight requests before exiting anyway. Default 10000 |
+| `BACKUP_DIR` | Where `npm run db:backup` writes. Defaults to `backups/`, which is gitignored; the script refuses any path git would pick up |
 | `ROOT_ADMIN_EMAIL`, `ROOT_ADMIN_PASSWORD`, `ROOT_ADMIN_NAME` | Passed at provision time for `npm run seed:root`. There is deliberately no default — a super admin with a known password is the same as no password |
 | `KAGGLE_USERNAME`, `KAGGLE_KEY` | Only to re-download the training datasets |
 | `BACKEND_URL`, `WS_URL` | Cosmetic; used only in the startup banner |
