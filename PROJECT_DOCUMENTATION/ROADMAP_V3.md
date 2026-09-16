@@ -712,7 +712,10 @@ completion is a measured number.
 > **Not done:** a transcript retention policy (nothing is retained, so none is
 > needed yet); the scripted audio test set; and a real result for intake time,
 > which needs the flags on and real intakes. It has never been run against a real
-> microphone. The doctor's case view does not yet show which values were heard.
+> microphone.
+>
+> The doctor's case view names vitals that were never measured (a default nobody
+> confirmed) and values heard by voice, checked or not.
 
 **Goal.** Voice-driven intake that fills the manual form, measured against typing.
 

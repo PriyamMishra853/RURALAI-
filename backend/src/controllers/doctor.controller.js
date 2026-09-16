@@ -212,12 +212,18 @@ export const getDoctorCaseDetails = async (req, res) => {
     Array.isArray(data.patient_images) ? data.patient_images : []
   );
 
+  // Where the intake values came from (migration 17). Its own query, so a
+  // database without the column still opens the case, just without the note.
+  const { data: provenanceRow } = await supabaseAdmin
+    .from('visits').select('intake_provenance').eq('id', req.params.id).maybeSingle();
+
   // `access` and `referrals` are additions; every field that was on this
   // response before is still there, unchanged.
   return res.json({
     ...data,
     patients: withAge(data.patients),
     patient_images: signedImages,
+    intake_provenance: provenanceRow?.intake_provenance ?? null,
     access,
     ...(referralsOn ? { referrals } : {})
   });

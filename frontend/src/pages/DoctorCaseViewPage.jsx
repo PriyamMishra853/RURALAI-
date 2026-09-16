@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFeature, FEATURES } from '../context/FeatureContext';
 import CaseReferralPanel from '../components/CaseReferralPanel';
 import ReferToDoctorModal from '../components/ReferToDoctorModal';
+import { VITAL_FIELDS } from '../config/vitals';
 
 /**
  * Doctor case file and review.
@@ -87,6 +88,29 @@ export default function DoctorCaseViewPage() {
 
   const patient = visit?.patients || {};
   const vitals = Array.isArray(visit?.visit_vitals) ? visit.visit_vitals[0] : visit?.visit_vitals;
+
+  /*
+   * Which of those numbers nobody measured. The intake form opens with normal
+   * values filled in, and a default the assistant never confirmed is stored
+   * exactly like a reading — a 98.6 °F here may be a thermometer or may be the
+   * form. The same goes for a value heard by the CHATBOX and never checked.
+   */
+  const intakeNotes = useMemo(() => {
+    const fields = visit?.intake_provenance?.fields;
+    if (!fields) return null;
+    const column = { temperature: 'temperature_f', pulse: 'pulse_bpm', spo2: 'spo2_percent' };
+    const pick = (test) => VITAL_FIELDS
+      .filter((f) => {
+        const entry = fields[column[f.key] || f.key];
+        return entry && test(entry);
+      })
+      .map((f) => t(f.labelKey, f.label));
+    return {
+      unmeasured: pick((e) => e.source === 'default' && !e.confirmed),
+      heardUnchecked: pick((e) => e.source === 'voice' && !e.confirmed),
+      heardChecked: pick((e) => e.source === 'voice' && e.confirmed)
+    };
+  }, [visit, t]);
   const assessment = Array.isArray(visit?.ai_assessments) ? visit.ai_assessments[0] : visit?.ai_assessments;
   const symptoms = visit?.visit_symptoms || [];
   const documents = visit?.patient_documents || [];
@@ -296,6 +320,23 @@ export default function DoctorCaseViewPage() {
                 {t('vital.pulse', 'Pulse')} {vitals.pulse_bpm ?? '—'} ·{' '}
                 {t('vital.rrShort', 'RR')} {vitals.respiratory_rate ?? '—'}
               </p>
+              {intakeNotes?.unmeasured.length > 0 && (
+                <p className="text-[10px] text-tier-moderate font-medium pt-1">
+                  {t('case.unmeasured', 'Not measured: {list} — the form\'s default, never confirmed by the assistant.', {
+                    list: intakeNotes.unmeasured.join(', ')
+                  })}
+                </p>
+              )}
+              {intakeNotes?.heardUnchecked.length > 0 && (
+                <p className="text-[10px] text-tier-moderate font-medium">
+                  {t('case.heardUnchecked', 'Heard by voice and not checked: {list}.', { list: intakeNotes.heardUnchecked.join(', ') })}
+                </p>
+              )}
+              {intakeNotes?.heardChecked.length > 0 && (
+                <p className="text-[10px] text-ink-subtle">
+                  {t('case.heardChecked', 'Captured by voice, checked by the assistant: {list}.', { list: intakeNotes.heardChecked.join(', ') })}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-xs text-ink-subtle mt-1">{t('common.notRecorded', 'Not recorded')}</p>
