@@ -26,6 +26,7 @@
     "preflight": "node src/scripts/preflight.js",
     "verify:call": "node src/scripts/verifyCallPipeline.mjs",
     "db:migrate": "node src/scripts/applyMigration.js",
+    "db:backup": "node src/scripts/backupDatabase.js",
     "check:languages": "node src/scripts/checkLanguages.js",
     "check:fonts": "node src/scripts/checkFonts.js",
     "fonts:install": "node src/scripts/fetchFonts.js"

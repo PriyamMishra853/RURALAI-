@@ -34,6 +34,12 @@ Thumbs.db
 database/v2/DEMO_CREDENTIALS.md
 database/v2/DEMO_CREDENTIALS_MH.md
 
+# Database dumps from `npm run db:backup`. These hold names, Aadhaar numbers,
+# symptoms and prescriptions — the most sensitive thing this repository can
+# produce. The backup script refuses to write anywhere that is not ignored,
+# so this entry is what makes the default path usable at all.
+backups/
+
 # Kaggle API credentials — never commit
 .kaggle/
 kaggle.json
