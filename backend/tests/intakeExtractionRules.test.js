@@ -15,6 +15,33 @@ const {
 } = await import('../src/services/intakeExtractionRules.js');
 
 describe('numbers as they are actually said', () => {
+  // Found by the intake test set (eval/intake-cases.json): each of these was
+  // said in a case and silently dropped.
+  it('reads a temperature spoken digit by digit, with decimals', () => {
+    expect(parseSpokenNumber('one oh one point four')).toBe(101.4);
+    expect(parseSpokenNumber('ninety eight point six')).toBe(98.6);
+    expect(parseSpokenNumber('nine eight point six')).toBe(98.6);
+    expect(parseSpokenNumber('one oh one')).toBe(101);
+  });
+
+  it('ignores the unit said after the number', () => {
+    expect(parseSpokenNumber('twenty eight per minute')).toBe(28);
+    expect(parseSpokenNumber('ninety four percent')).toBe(94);
+    expect(parseSpokenNumber('ninety bpm')).toBe(90);
+  });
+
+  it('reads "one twenty five" as 125', () => {
+    expect(parseSpokenNumber('one twenty five')).toBe(125);
+  });
+
+  it('still refuses a run of digits that could be two numbers, or a hedge', () => {
+    expect(parseSpokenNumber('two three')).toBeNull();
+    expect(parseSpokenNumber('oh five')).toBeNull();
+    expect(parseSpokenNumber('about ninety')).toBeNull();
+    expect(parseSpokenNumber('point five')).toBeNull();
+    expect(parseSpokenNumber('one point two three four')).toBeNull();
+  });
+
   it('reads digits', () => {
     expect(parseSpokenNumber('140')).toBe(140);
     expect(parseSpokenNumber(96)).toBe(96);
@@ -193,3 +220,17 @@ describe('what reaches the form', () => {
     expect(skipped).toHaveLength(0);
   });
 });
+
+describe('durations the test set caught', () => {
+  it('stores weeks as days', () => {
+    expect(parseDuration('two weeks')).toEqual({ symptom_duration_value: 14, symptom_duration_unit: 'days' });
+    expect(parseDuration('since two weeks')).toEqual({ symptom_duration_value: 14, symptom_duration_unit: 'days' });
+  });
+
+  it('reads the number before the unit, not the first word', () => {
+    expect(parseDuration('three days back')).toEqual({ symptom_duration_value: 3, symptom_duration_unit: 'days' });
+    // "two or three days" — used to be stored as 2.
+    expect(parseDuration('two three days')).toBeNull();
+  });
+});
+

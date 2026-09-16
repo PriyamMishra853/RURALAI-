@@ -285,6 +285,7 @@ npm run seed:daily     # deterministic 5 cases per doctor for today
 npm run seed:maharashtra -- --confirm   # Maharashtra's 36 districts; additive, never touches Uttar Pradesh
 npm run db:migrate 14_baseline_metrics.sql 15_case_referrals.sql 16_referral_tracking.sql 17_intake_provenance.sql 18_follow_ups.sql   # before switching on the optional features
 npm run rag:seed       # 3 clinical protocols into Qdrant
+npm run eval:intake    # CHATBOX extraction test set — calls Groq once per case, writes nothing; exit 1 if any vital is not exact
 ```
 
 What `npm run seed` produces (`seedV2.js`):

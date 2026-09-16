@@ -709,8 +709,18 @@ completion is a measured number.
 > waves heard vitals through. Recording is disabled until the assistant ticks that
 > the patient agreed, and that consent is part of the record.
 >
+> **Test set (`npm run eval:intake`):** 23 spoken-style transcripts — English, Hindi
+> and Marathi, romanised and Devanagari, code-mixed — run through the live prompt,
+> model and rules. Vitals must match exactly and any vital nobody said fails the case.
+> The first run found four real defects: temperatures read digit by digit ("one oh one
+> point four") and numbers followed by a unit ("twenty eight per minute") were
+> dropped, weeks were not understood, and Hindi and Marathi durations never parsed; it
+> also found "two three days" stored as 2. All fixed. **Now 23/23 cases, 29/29 vitals
+> exact, 0 fabricated — the exit criterion is met on text.** It measures extraction,
+> not speech recognition.
+>
 > **Not done:** a transcript retention policy (nothing is retained, so none is
-> needed yet); the scripted audio test set; and a real result for intake time,
+> needed yet); recorded audio for the test set; and a real result for intake time,
 > which needs the flags on and real intakes. It has never been run against a real
 > microphone.
 >

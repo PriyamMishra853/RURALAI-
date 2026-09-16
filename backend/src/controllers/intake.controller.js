@@ -36,12 +36,12 @@ const MAX_TRANSCRIPT = 4000;
  * dropped there — but a prompt that invites a guess wastes a round trip
  * producing values that will be thrown away.
  */
-const SYSTEM_PROMPT = `You convert what a clinic assistant said out loud into fields of an intake form in an Indian rural clinic. The speech may mix English with Hindi or Marathi.
+export const INTAKE_EXTRACTION_PROMPT = `You convert what a clinic assistant said out loud into fields of an intake form in an Indian rural clinic. The speech may mix English with Hindi or Marathi.
 
 Return ONLY a JSON object with any of these keys:
   chief_complaint       what the patient came with, in the speaker's words
   symptoms              other symptoms mentioned
-  symptom_duration      how long, exactly as said, e.g. "three days"
+  symptom_duration      how long, as a number and one English unit — days, weeks, months or years — e.g. "3 days" for "teen din se" or "चार दिवसांपासून" → "4 days". Only if a number and a unit were actually said
   medical_history       known conditions
   known_allergies       allergies
   current_medications   medicines the patient is taking now
@@ -56,7 +56,7 @@ Return ONLY a JSON object with any of these keys:
 RULES:
 - Include a key ONLY if the speaker actually said it. Omitting a key is correct and expected.
 - Never guess, never infer, never fill a field from context. An absent field is fine; an invented one is a fabricated clinical observation.
-- Never convert between units. Report the number as it was said.
+- Never convert a measurement between units (Celsius to Fahrenheit, kilograms to pounds). Report the number as it was said.
 - Never add a diagnosis, a risk level, a medicine or advice. You are transcribing into fields, not practising medicine.
 - If the speech is unclear or you heard nothing usable, return {}.`;
 
@@ -97,7 +97,7 @@ export const extractIntake = async (req, res) => {
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: INTAKE_EXTRACTION_PROMPT },
         { role: 'user', content: transcript }
       ]
     });

@@ -77,13 +77,33 @@ const WORDS = {
  * pressure is spoken aloud in Indian English, and without it the commonest
  * phrasing in the room parses to nonsense.
  *
+ * Temperatures are read digit by digit — "one oh one point four" is 101.4 —
+ * so "oh" is a zero and "point" starts the decimals. A run of bare digits is
+ * only read as one number where the reading makes that unambiguous: with an
+ * "oh" in it, or before "point". "two three days" stays unreadable; it is
+ * "two or three days", and 23 would be an invented duration.
+ *
+ * The unit said after a number is ignored ("twenty eight per minute"); any
+ * other word makes the whole phrase unreadable.
+ *
  * Returns null for anything it cannot read. Null is a question, not a zero.
  */
+const ZERO_WORDS = new Set(['oh', 'o']);
+const UNIT_WORDS = /\b(per\s+min(ute)?|bpm|beats|breaths|percent|degrees?|fahrenheit|mmhg|mg\/dl|mg\s*per\s*dl)\b|%|°f?/g;
+
+const digitWord = (w) => (ZERO_WORDS.has(w) ? 0 : (WORDS[w] !== undefined && WORDS[w] <= 9 ? WORDS[w] : null));
+
+const parseDigitRun = (words) => {
+  const digits = words.map(digitWord);
+  if (digits.some((d) => d === null) || digits[0] === 0) return null;
+  return Number(digits.join(''));
+};
+
 export const parseSpokenNumber = (input) => {
   if (input === null || input === undefined) return null;
   if (typeof input === 'number') return Number.isFinite(input) ? input : null;
 
-  const text = String(input).toLowerCase().trim();
+  const text = String(input).toLowerCase().replace(UNIT_WORDS, ' ').trim();
   if (!text) return null;
 
   const digits = text.match(/-?\d+(?:\.\d+)?/);
@@ -92,8 +112,28 @@ export const parseSpokenNumber = (input) => {
     return Number.isFinite(n) ? n : null;
   }
 
+  // "ninety eight point six", "one oh one point four"
+  const pointAt = text.split(/\s+/).indexOf('point');
+  if (pointAt !== -1) {
+    const [whole, fraction] = [text.split(/\s+/).slice(0, pointAt), text.split(/\s+/).slice(pointAt + 1)];
+    if (!whole.length || !fraction.length || fraction.length > 2) return null;
+    const decimals = fraction.map(digitWord);
+    if (decimals.some((d) => d === null)) return null;
+    const integer = parseSpokenNumber(whole.join(' '))
+      ?? (whole.length >= 2 && whole.length <= 3 ? parseDigitRun(whole) : null);
+    if (integer === null || !Number.isInteger(integer)) return null;
+    return Number(`${integer}.${decimals.join('')}`);
+  }
+
   const words = text.replace(/\band\b/g, ' ').split(/[\s-]+/).filter(Boolean);
-  if (!words.length || !words.every((w) => w in WORDS)) return null;
+  if (!words.length) return null;
+
+  // "one oh one", "one oh four"
+  if (words.some((w) => ZERO_WORDS.has(w))) {
+    return words.length >= 2 && words.length <= 3 ? parseDigitRun(words) : null;
+  }
+
+  if (!words.every((w) => w in WORDS)) return null;
 
   const values = words.map((w) => WORDS[w]);
 
@@ -114,6 +154,12 @@ export const parseSpokenNumber = (input) => {
   // "twenty five" → 25
   if (values.length === 2 && values[0] >= 20 && values[0] % 10 === 0 && values[1] < 10) {
     return values[0] + values[1];
+  }
+
+  // "one twenty five" → 125
+  if (values.length === 3 && values[0] >= 1 && values[0] <= 9
+      && values[1] >= 20 && values[1] % 10 === 0 && values[1] <= 90 && values[2] >= 1 && values[2] <= 9) {
+    return values[0] * 100 + values[1] + values[2];
   }
 
   return null;
@@ -149,14 +195,22 @@ export const parseDuration = (input) => {
   if (!input) return null;
   const text = String(input).toLowerCase().trim();
 
-  const unit = DURATION_UNITS.find((u) => text.includes(u.slice(0, -1)));
+  // The visits table stores days, months or years. A week is exactly seven
+  // days, so "two weeks" is stored as 14 days rather than dropped.
+  const weeks = /\bweeks?\b/.test(text);
+  const unit = weeks ? 'days' : DURATION_UNITS.find((u) => text.includes(u.slice(0, -1)));
   if (!unit) return null;
 
-  const value = parseSpokenNumber(text.replace(/[a-z]+$/i, '').trim())
-    ?? parseSpokenNumber(text.split(/\s+/)[0]);
+  // The number is whatever comes right before the unit — "for three days back"
+  // reads "three". It used to fall back to the first word, which read "two
+  // three days" (two or three) as 2: a guess stored as a duration.
+  const unitWord = weeks ? 'week' : unit.slice(0, -1);
+  const unitAt = text.search(new RegExp(`\\b${unitWord}`));
+  const before = (unitAt === -1 ? text : text.slice(0, unitAt)).replace(/^(since|for|from|last|past|the)\s+/, '').trim();
+  const value = parseSpokenNumber(before);
   if (value === null) return null;
 
-  const rounded = Math.round(value);
+  const rounded = Math.round(value) * (weeks ? 7 : 1);
   if (!Number.isInteger(rounded) || rounded < 1 || rounded > 999) return null;
 
   return { symptom_duration_value: rounded, symptom_duration_unit: unit };
