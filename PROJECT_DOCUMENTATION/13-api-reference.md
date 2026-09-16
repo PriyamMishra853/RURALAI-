@@ -2,8 +2,8 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **71 HTTP routes** across 15 routers, the WebSocket protocol, and the Python
-inference service's 4 endpoints. Eleven of the routes exist only when a
+All **73 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
+inference service's 4 endpoints. Thirteen of the routes exist only when a
 [feature flag](#feature-flags) switches them on.
 
 **Base URL:** `/api` · **Auth:** `Authorization: Bearer <token>` on everything
@@ -74,6 +74,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `doctor_referral` | `GET /api/doctor/referrals` · `POST /api/doctor/cases/:id/referrals` · `POST /api/doctor/referrals/:id/:action`, and the referral fields on `GET /api/doctor/cases/:id` |
 | `voice_intake` | `POST /api/ai/intake-extract` |
 | `referral_tracking` | `/api/referral-tracking` (4 routes) · `/api/public/referrals` (2 routes) · the `hospital_referral` field on a doctor review · the link on the referral PDF |
+| `follow_up_tracking` | `/api/follow-ups` (2 routes) · the `follow_up` field on a doctor review · `follow_up_days` required (1–90) on a `follow_up` decision · a new visit completing the patient's follow-ups |
 
 ---
 
@@ -550,9 +551,11 @@ doctor decide it, because `POST /cases/:id/review` still requires the assignment
 `no_action_needed`.
 
 **201** `{ review, prescription_id, visit_status }` — plus, with `referral_tracking` on and a
-`refer_hospital` decision, `hospital_referral: { id, referral_code, follow_up_due_at, ack_path }`
+`refer_hospital` decision, `hospital_referral: { id, referral_code, follow_up_due_at, ack_path }`;
+with `follow_up_tracking` on and a `follow_up` decision, `follow_up: { id, due_at, window_ends_at }`
 **400** decision invalid · no diagnosis · `prescribe` with no medicine ·
-`refer_hospital` with no hospital
+`refer_hospital` with no hospital · `follow_up` without 1–90 `follow_up_days` (only with
+`follow_up_tracking` on)
 **409** the case is from a previous day, or already reviewed
 
 Fires `DOCTOR_REVIEW_COMPLETED` back to the assistant.
@@ -648,6 +651,26 @@ HIGH referral PDF prints the referral code and a fresh link.
 `not_reached` reasons: `cost` `transport` `distance` `family_refused` `improved`
 `died_before_arrival` `other`. Outcomes: `admitted` `treated_discharged`
 `referred_onward` `left_against_advice` `died`.
+
+### Follow-up recall · flag: `follow_up_tracking`
+
+A `follow_up` decision schedules a follow-up (migration 18): `due_at` is the decision
+time plus the doctor's day count, and `window_ends_at` adds grace — 1 day for up to 3,
+3 days for up to 14, 7 beyond. The patient's next visit (`POST /api/visits`) completes
+every scheduled or missed follow-up it answers (`completed_via: "return_visit"`),
+within 30 days of the window closing. Neither the decision nor the visit can fail
+because of it.
+
+| Method | Path | Roles | |
+|---|---|---|---|
+| GET | `/api/follow-ups?scope=due\|open\|all` | CA, DR | District-scoped. `due` (default): scheduled and due within 24 h, overdue included. Rows carry `timing` (`overdue` · `due` · `due_soon` · `upcoming` · `closed`), the patient's name, age, phone and village, the visit code and the doctor's name. Overdue first |
+| POST | `/api/follow-ups/:id/:action` | CA, DR | `contact { result }` · `completed` (seen elsewhere, `completed_via: "reported"`) · `missed { reason }` · `cancel { reason }`, each with optional `notes`. Guarded: **409** if it changed underneath; closed follow-ups answer **409** |
+
+Contact results: `will_come` `no_answer` `unreachable` `declined` `moved_away`. Missed
+reasons: `no_contact` `declined` `moved_away` `cost` `transport` `other`. Cancel
+reasons: `referred_elsewhere` `no_longer_needed` `died` `entered_in_error`. Every
+action is audited as `FOLLOW_UP_<ACTION>`; scheduling and automatic completion as
+`FOLLOW_UP_SCHEDULED` and `FOLLOW_UP_COMPLETED`.
 
 ---
 
@@ -808,7 +831,8 @@ clamped to 1–365 (default 30). Demo data is excluded unless `includeDemo=true`
   "scheduled_consult_start_delay_minutes": { "n": 6,   "median": -1.5, "p90": 4.0 },
   "follow_up_decisions": 7,
   "referral_completion": { "due": 9, "reached": 6, "not_reached": 1, "unknown": 2, "rate": 0.667 },
-  "not_yet_measurable": { "follow_up_adherence": "…" } }
+  "follow_up_adherence": { "due": 5, "kept": 3, "late": 1, "missed": 1, "reported": 1, "rate": 0.6 },
+  "not_yet_measurable": {} }
 ```
 
 Since migration 17, intake runs from `intake_started_at` (when the assistant opened
@@ -994,6 +1018,8 @@ Exact match, then fuzzy at score ≥ 80.
 | POST | `/api/referral-tracking` | CA · flag |
 | POST | `/api/referral-tracking/:id/:action` | CA, DR · flag |
 | POST | `/api/referral-tracking/:id/ack-link` | CA, DR · flag |
+| GET | `/api/follow-ups` | CA, DR · flag |
+| POST | `/api/follow-ups/:id/:action` | CA, DR · flag |
 | GET | `/api/public/referrals/:token` | public · flag |
 | POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |

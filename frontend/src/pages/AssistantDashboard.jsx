@@ -13,6 +13,7 @@ import { maskAadhaar } from '../config/patientFields';
 import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
 import UrgentRegistrationModal from '../components/UrgentRegistrationModal';
 import ReferralFollowUpsCard from '../components/ReferralFollowUpsCard';
+import FollowUpRecallCard from '../components/FollowUpRecallCard';
 import { useI18n } from '../i18n/index.jsx';
 import { consultationStatusLabel, joinActionLabel } from '../i18n/serverLabels.js';
 
@@ -340,6 +341,9 @@ export default function AssistantDashboard() {
 
       {/* ---- Referral follow-ups: renders nothing unless referral_tracking is on ---- */}
       <ReferralFollowUpsCard />
+
+      {/* ---- Follow-up recall: renders nothing unless follow_up_tracking is on ---- */}
+      <FollowUpRecallCard />
 
       {/* ---- Emergency bypass ---- */}
       <Card className="border-l-4 border-l-tier-emergency">

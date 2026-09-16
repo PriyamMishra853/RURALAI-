@@ -762,6 +762,19 @@ as valid FHIR R4. No patient is keyed on Aadhaar.
 
 ### Phase 4 — Follow-up and patient messaging · *L*
 
+> **Status:** core built behind `follow_up_tracking` (migration 18). A `follow_up`
+> decision schedules a follow-up with a due date and a grace window; the patient's
+> next visit completes it automatically; assistants get a recall list — overdue
+> first, with the patient's phone number and the last call's result — and can log a
+> call, record a return seen elsewhere, a miss or a cancellation. **Follow-up
+> adherence is now a measured number** in `baseline_metrics()`: only follow-ups whose
+> window has closed count, and one nobody closed counts as missed.
+>
+> **Not done:** programme schedules (antenatal, immunisation, NCD review); SMS and IVR
+> reminders (no messaging provider is chosen); referral follow-through messages; and
+> outcome capture at the follow-up visit. Continuity across districts waits on
+> Phase 3.
+
 **Goal.** Follow-up that happens, and a channel that reaches the patient.
 
 **Scope.**

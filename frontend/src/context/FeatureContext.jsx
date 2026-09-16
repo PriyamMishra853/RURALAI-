@@ -18,7 +18,8 @@ export const FEATURES = {
   BASELINE_METRICS: 'baseline_metrics',
   DOCTOR_REFERRAL: 'doctor_referral',
   VOICE_INTAKE: 'voice_intake',
-  REFERRAL_TRACKING: 'referral_tracking'
+  REFERRAL_TRACKING: 'referral_tracking',
+  FOLLOW_UP_TRACKING: 'follow_up_tracking'
 };
 
 const EMPTY = { features: new Set(), ready: false };

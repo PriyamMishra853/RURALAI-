@@ -118,7 +118,7 @@ export default function BaselineMetricsCard() {
             </div>
 
             <p className="text-[11px] text-ink-muted mt-3">
-              {t('admin.baseline.followUps', '{count} follow-up decisions in this window, none of them scheduled by the system.', {
+              {t('admin.baseline.followUpDecisions', '{count} follow-up decisions in this window.', {
                 count: formatNumber(data?.follow_up_decisions ?? 0)
               })}
             </p>
@@ -141,6 +141,22 @@ export default function BaselineMetricsCard() {
                     })}
                   </>
                 )}
+              </p>
+            )}
+
+            {/* Present once migration 18 is applied. Only follow-ups whose window has
+                closed are counted, and one nobody closed counts as missed. */}
+            {data?.follow_up_adherence && (
+              <p className="text-[11px] text-ink-muted mt-2">
+                {data.follow_up_adherence.due > 0
+                  ? t('admin.baseline.adherence', 'Follow-up adherence: {kept} of {due} follow-ups past their window were kept on time ({rate}%); {late} came back late and {missed} were missed.', {
+                    kept: formatNumber(data.follow_up_adherence.kept),
+                    due: formatNumber(data.follow_up_adherence.due),
+                    rate: formatNumber(Math.round((data.follow_up_adherence.rate || 0) * 100)),
+                    late: formatNumber(data.follow_up_adherence.late),
+                    missed: formatNumber(data.follow_up_adherence.missed)
+                  })
+                  : t('admin.baseline.adherenceNone', 'Follow-up adherence: no scheduled follow-up has reached the end of its window yet.')}
               </p>
             )}
 
