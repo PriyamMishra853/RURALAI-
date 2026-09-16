@@ -3,6 +3,7 @@ import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { AADHAAR_RE, digitsOnly, withAge } from '../services/patientFields.js';
 import { notify, EVENTS } from '../services/notificationService.js';
 import { ROLES } from '../config/roles.js';
+import { validateVitalsRanges, DURATION_UNITS } from '../services/vitalsValidation.js';
 
 /**
  * Clinical visits.
@@ -15,7 +16,6 @@ import { ROLES } from '../config/roles.js';
  */
 
 const RISK_TIERS = ['low', 'moderate', 'high', 'emergency'];
-const DURATION_UNITS = ['days', 'months', 'years'];
 
 /**
  * The rule engine and the database do not share a vocabulary.
@@ -67,60 +67,16 @@ const formatDuration = (value, unit) => {
 let visitSeq = Date.now() % 100000;
 const generateVisitCode = () => `VIS-${new Date().getFullYear()}-${String(++visitSeq).padStart(6, '0')}`;
 
-/**
- * Range-check vitals before they reach the risk engine.
+/*
+ * Vitals range-checking now lives in services/vitalsValidation.js.
  *
- * A transposed digit produces a physiologically impossible value, and the
- * triage rules would treat it as a genuine red flag. Rejecting it here is the
- * difference between "re-enter the pulse" and a false emergency referral.
+ * The CHATBOX (Roadmap v3, F2) has to apply exactly these limits to a spoken
+ * "one forty over ninety", and a second copy of the ranges would eventually
+ * drift — leaving voice intake accepting a reading this form rejects. Moved
+ * rather than duplicated, and re-exported here so every existing caller and
+ * import path is unchanged.
  */
-export const validateVitalsRanges = (vitals) => {
-  const errors = [];
-  if (!vitals) return { isValid: true, errors: [], cleanVitals: {} };
-
-  const num = (...candidates) => {
-    for (const v of candidates) {
-      if (v !== undefined && v !== null && v !== '') {
-        const parsed = Number(v);
-        if (!Number.isNaN(parsed)) return parsed;
-      }
-    }
-    return null;
-  };
-
-  const check = (value, lo, hi, label, unit) => {
-    if (value !== null && (value < lo || value > hi)) {
-      errors.push(`${label} ${value}${unit} is outside the plausible range (${lo}-${hi}${unit}).`);
-    }
-    return value;
-  };
-
-  const temperature = check(num(vitals.temperature, vitals.temperature_f), 95, 107, 'Temperature', '°F');
-  const systolic    = check(num(vitals.systolic_bp, vitals.blood_pressure_systolic), 50, 300, 'Systolic BP', ' mmHg');
-  const diastolic   = check(num(vitals.diastolic_bp, vitals.blood_pressure_diastolic), 20, 200, 'Diastolic BP', ' mmHg');
-  const pulse       = check(num(vitals.pulse_bpm, vitals.pulse), 20, 250, 'Pulse', ' bpm');
-  const spo2        = check(num(vitals.spo2_percent, vitals.spo2, vitals.oxygen_saturation), 50, 100, 'SpO2', '%');
-  const respiratory = check(num(vitals.respiratory_rate), 5, 80, 'Respiratory rate', '/min');
-  const glucose     = check(num(vitals.blood_glucose_mgdl), 20, 800, 'Blood glucose', ' mg/dL');
-
-  if (systolic !== null && diastolic !== null && diastolic >= systolic) {
-    errors.push(`Diastolic BP (${diastolic}) must be lower than systolic (${systolic}). Check the reading.`);
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-    cleanVitals: {
-      temperature_f: temperature,
-      blood_pressure_systolic: systolic,
-      blood_pressure_diastolic: diastolic,
-      pulse_bpm: pulse,
-      spo2_percent: spo2,
-      respiratory_rate: respiratory,
-      blood_glucose_mgdl: glucose
-    }
-  };
-};
+export { validateVitalsRanges };
 
 /** POST /api/visits — open a visit for a patient in the caller's district. */
 export const createVisit = async (req, res) => {
