@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { config } from './config/env.js';
 import { globalRateLimiter } from './middleware/rateLimit.middleware.js';
 import { enabledFeatures } from './config/features.js';
+import { supabaseAdmin } from './config/supabase.js';
 
 import authRoutes from './routes/auth.routes.js';
 import patientRoutes from './routes/patient.routes.js';
@@ -117,14 +118,64 @@ const COMMIT_SHA =
   || process.env.SOURCE_VERSION
   || null;
 
+/*
+ * Whether the database answers is REPORTED here, never enforced.
+ *
+ * Railway restarts the container when this endpoint fails. Failing it because
+ * Supabase is unreachable would restart a perfectly healthy process, over and
+ * over, until the ten retries are spent — and then the clinic has no API
+ * either, on top of a database that was the only thing actually wrong. A
+ * restart cannot fix somebody else's outage.
+ *
+ * So the status code answers one question — is this process alive — and the
+ * database's state rides in the body for whoever is watching. The probe is
+ * cached and refreshed in the background, because a health check must never
+ * wait on the thing it is checking: a hung database would otherwise turn the
+ * liveness probe itself into a timeout, and cause the restart this avoids.
+ */
+const DB_PROBE_TTL_MS = 15000;
+const DB_PROBE_TIMEOUT_MS = 5000;
+let dbProbe = { status: 'unknown', latency_ms: null, checked_at: null };
+let dbProbeInFlight = null;
+
+const probeDatabase = async () => {
+  const started = Date.now();
+  try {
+    const { error } = await supabaseAdmin
+      .from('districts')
+      .select('id', { head: true, count: 'exact' })
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(DB_PROBE_TIMEOUT_MS));
+    if (error) console.warn('health: database probe failed:', error.message);
+    dbProbe = {
+      status: error ? 'unreachable' : 'ok',
+      latency_ms: Date.now() - started,
+      checked_at: new Date().toISOString()
+    };
+  } catch (err) {
+    console.warn('health: database probe threw:', err.message);
+    dbProbe = { status: 'unreachable', latency_ms: Date.now() - started, checked_at: new Date().toISOString() };
+  }
+};
+
+const refreshDbProbe = () => {
+  if (dbProbeInFlight) return;
+  const age = dbProbe.checked_at ? Date.now() - Date.parse(dbProbe.checked_at) : Infinity;
+  if (age < DB_PROBE_TTL_MS) return;
+  dbProbeInFlight = probeDatabase().finally(() => { dbProbeInFlight = null; });
+};
+
 app.get('/api/health', (req, res) => {
+  refreshDbProbe();
   res.json({
     status: 'ONLINE',
     system: 'Virtual Village Clinic AI Backend API',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
     commit: COMMIT_SHA ? COMMIT_SHA.slice(0, 7) : 'unknown',
-    started_at: STARTED_AT
+    started_at: STARTED_AT,
+    database: dbProbe.status,
+    database_latency_ms: dbProbe.latency_ms
   });
 });
 
