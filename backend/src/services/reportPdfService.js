@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 import { ageFromDob } from './patientFields.js';
 import { reportLocale } from './reportLocale.js';
 
@@ -321,6 +322,76 @@ function renderPrescription(doc, L, { patient, visit, workflow }) {
   footer(doc, L);
 }
 
+const QR_SIZE = 84;
+
+/**
+ * The hospital link as a PNG QR code, or null. Never throws.
+ *
+ * Made before rendering rather than inside it: qrcode writes PNGs
+ * asynchronously, and renderReport is synchronous on purpose (see the note on
+ * locales above). A slip without a QR still carries the code and the typed
+ * link, so a failure here costs the desk a scan, never the patient the sheet.
+ */
+export const ackQrPng = async (url) => {
+  if (!url) return null;
+  try {
+    // 'M' survives a crease or a thumb over a corner; a 360px image prints at
+    // roughly 300 dpi at QR_SIZE points.
+    return await QRCode.toBuffer(String(url), { type: 'png', errorCorrectionLevel: 'M', margin: 2, width: 360 });
+  } catch (err) {
+    console.warn('referral QR not generated:', err.message);
+    return null;
+  }
+};
+
+/**
+ * Referral code, typed link and — when one was made — the QR, side by side.
+ *
+ * The link stays printed beside the QR: a reception with no phone camera, or a
+ * clinic reading the code down a phone line, still has something to use.
+ */
+function ackBlock(doc, L, tracking) {
+  const left = 40;
+  const width = doc.page.width - 80;
+  const qr = tracking.ack_qr_png || null;
+
+  // The QR is drawn at a fixed position and pdfkit will not break a page for
+  // an image, so start the block on a fresh page rather than split it.
+  if (qr && doc.y > doc.page.height - 200) doc.addPage();
+
+  const top = doc.y;
+  const textWidth = qr ? width - QR_SIZE - 16 : width;
+
+  // x is given explicitly: keyValues() can leave the cursor in its right-hand
+  // column, and a link printed from there runs off the edge of the page.
+  doc.font(L.fonts.bold).fontSize(9).fillColor(INK)
+    .text(L.t('pdf.referralCode', 'Referral code: {code}', { code: tracking.referral_code }), left, top, { width: textWidth });
+  doc.font(L.fonts.regular).fontSize(8).fillColor(INK)
+    .text(L.t('pdf.ackInstruction', 'Hospital reception: open this link to confirm the patient arrived —'), { width: textWidth })
+    .text(tracking.ack_url, { width: textWidth });
+  let bottom = doc.y;
+
+  if (qr) {
+    try {
+      const qrX = left + width - QR_SIZE;
+      doc.image(qr, qrX, top, { width: QR_SIZE, height: QR_SIZE });
+      doc.font(L.fonts.regular).fontSize(7).fillColor(MUTED)
+        .text(L.t('pdf.ackScan', 'Hospital desk: scan to confirm arrival'), qrX, top + QR_SIZE + 2, {
+          width: QR_SIZE, align: 'center'
+        });
+      bottom = Math.max(bottom, doc.y);
+    } catch (err) {
+      // A buffer pdfkit cannot read. The typed link above is already on the page.
+      console.warn('referral QR not drawn:', err.message);
+    }
+  }
+
+  doc.x = left;
+  doc.y = bottom;
+  doc.fillColor(INK);
+  doc.moveDown(0.5);
+}
+
 /** Referral and bill — HIGH only. The danger-zone hardcopy. */
 function renderReferral(doc, L, { patient, visit, assessment, workflow, tracking }) {
   header(doc, L, L.t('pdf.referralTitle', 'Emergency Referral'), 'HIGH', patient?.address_district);
@@ -349,14 +420,7 @@ function renderReferral(doc, L, { patient, visit, assessment, workflow, tracking
 
   // Closed loop: the code a phone call can quote, and the link the receiving
   // desk opens to say the patient arrived. Absent when not being followed up.
-  if (tracking?.ack_url) {
-    doc.font(L.fonts.bold).fontSize(9).fillColor(INK)
-      .text(L.t('pdf.referralCode', 'Referral code: {code}', { code: tracking.referral_code }));
-    doc.font(L.fonts.regular).fontSize(8).fillColor(INK)
-      .text(L.t('pdf.ackInstruction', 'Hospital reception: open this link to confirm the patient arrived —'))
-      .text(tracking.ack_url, { width: doc.page.width - 80 });
-    doc.moveDown(0.5);
-  }
+  if (tracking?.ack_url) ackBlock(doc, L, tracking);
 
   const ref = workflow?.referral;
   const primary = ref?.primary;

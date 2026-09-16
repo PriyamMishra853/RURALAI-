@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
-import { renderReport, REPORT_TYPES } from '../services/reportPdfService.js';
+import { renderReport, ackQrPng, REPORT_TYPES } from '../services/reportPdfService.js';
 import { buildTierWorkflow } from '../services/tierWorkflowService.js';
 import { ROLES } from '../config/roles.js';
 import { languageForRequest } from '../config/languages.js';
@@ -100,11 +100,16 @@ router.get(
     // document — when no font for the script is installed.
     // The hospital acknowledgement link, when this referral is being followed
     // up. Printing issues a fresh one, so the slip in the patient's hand is
-    // always the link that works.
+    // always the link that works. The same link as a QR, so the desk can scan
+    // rather than type it; null if it could not be made, and the slip prints
+    // without one.
     const tracking = type === 'referral' && isEnabled(FEATURES.REFERRAL_TRACKING)
       ? await issueAckLinkForVisit(id)
       : null;
-    if (tracking) tracking.ack_url = `${req.protocol}://${req.get('host')}${tracking.ack_path}`;
+    if (tracking) {
+      tracking.ack_url = `${req.protocol}://${req.get('host')}${tracking.ack_path}`;
+      tracking.ack_qr_png = await ackQrPng(tracking.ack_url);
+    }
 
     const doc = renderReport(
       type,

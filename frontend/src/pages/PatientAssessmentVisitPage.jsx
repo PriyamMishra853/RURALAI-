@@ -18,6 +18,7 @@ import {
 import TierResult from '../components/TierResult';
 import DoctorReviewPanel from '../components/DoctorReviewPanel';
 import ReferralPanel from '../components/ReferralPanel';
+import HospitalReferralStatus from '../components/HospitalReferralStatus';
 import { useI18n } from '../i18n/index.jsx';
 import { speechTag } from '../i18n/speech.js';
 import ChatboxIntakeModal from '../components/ChatboxIntakeModal';
@@ -1615,6 +1616,7 @@ export default function PatientAssessmentVisitPage() {
               riskLevel={aiAssessment?.risk_level}
             />
           )}
+          <HospitalReferralStatus visitId={visitId} />
 
           {/* The doctor's decision, arriving live. Rendered first, above the AI
               result: once a case has gone to a doctor, what the doctor said is
