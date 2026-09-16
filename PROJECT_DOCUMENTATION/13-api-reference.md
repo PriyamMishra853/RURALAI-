@@ -53,10 +53,13 @@ Some endpoints add detail:
 
 | Limiter | Window | Max | Applies to |
 |---|---|---|---|
-| Global | 1 min | 300 | Everything under `/api` |
-| Login | 15 min | 10 | `POST /auth/login` (successes skipped) |
-| Patient search | 5 min | 60 | Patient list, lookup, detail |
-| AI | 1 min | 20 | `/ai/*` (except `service-status`), `/vision/*`, `/voice/*`, document upload |
+| Global | 1 min | 1200 **per address** | Everything under `/api`. Runs before sign-in, so it is a whole centre's budget — a clinic shares one address |
+| Login | 15 min | 10 failures **per address and account** | `POST /auth/login` (successes skipped), so one person's typos cannot lock out the building |
+| Patient search | 5 min | 60 **per user** | Patient list, lookup, detail |
+| AI | 1 min | 20 **per user** | `/ai/*` (except `service-status`), `/vision/*`, `/voice/*`, document upload |
+| Hospital link | 10 min | 60 per address | `/api/public/referrals/*` |
+
+All overridable by environment variable ([setup guide](01-setup-guide.md)).
 
 ### Feature flags
 

@@ -1,8 +1,10 @@
 # Roadmap v3 — gaps against PS 26133, and the phased plan
 
-> **Status: PLANNED. Nothing described in this document is implemented yet.**
+> **Status: IN PROGRESS.** Phase 0 is done. Phases 1 and 2 are built behind feature
+> flags that are off — each phase below says exactly what exists and what does not.
+> Phases 3–7 are not started.
 >
-> The system as it runs in production today is frozen at tag
+> The system as it ran for the SIH demonstration is frozen at tag
 > **`sih2026-live-checkpoint`** (commit `437b877`) and on branch
 > **`checkpoint/sih2026-demo`**. The earlier tag `sih2026-demo-checkpoint`
 > (`a28118c`) marks the state before the multilingual release. Every phase below
