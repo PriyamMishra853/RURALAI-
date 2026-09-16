@@ -26,7 +26,9 @@ export const FEATURES = {
   /** Phase 1 — F1, a doctor referring a case to another doctor. */
   DOCTOR_REFERRAL: 'doctor_referral',
   /** Phase 2 — F2, CHATBOX voice intake. */
-  VOICE_INTAKE: 'voice_intake'
+  VOICE_INTAKE: 'voice_intake',
+  /** Phase 1 — closed-loop hospital referral and the hospital acknowledgement link. */
+  REFERRAL_TRACKING: 'referral_tracking'
 };
 
 const KNOWN = new Set(Object.values(FEATURES));

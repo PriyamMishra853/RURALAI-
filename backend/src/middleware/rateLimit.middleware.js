@@ -124,3 +124,19 @@ export const globalRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: limitResponse('Too many requests. Please slow down.')
 });
+
+/**
+ * The hospital acknowledgement link — the one clinical write reachable without
+ * signing in. Tokens are 192 random bits, so this is not what makes guessing
+ * infeasible; it is what makes trying expensive and visible. Address-keyed,
+ * because there is no user, and generous enough for a hospital reception desk
+ * whose whole building shares an address too.
+ */
+export const publicReferralRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: num(process.env.RATE_LIMIT_PUBLIC_REFERRAL, 60),
+  keyGenerator: (req) => `pubref:ip:${ipKey(req)}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: limitResponse('Too many requests from this network. Wait a few minutes and try again.')
+});

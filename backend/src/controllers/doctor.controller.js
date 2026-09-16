@@ -6,6 +6,7 @@ import { notify, EVENTS } from '../services/notificationService.js';
 import { withSignedUrls } from '../services/imageAccess.js';
 import { isEnabled, FEATURES } from '../config/features.js';
 import { effectiveStatus } from '../services/caseReferralRules.js';
+import { createReferralForDecision } from '../services/hospitalReferralService.js';
 
 /**
  * The doctor's caseload.
@@ -254,7 +255,7 @@ export const recordDoctorReview = async (req, res) => {
 
   const { data: visit } = await supabaseAdmin
     .from('visits')
-    .select('id, visit_date, status, visit_code, assistant_id, patient_id, patients ( full_name )')
+    .select('id, visit_date, status, visit_code, assistant_id, patient_id, district_id, risk_level, patients ( full_name )')
     .eq('id', req.params.id)
     .eq('assigned_doctor_id', req.user.id)
     .maybeSingle();
@@ -323,6 +324,18 @@ export const recordDoctorReview = async (req, res) => {
   const nextStatus = decision === 'refer_hospital' ? 'referred' : 'completed';
   await supabaseAdmin.from('visits').update({ status: nextStatus }).eq('id', req.params.id);
 
+  // Closed-loop referral (Roadmap v3, Phase 1): a referral to hospital starts
+  // being followed up the moment it is decided. Never fails the review — the
+  // decision is the clinical record; the tracker logs and audits its own failures.
+  const tracked = decision === 'refer_hospital' && isEnabled(FEATURES.REFERRAL_TRACKING)
+    ? await createReferralForDecision({
+      visit: { ...visit, id: req.params.id },
+      doctor: { id: req.user.id, role: req.user.role },
+      hospitalName: referral_hospital,
+      ip: req.ip
+    })
+    : null;
+
   await logAuditEvent({
     actorId: req.user.id, actorRole: req.user.role,
     action: 'DOCTOR_REVIEW_RECORDED', entityType: 'VISITS',
@@ -364,7 +377,20 @@ export const recordDoctorReview = async (req, res) => {
     });
   }
 
-  return res.status(201).json({ review: data, prescription_id: prescriptionId, visit_status: nextStatus });
+  return res.status(201).json({
+    review: data,
+    prescription_id: prescriptionId,
+    visit_status: nextStatus,
+    // Additive. The link is returned once, here, for the doctor or assistant to share with the hospital.
+    ...(tracked ? {
+      hospital_referral: {
+        id: tracked.referral.id,
+        referral_code: tracked.referral.referral_code,
+        follow_up_due_at: tracked.referral.follow_up_due_at,
+        ack_path: `/r/${tracked.ackToken}`
+      }
+    } : {})
+  });
 };
 
 /**

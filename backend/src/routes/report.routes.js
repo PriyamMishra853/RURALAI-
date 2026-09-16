@@ -7,6 +7,8 @@ import { renderReport, REPORT_TYPES } from '../services/reportPdfService.js';
 import { buildTierWorkflow } from '../services/tierWorkflowService.js';
 import { ROLES } from '../config/roles.js';
 import { languageForRequest } from '../config/languages.js';
+import { isEnabled, FEATURES } from '../config/features.js';
+import { issueAckLinkForVisit } from '../services/hospitalReferralService.js';
 
 /**
  * PDF hardcopy of an assessment — spec §3.6.
@@ -96,9 +98,17 @@ router.get(
     // The sheet the patient carries home, in the language the consultation
     // happened in. reportLocale falls back to English — and says so on the
     // document — when no font for the script is installed.
+    // The hospital acknowledgement link, when this referral is being followed
+    // up. Printing issues a fresh one, so the slip in the patient's hand is
+    // always the link that works.
+    const tracking = type === 'referral' && isEnabled(FEATURES.REFERRAL_TRACKING)
+      ? await issueAckLinkForVisit(id)
+      : null;
+    if (tracking) tracking.ack_url = `${req.protocol}://${req.get('host')}${tracking.ack_path}`;
+
     const doc = renderReport(
       type,
-      { patient, visit, assessment, workflow },
+      { patient, visit, assessment, workflow, tracking },
       languageForRequest(req).code
     );
     doc.pipe(res);

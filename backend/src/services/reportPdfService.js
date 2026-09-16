@@ -322,7 +322,7 @@ function renderPrescription(doc, L, { patient, visit, workflow }) {
 }
 
 /** Referral and bill — HIGH only. The danger-zone hardcopy. */
-function renderReferral(doc, L, { patient, visit, assessment, workflow }) {
+function renderReferral(doc, L, { patient, visit, assessment, workflow, tracking }) {
   header(doc, L, L.t('pdf.referralTitle', 'Emergency Referral'), 'HIGH', patient?.address_district);
 
   // A red band, because this sheet travels with the patient and needs to be
@@ -346,6 +346,17 @@ function renderReferral(doc, L, { patient, visit, assessment, workflow }) {
       { width: doc.page.width - 80 }
     );
   doc.moveDown(0.5);
+
+  // Closed loop: the code a phone call can quote, and the link the receiving
+  // desk opens to say the patient arrived. Absent when not being followed up.
+  if (tracking?.ack_url) {
+    doc.font(L.fonts.bold).fontSize(9).fillColor(INK)
+      .text(L.t('pdf.referralCode', 'Referral code: {code}', { code: tracking.referral_code }));
+    doc.font(L.fonts.regular).fontSize(8).fillColor(INK)
+      .text(L.t('pdf.ackInstruction', 'Hospital reception: open this link to confirm the patient arrived —'))
+      .text(tracking.ack_url, { width: doc.page.width - 80 });
+    doc.moveDown(0.5);
+  }
 
   const ref = workflow?.referral;
   const primary = ref?.primary;

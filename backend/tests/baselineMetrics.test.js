@@ -85,6 +85,15 @@ describe('what the baseline says it cannot measure', () => {
     expect(res.body).not.toHaveProperty('referral_completion_rate');
   });
 
+  it('stops calling referral completion unmeasurable once the figure exists', async () => {
+    rpcResult.data = { window_days: 30, referral_completion: { due: 4, reached: 3, rate: 0.75 } };
+    const res = mockRes();
+    await getBaselineMetrics({ query: {}, scope: { kind: 'national' } }, res);
+    expect(res.body.referral_completion.rate).toBe(0.75);
+    expect(res.body.not_yet_measurable.referral_completion).toBeUndefined();
+    expect(res.body.not_yet_measurable.follow_up_adherence).toBeDefined();
+  });
+
   it('fails loudly rather than returning an empty baseline', async () => {
     rpcResult.error = { message: 'function baseline_metrics does not exist' };
     const res = mockRes();

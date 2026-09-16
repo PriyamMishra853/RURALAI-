@@ -24,6 +24,8 @@ import reportRoutes from './routes/report.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import visionRoutes from './routes/vision.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
+import referralTrackingRoutes from './routes/referralTracking.routes.js';
+import publicReferralRoutes from './routes/publicReferral.routes.js';
 
 const app = express();
 
@@ -205,6 +207,9 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/referral-tracking', referralTrackingRoutes);
+// Deliberately unauthenticated — see publicReferral.routes.js.
+app.use('/api/public/referrals', publicReferralRoutes);
 
 // SPA fallback: any non-API GET serves the frontend router
 if (HAS_FRONTEND) {
