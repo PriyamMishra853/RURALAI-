@@ -60,9 +60,20 @@ export default function PatientAssessmentVisitPage() {
   // switched the feature on; the manual form below is unchanged either way.
   const chatboxOn = useFeature(FEATURES.VOICE_INTAKE);
   const [showChatbox, setShowChatbox] = useState(false);
-  // Which fields arrived by voice, so the form can say so rather than present
-  // them as though someone had typed them.
+  // Fields the CHATBOX filled that nobody has checked yet. The assessment waits
+  // until this is empty: a heard value is a draft (ground rule 2).
   const [voiceFields, setVoiceFields] = useState(() => new Set());
+  // Every field the CHATBOX ever filled, checked or not. The record keeps "this
+  // arrived by voice" after a person has confirmed it.
+  const [heardFields, setHeardFields] = useState(() => new Set());
+  const [voiceConsent, setVoiceConsent] = useState(false);
+  const [voiceSessions, setVoiceSessions] = useState(0);
+  // The symptom microphone's transcript: null, 'unchanged' or 'edited'.
+  const [dictation, setDictation] = useState(null);
+  // When the assistant began on this patient, on a clock nobody can reset.
+  // The visit row is only created at the first assessment, so its created_at
+  // is not when the intake started.
+  const intakeStartRef = useRef(null);
 
   // Real Microphone Recording Refs
   const mediaRecorderRef = useRef(null);
@@ -127,6 +138,7 @@ export default function PatientAssessmentVisitPage() {
       // Aadhaar is the key and travels in the body, never the URL.
       const pRes = await api.post('/patients/detail', { aadhaar_number: patientId });
       setPatient(pRes.data);
+      if (intakeStartRef.current === null) intakeStartRef.current = performance.now();
 
       /*
        * Adopt today's visit if the patient already has one.
@@ -169,7 +181,10 @@ export default function PatientAssessmentVisitPage() {
       symptom_duration_unit: durationUnit,
       medical_history: medicalHistory || null,
       known_allergies: knownAllergies || null,
-      vitals
+      vitals,
+      intake_elapsed_seconds: intakeStartRef.current === null
+        ? null
+        : Math.round((performance.now() - intakeStartRef.current) / 1000)
     });
     setVisitId(vRes.data.id);
     return vRes.data.id;
@@ -177,11 +192,87 @@ export default function PatientAssessmentVisitPage() {
 
   // Vitals still sitting at their pre-filled default, i.e. never confirmed
   // against the patient in front of the assistant.
-  const untouchedVitals = VITAL_FIELDS.filter((f) => !confirmedVitals.has(f.key));
+  // A heard vital is not "at the default", and the all-correct shortcut must not
+  // wave it through: it is checked on its own, beside the number.
+  const untouchedVitals = VITAL_FIELDS.filter((f) => !confirmedVitals.has(f.key) && !voiceFields.has(f.key));
+
+  /**
+   * A person has checked a value the CHATBOX filled — by editing it, or by
+   * saying it is right. Either way it is theirs now, and a checked vital counts
+   * as confirmed against the patient.
+   */
+  const checkHeard = (key) => {
+    setVoiceFields((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    if (VITAL_FIELDS.some((f) => f.key === key)) {
+      setConfirmedVitals((prev) => new Set(prev).add(key));
+    }
+  };
+
+  const heardBadge = (key) => {
+    if (!heardFields.has(key)) return null;
+    if (!voiceFields.has(key)) {
+      return (
+        <span className="ml-1.5 font-normal text-[10px] text-ink-subtle">
+          {t('assess.heardChecked', 'heard · checked')}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => checkHeard(key)}
+        className="ml-1.5 px-1.5 rounded bg-gov-50 border border-gov-200 font-semibold text-[10px] text-gov-700 hover:bg-gov-100"
+      >
+        {t('assess.heardConfirm', 'heard — tap when checked')}
+      </button>
+    );
+  };
+
+  /**
+   * Where every value on the form came from, sent with each assessment.
+   *
+   * A vital still equal to the form's starting value is a default whether or
+   * not someone retyped the same number; "All measured and correct" makes it a
+   * confirmed default, never a typed one.
+   */
+  const buildIntakeProvenance = () => {
+    const fields = {};
+    const heard = (key) => ({ source: 'voice', confirmed: !voiceFields.has(key) });
+
+    if (heardFields.has('symptoms')) fields.symptoms = heard('symptoms');
+    else if (dictation) fields.symptoms = { source: 'dictated', confirmed: dictation === 'edited' };
+    else if (symptomsText.trim()) fields.symptoms = { source: 'typed' };
+
+    const text = { duration: durationValue, medical_history: medicalHistory, known_allergies: knownAllergies };
+    for (const [key, value] of Object.entries(text)) {
+      if (heardFields.has(key)) fields[key] = heard(key);
+      else if (String(value || '').trim()) fields[key] = { source: 'typed' };
+    }
+
+    for (const f of VITAL_FIELDS) {
+      // A cleared field was neither typed nor defaulted; it has no value to describe.
+      if (String(vitals[f.key] ?? '').trim() === '') continue;
+      if (heardFields.has(f.key)) fields[f.key] = heard(f.key);
+      else if (String(vitals[f.key]) === String(f.normal)) {
+        fields[f.key] = { source: 'default', confirmed: confirmedVitals.has(f.key) };
+      } else fields[f.key] = { source: 'typed' };
+    }
+
+    return {
+      fields,
+      voice: heardFields.size ? { consent: voiceConsent, sessions: voiceSessions } : undefined
+    };
+  };
 
   const handleVitalsChange = (field, value) => {
     setVitals((prev) => ({ ...prev, [field]: value }));
     setConfirmedVitals((prev) => new Set(prev).add(field));
+    checkHeard(field);
     setVitalErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
   };
 
@@ -223,6 +314,8 @@ export default function PatientAssessmentVisitPage() {
     }
 
     setVoiceFields(heard);
+    setHeardFields((prev) => new Set([...prev, ...heard]));
+    setVoiceSessions((n) => n + 1);
     if (unusable.length) {
       console.info('CHATBOX heard fields this form has nowhere to put:', unusable.join(', '));
     }
@@ -265,6 +358,7 @@ export default function PatientAssessmentVisitPage() {
           });
           if (res.data.transcript) {
             setSymptomsText(res.data.transcript);
+            setDictation('unchanged');
             setDetectedLanguage(res.data.detected_language || t('voice.detected', 'Detected'));
           } else if (res.data.reason) {
             // Never leave the assistant guessing. The backend deliberately
@@ -297,6 +391,7 @@ export default function PatientAssessmentVisitPage() {
           }
           if (current) {
             setSymptomsText(current);
+            setDictation('unchanged');
             setDetectedLanguage(language.native);
           }
         };
@@ -573,6 +668,14 @@ export default function PatientAssessmentVisitPage() {
       alert(t('assess.needSymptoms', 'Enter the patient’s symptoms before generating the AI assessment.'));
       return;
     }
+    if (voiceFields.size > 0) {
+      const onlyVitals = [...voiceFields].every((key) => VITAL_FIELDS.some((f) => f.key === key));
+      setActiveTab(onlyVitals ? 'vitals' : 'symptoms');
+      alert(t('assess.checkHeard',
+        'Check the {count} value(s) the CHATBOX filled before assessing — correct each one, or tap “heard — tap when checked” beside it.',
+        { count: formatNumber(voiceFields.size) }));
+      return;
+    }
     const error = validateVitalsBounds();
     if (error) {
       setVitalsError(error);
@@ -594,7 +697,8 @@ export default function PatientAssessmentVisitPage() {
         known_allergies: knownAllergies,
         vitals,
         verified_ocr_data: verifiedOCRData,
-        vision_observation: visionObservation
+        vision_observation: visionObservation,
+        intake_provenance: buildIntakeProvenance()
       };
 
       const res = await api.post('/ai/assess', payload);
@@ -918,17 +1022,17 @@ export default function PatientAssessmentVisitPage() {
             <div>
               <label className="block text-xs font-semibold text-ink-muted mb-1">
                 {t('assess.complaintLabel', 'Chief complaint & symptoms — speak or type in {language}', { language: language.native })}
-                {voiceFields.has('symptoms') && (
-                  <span className="ml-1.5 font-normal text-[10px] text-gov-700">
-                    {t('assess.heard', 'heard — check it')}
-                  </span>
-                )}
+                {heardBadge('symptoms')}
               </label>
               <div className="relative">
                 <textarea
                   rows={4}
                   value={symptomsText}
-                  onChange={(e) => setSymptomsText(e.target.value)}
+                  onChange={(e) => {
+                    setSymptomsText(e.target.value);
+                    checkHeard('symptoms');
+                    if (dictation === 'unchanged') setDictation('edited');
+                  }}
                   className="w-full bg-surface-raised border border-line-strong rounded-field p-3 text-xs text-ink focus:border-gov-500 outline-none leading-relaxed"
                   placeholder={t('assess.complaintPlaceholder', 'Record symptoms using the microphone, or type here…')}
                 />
@@ -965,6 +1069,7 @@ export default function PatientAssessmentVisitPage() {
               <div>
                 <label className="block text-xs font-semibold text-ink-muted mb-1">
                   {t('assess.duration', 'Symptom duration')} <span className="text-tier-emergency">*</span>
+                  {heardBadge('duration')}
                 </label>
                 {/* A number and a unit, not free text — "2" alone is
                     meaningless and the triage rules read this. */}
@@ -975,7 +1080,10 @@ export default function PatientAssessmentVisitPage() {
                     max="999"
                     inputMode="numeric"
                     value={durationValue}
-                    onChange={(e) => setDurationValue(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    onChange={(e) => {
+                      setDurationValue(e.target.value.replace(/\D/g, '').slice(0, 3));
+                      checkHeard('duration');
+                    }}
                     placeholder={t('assess.durationPlaceholder', 'e.g. 3')}
                     aria-label={t('assess.durationAria', 'Symptom duration amount')}
                     className="w-24 bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none"
@@ -991,7 +1099,7 @@ export default function PatientAssessmentVisitPage() {
                       <button
                         key={u}
                         type="button"
-                        onClick={() => setDurationUnit(u)}
+                        onClick={() => { setDurationUnit(u); checkHeard('duration'); }}
                         className={`px-3 py-2 text-xs font-semibold capitalize transition-colors ${
                           durationUnit === u
                             ? 'bg-gov-600 text-white'
@@ -1019,11 +1127,12 @@ export default function PatientAssessmentVisitPage() {
               <div>
                 <label className="block text-xs font-semibold text-ink-muted mb-1">
                   {t('assess.history', 'Known medical history / chronic illness')}
+                  {heardBadge('medical_history')}
                 </label>
                 <textarea
                   rows={2}
                   value={medicalHistory}
-                  onChange={(e) => setMedicalHistory(e.target.value)}
+                  onChange={(e) => { setMedicalHistory(e.target.value); checkHeard('medical_history'); }}
                   placeholder={t('assess.historyPlaceholder', 'e.g. Type 2 diabetes since 2019, hypertension')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
                 />
@@ -1035,11 +1144,12 @@ export default function PatientAssessmentVisitPage() {
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-ink-muted mb-1">
                   {t('assess.allergies', 'Known allergies')}
+                  {heardBadge('known_allergies')}
                 </label>
                 <input
                   type="text"
                   value={knownAllergies}
-                  onChange={(e) => setKnownAllergies(e.target.value)}
+                  onChange={(e) => { setKnownAllergies(e.target.value); checkHeard('known_allergies'); }}
                   placeholder={t('assess.allergiesPlaceholder', 'e.g. Penicillin — rash. Enter None if the patient reports none.')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
                 />
@@ -1093,7 +1203,7 @@ export default function PatientAssessmentVisitPage() {
               {t('assess.confirmEach', 'Confirm each against the patient before assessing.')}
               <button
                 type="button"
-                onClick={() => setConfirmedVitals(new Set(VITAL_FIELDS.map((f) => f.key)))}
+                onClick={() => setConfirmedVitals((prev) => new Set([...prev, ...untouchedVitals.map((f) => f.key)]))}
                 className="ml-2 underline font-semibold hover:text-tier-moderate"
               >
                 {t('assess.allMeasured', 'All measured and correct')}
@@ -1117,11 +1227,7 @@ export default function PatientAssessmentVisitPage() {
                     {/* A number that arrived by voice was read off a screen,
                         not taken from an arm. It says so until the assistant
                         touches it — at which point it becomes theirs. */}
-                    {voiceFields.has(f.key) && (
-                      <span className="ml-1.5 font-normal text-[10px] text-gov-700">
-                        {t('assess.heard', 'heard — check it')}
-                      </span>
-                    )}
+                    {heardBadge(f.key)}
                   </label>
                   <input
                     id={`vital-${f.key}`}
@@ -1775,6 +1881,8 @@ export default function PatientAssessmentVisitPage() {
           language={lang}
           speechLang={speechTag(lang)}
           onApply={applyChatboxValues}
+          consent={voiceConsent}
+          onConsent={() => setVoiceConsent(true)}
           typed={{
             chief_complaint: symptomsText,
             medical_history: medicalHistory,

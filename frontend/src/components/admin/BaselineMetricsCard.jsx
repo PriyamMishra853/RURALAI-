@@ -17,7 +17,12 @@ import { useI18n } from '../../i18n/index.jsx';
  */
 
 const ROWS = [
-  { field: 'intake_minutes', labelKey: 'admin.baseline.intake', label: 'Registration to AI assessment' },
+  // Measured from when the assistant opened the patient (migration 17). The old
+  // start was the visit row, created at the assessment itself, so it read ~11 s.
+  { field: 'intake_minutes', labelKey: 'admin.baseline.intakeOpened', label: 'Intake: patient opened to AI assessment' },
+  // The comparison the CHATBOX exists to win. Absent until migration 17.
+  { field: 'intake_manual', pick: (d) => d?.intake_minutes_by_mode?.manual, sub: true, labelKey: 'admin.baseline.intakeManual', label: 'typed or dictated' },
+  { field: 'intake_voice', pick: (d) => d?.intake_minutes_by_mode?.voice_assisted, sub: true, labelKey: 'admin.baseline.intakeVoice', label: 'with the CHATBOX' },
   { field: 'registration_to_decision_minutes', labelKey: 'admin.baseline.decision', label: 'Registration to doctor decision' },
   { field: 'handoff_to_decision_minutes', labelKey: 'admin.baseline.handoff', label: 'Handed to a doctor, to decision' },
   { field: 'instant_consult_wait_minutes', labelKey: 'admin.baseline.instantWait', label: 'Instant consultation wait' },
@@ -97,10 +102,11 @@ export default function BaselineMetricsCard() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {ROWS.map((row) => {
-                    const m = data?.[row.field] || {};
+                    if (row.pick && !row.pick(data)) return null;
+                    const m = (row.pick ? row.pick(data) : data?.[row.field]) || {};
                     return (
                       <tr key={row.field}>
-                        <td className="py-2 pr-3 text-ink">{t(row.labelKey, row.label)}</td>
+                        <td className={`py-2 pr-3 ${row.sub ? 'pl-4 text-ink-muted' : 'text-ink'}`}>{t(row.labelKey, row.label)}</td>
                         <td className="py-2 px-3 text-right tabular-nums text-ink-muted">{formatNumber(m.n ?? 0)}</td>
                         <td className="py-2 px-3 text-right tabular-nums font-semibold text-ink">{minutes(m.median)}</td>
                         <td className="py-2 pl-3 text-right tabular-nums text-ink">{minutes(m.p90)}</td>
@@ -116,6 +122,27 @@ export default function BaselineMetricsCard() {
                 count: formatNumber(data?.follow_up_decisions ?? 0)
               })}
             </p>
+
+            {/* Present once migration 17 is applied. A default nobody confirmed is
+                a number the triage engine acted on without anyone measuring it. */}
+            {data?.intake_provenance?.recorded > 0 && (
+              <p className="text-[11px] text-ink-muted mt-2">
+                {t('admin.baseline.defaultsUnconfirmed', 'Intake record: {count} of {recorded} assessed intakes ran on at least one vital left at its default and never confirmed.', {
+                  count: formatNumber(data.intake_provenance.with_unconfirmed_defaults),
+                  recorded: formatNumber(data.intake_provenance.recorded)
+                })}
+                {data.intake_provenance.voice_assisted > 0 && (
+                  <>
+                    {' '}
+                    {t('admin.baseline.voiceChecked', 'CHATBOX: {confirmed} of {heard} heard values were checked by a person; {noConsent} voice intakes have no recorded consent.', {
+                      confirmed: formatNumber(data.intake_provenance.voice_fields_confirmed),
+                      heard: formatNumber(data.intake_provenance.voice_fields),
+                      noConsent: formatNumber(data.intake_provenance.voice_without_consent)
+                    })}
+                  </>
+                )}
+              </p>
+            )}
 
             {/* Present once migration 16 is applied. An unknown past its
                 follow-up time counts against completion, never for it. */}

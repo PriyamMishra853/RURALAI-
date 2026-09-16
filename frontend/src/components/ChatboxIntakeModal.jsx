@@ -71,7 +71,9 @@ const label = (t, field) => {
   return names[field] || field;
 };
 
-export default function ChatboxIntakeModal({ open, onClose, typed, onApply, language = 'en', speechLang = 'en-IN' }) {
+export default function ChatboxIntakeModal({
+  open, onClose, typed, onApply, consent = false, onConsent, language = 'en', speechLang = 'en-IN'
+}) {
   const { t } = useI18n();
   const [recording, setRecording] = useState(false);
   const [stage, setStage] = useState('idle');       // idle · transcribing · reading · done · failed
@@ -129,6 +131,9 @@ export default function ChatboxIntakeModal({ open, onClose, typed, onApply, lang
   };
 
   const start = async () => {
+    // The audio leaves the building for transcription, so nothing is recorded
+    // until the assistant has said the patient agreed.
+    if (!consent) return;
     setProblem(null);
     setProposal(null);
     try {
@@ -232,16 +237,28 @@ export default function ChatboxIntakeModal({ open, onClose, typed, onApply, lang
         </div>
 
         <div className="p-5 space-y-4">
-          <p className="text-[11px] text-ink-muted bg-surface-sunken border border-line rounded-field p-3">
-            {t('chatbox.privacy',
-              'The recording is sent for transcription and is not stored — not the audio, not the text. '
-              + 'Tell the patient before you record.')}
-          </p>
+          {/* Consent is a recorded act, not a line of small print. Once given it
+              stays for this patient's form; if the patient changes their mind,
+              close the CHATBOX and type. */}
+          <label className="flex items-start gap-2 text-[11px] text-ink-muted bg-surface-sunken border border-line rounded-field p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={consent}
+              disabled={consent}
+              onChange={(e) => { if (e.target.checked) onConsent?.(); }}
+            />
+            <span>
+              {t('chatbox.consentLine',
+                'The recording is sent for transcription and is not stored — not the audio, not the text. '
+                + 'I have told the patient, and they agree to be recorded.')}
+            </span>
+          </label>
 
           <button
             type="button"
             onClick={recording ? stop : start}
-            disabled={stage === 'transcribing' || stage === 'reading'}
+            disabled={!consent || stage === 'transcribing' || stage === 'reading'}
             className={`w-full py-3 rounded-field font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-60 ${
               recording ? 'bg-tier-emergency text-white animate-pulse' : 'bg-gov-600 text-white hover:bg-gov-700'
             }`}

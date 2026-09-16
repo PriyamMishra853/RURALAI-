@@ -643,7 +643,7 @@ Effort is relative: **S** small, **M** medium, **L** large, **XL** very large.
 | Migrations 12 and 13 applied on production | Done 2026-09-14. They had never run: `db:migrate` issued queries on a client it never connected, and exited silently. Fixed, applied, verified |
 | Seed command removed from the Railway start configuration | To verify |
 | Feature-flag mechanism, default off | Built — `FEATURE_FLAGS` on the server, `GET /api/features` for the client; a disabled feature's routes answer 404 |
-| Baseline measurements: intake duration, registration to doctor decision, consultation wait | Built behind `baseline_metrics` — `baseline_metrics()` (migration 14), `GET /api/admin/metrics/baseline`, admin dashboard card. Migration 14 applied on production 2026-09-14 |
+| Baseline measurements: intake duration, registration to doctor decision, consultation wait | Built behind `baseline_metrics` — `baseline_metrics()` (migration 14), `GET /api/admin/metrics/baseline`, admin dashboard card. Migration 14 applied on production 2026-09-14. **Intake duration was wrong until migration 17:** it started at the visit row, which is created at the first assessment, and read a median of 11 s on the 30 real visits. It now starts when the assistant opens the patient, and older visits are excluded |
 
 **Exit criteria.** The checkpoint deploys and runs unchanged. Baselines recorded.
 Flags available for every later phase.
@@ -700,11 +700,19 @@ completion is a measured number.
 > marked *heard — check it* until the assistant touches it. It stores nothing —
 > no audio, no transcript, no draft.
 >
-> **Not done:** consent capture and a transcript retention policy (which is
-> exactly why it stores nothing yet); the per-field provenance column F3 depends
-> on; the scripted audio test set; and the measurement this feature exists to
-> justify — intake time against the manual baseline. It has never been run
-> against a real microphone, because that needs the flag on in a deployment.
+> **Provenance and measurement (migration 17):** every assessment records where each
+> value came from — typed, dictated, voice or a never-touched default — and whether a
+> person confirmed it; the intake start is recorded from the client's elapsed time;
+> the baseline splits intake time into manual and voice-assisted. A heard value
+> carries a *heard — tap when checked* control, the assessment waits until every
+> heard value is checked or corrected, and "All measured and correct" no longer
+> waves heard vitals through. Recording is disabled until the assistant ticks that
+> the patient agreed, and that consent is part of the record.
+>
+> **Not done:** a transcript retention policy (nothing is retained, so none is
+> needed yet); the scripted audio test set; and a real result for intake time,
+> which needs the flags on and real intakes. It has never been run against a real
+> microphone. The doctor's case view does not yet show which values were heard.
 
 **Goal.** Voice-driven intake that fills the manual form, measured against typing.
 

@@ -204,10 +204,17 @@ Router guards: `authenticateUser` → `denyAdminClinicalAccess`.
 { "aadhaar_number": "…", "chief_complaint": "…",
   "symptom_duration_value": 3, "symptom_duration_unit": "days",
   "medical_history": "…", "known_allergies": "…", "current_medications": "…",
-  "vitals": { … }, "symptoms": ["…"], "assigned_doctor_id": "…" }
+  "vitals": { … }, "symptoms": ["…"], "assigned_doctor_id": "…",
+  "intake_elapsed_seconds": 312 }
 ```
 Vitals are range-checked before insert. A named doctor must be active and in the
 caller's district.
+
+`intake_elapsed_seconds` is how long the assistant has been on this patient, measured
+on the client's monotonic clock. The server stores `intake_started_at = now − elapsed`
+(0–4 h, otherwise ignored), in a separate write that can never fail the visit. This
+row is created at the first assessment or upload, so `created_at` is not the start of
+the intake.
 
 **201** the visit · **400** vitals failed validation, with `details[]` ·
 **404** no such patient in your district
@@ -326,8 +333,20 @@ Alias: `POST /api/ai/analyze-patient`.
 ```json
 { "visit_id": "…", "patient_id": "…", "symptoms": "…",
   "symptom_duration": "3 days", "medical_history": "…", "known_allergies": "…",
-  "vitals": { … }, "verified_ocr_data": { … }, "vision_observation": { … } }
+  "vitals": { … }, "verified_ocr_data": { … }, "vision_observation": { … },
+  "intake_provenance": {
+    "fields": { "symptoms": { "source": "voice", "confirmed": true },
+                "temperature": { "source": "default", "confirmed": false },
+                "pulse": { "source": "typed" } },
+    "voice": { "consent": true, "sessions": 1 } } }
 ```
+
+`intake_provenance` is optional. Sources are `typed`, `dictated` (symptom
+microphone), `voice` (CHATBOX) and `default` (the form's starting value). Only
+`typed` is confirmed by itself; every other source is confirmed only on an explicit
+`true`. Unknown fields and sources are dropped. The normalised record, with `mode`
+(`manual` | `voice_assisted`) and counts, replaces `visits.intake_provenance`, scoped
+to the caller's district, and a failed write never fails the assessment.
 
 **200** — the assessment plus the tier workflow:
 ```json
@@ -779,13 +798,25 @@ clamped to 1–365 (default 30). Demo data is excluded unless `includeDemo=true`
 { "scope": "state", "generated_at": "…", "window_days": 30, "include_demo": false,
   "visits": 120,
   "intake_minutes":                        { "n": 110, "median": 3.5,  "p90": 12.0 },
+  "intake_minutes_by_mode": { "manual":         { "n": 96, "median": 3.9, "p90": 12.5 },
+                              "voice_assisted": { "n": 14, "median": 2.6, "p90": 6.0 } },
+  "intake_provenance": { "recorded": 110, "with_unconfirmed_defaults": 31, "voice_assisted": 14,
+                         "voice_fields": 52, "voice_fields_confirmed": 52, "voice_without_consent": 0 },
   "registration_to_decision_minutes":      { "n": 40,  "median": 22.0, "p90": 95.0 },
   "handoff_to_decision_minutes":           { "n": 38,  "median": 9.0,  "p90": 41.0 },
   "instant_consult_wait_minutes":          { "n": 0,   "median": null, "p90": null },
   "scheduled_consult_start_delay_minutes": { "n": 6,   "median": -1.5, "p90": 4.0 },
   "follow_up_decisions": 7,
-  "not_yet_measurable": { "referral_completion": "…", "follow_up_adherence": "…" } }
+  "referral_completion": { "due": 9, "reached": 6, "not_reached": 1, "unknown": 2, "rate": 0.667 },
+  "not_yet_measurable": { "follow_up_adherence": "…" } }
 ```
+
+Since migration 17, intake runs from `intake_started_at` (when the assistant opened
+the patient) to the first assessment, and visits without a recorded start are left
+out rather than counted from `created_at`, which gave a median of 11 seconds on real
+visits. `registration_to_decision` uses the recorded start where there is one.
+`intake_minutes_by_mode` is the CHATBOX comparison: dictating into the symptom field
+counts as manual.
 
 Illustrative figures. Medians, 90th percentiles and counts only, so no patient,
 visit or staff member is identifiable. Read `n` before the median. A negative
