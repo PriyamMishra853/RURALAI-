@@ -26,6 +26,8 @@ const makeChain = (table) => {
     select() { return chain; },
     eq(col, val) { filters[col] = val; return chain; },
     gt() { return chain; },
+    in(col, vals) { filters[col] = { in: vals }; return chain; },
+    lt(col, val) { filters[col] = { lt: val }; return chain; },
     order() { return chain; },
     limit() { return chain; },
     insert(rows) {
@@ -35,12 +37,9 @@ const makeChain = (table) => {
       chain._row = row;
       return chain;
     },
-    update(patch) {
-      db.updates.push({ table, patch, filters: { ...filters } });
-      const target = db.jobs.find((j) => j.id === filters.id);
-      if (target) Object.assign(target, patch);
-      return chain;
-    },
+    // Deferred, like the real client: `.update()` is called BEFORE the filters
+    // that narrow it, so applying the patch here would match every row.
+    update(patch) { chain._update = patch; return chain; },
     single: async () => ({ data: chain._row || null, error: null }),
     async maybeSingle() {
       const hit = db.jobs.find((j) =>
@@ -51,7 +50,20 @@ const makeChain = (table) => {
         && (filters.requested_by === undefined || j.requested_by === filters.requested_by));
       return { data: hit || null, error: null };
     },
-    then(resolve) { return Promise.resolve({ data: null, error: null }).then(resolve); }
+    then(resolve) {
+      let data = null;
+      if (chain._update) {
+        db.updates.push({ table, patch: chain._update, filters: { ...filters } });
+        const matched = db.jobs.filter((j) =>
+          (filters.id === undefined || j.id === filters.id)
+          && (filters.status?.in === undefined || filters.status.in.includes(j.status))
+          && (filters.created_at?.lt === undefined || j.created_at < filters.created_at.lt));
+        matched.forEach((j) => Object.assign(j, chain._update));
+        data = matched.map((j) => ({ id: j.id }));
+        chain._update = null;
+      }
+      return Promise.resolve({ data, error: null }).then(resolve);
+    }
   };
   return chain;
 };
@@ -72,7 +84,7 @@ jest.unstable_mockModule('../src/services/notificationService.js', () => ({
 }));
 
 const {
-  contentHash, findFreshExtraction, createJob, processJob, getJob
+  contentHash, findFreshExtraction, createJob, processJob, getJob, recoverAbandonedJobs
 } = await import('../src/services/documentJobs.js');
 
 const file = (text) => ({ buffer: Buffer.from(text), mimetype: 'image/jpeg' });
@@ -105,6 +117,42 @@ describe('content hashing', () => {
 
   it('is a full sha-256', () => {
     expect(contentHash([file('x')])).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('jobs abandoned by a restart', () => {
+  const old = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const justNow = new Date().toISOString();
+
+  it('closes a job the last container died holding, with an answer the operator can act on', async () => {
+    db.jobs.push({ id: 'job-stuck', status: 'running', created_at: old });
+
+    expect(await recoverAbandonedJobs()).toBe(1);
+
+    const row = db.jobs.find((j) => j.id === 'job-stuck');
+    expect(row.status).toBe('failed');
+    expect(row.error).toMatch(/upload it again/i);
+    expect(row.finished_at).toBeTruthy();
+  });
+
+  it('closes one that never started, not only one that was running', async () => {
+    db.jobs.push({ id: 'job-queued', status: 'queued', created_at: old });
+    await recoverAbandonedJobs();
+    expect(db.jobs.find((j) => j.id === 'job-queued').status).toBe('failed');
+  });
+
+  it('leaves a job younger than the model deadline alone', async () => {
+    // It may be running this second — here, or in another instance later on.
+    db.jobs.push({ id: 'job-live', status: 'running', created_at: justNow });
+
+    expect(await recoverAbandonedJobs()).toBe(0);
+    expect(db.jobs.find((j) => j.id === 'job-live').status).toBe('running');
+  });
+
+  it('does not reopen a job that already finished', async () => {
+    db.jobs.push({ id: 'job-done', status: 'done', created_at: old, extraction: { medications: [] } });
+    await recoverAbandonedJobs();
+    expect(db.jobs.find((j) => j.id === 'job-done').status).toBe('done');
   });
 });
 
