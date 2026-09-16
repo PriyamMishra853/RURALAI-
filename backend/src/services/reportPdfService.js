@@ -115,16 +115,24 @@ function keyValues(doc, L, pairs) {
   const colWidth = (doc.page.width - 80) / 2;
   let col = 0;
   let rowY = doc.y;
+  // The lowest point either column reached. A row ends below its taller cell,
+  // and a list with an odd number of pairs ends below its last left cell —
+  // not at the top of that row, where the next section used to be drawn over it.
+  let bottom = doc.y;
 
   for (const [k, v] of pairs) {
     if (v === null || v === undefined || v === '') continue;
     const x = 40 + col * colWidth;
     doc.fillColor(MUTED).text(`${k}`, x, rowY, { width: colWidth - 10, continued: false });
     doc.fillColor(INK).font(L.fonts.bold).text(String(v), x, doc.y, { width: colWidth - 10 });
+    bottom = Math.max(bottom, doc.y);
     doc.font(L.fonts.regular);
-    if (col === 1) { rowY = doc.y + 4; col = 0; } else { doc.y = rowY; col = 1; }
+    if (col === 1) { rowY = bottom + 4; col = 0; } else { doc.y = rowY; col = 1; }
   }
-  doc.y = rowY + 8;
+  // Back to the left margin: text after this used to start in the right-hand
+  // column at full page width and run off the edge of the slip.
+  doc.x = 40;
+  doc.y = Math.max(bottom, rowY) + 8;
 }
 
 function bullets(doc, L, items, { colour = INK } = {}) {
@@ -136,6 +144,8 @@ function bullets(doc, L, items, { colour = INK } = {}) {
     doc.moveDown(0.25);
   }
   doc.moveDown(0.4);
+  // Back to the margin, or every heading after a list is indented to the text.
+  doc.x = 40;
 }
 
 function footer(doc, L) {
