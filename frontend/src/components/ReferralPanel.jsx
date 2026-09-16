@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import TrackReferralButton from './TrackReferralButton';
 import {
   Siren, MapPin, Navigation, Phone, Loader2, AlertTriangle, ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -296,6 +297,9 @@ export default function ReferralPanel({ visitId, riskLevel, className }) {
         {primary && (
           <div className="space-y-3">
             <Hospital h={primary} t={t} num={formatNumber} />
+
+            {/* Closed loop: only a referral the assistant confirms is followed up. */}
+            <TrackReferralButton visitId={visitId} hospital={primary} />
 
             {/* How the distance was derived, said plainly — a centroid figure
                 and a real one are different claims. */}

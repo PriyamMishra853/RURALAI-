@@ -38,7 +38,9 @@ const EVENT_STYLE = {
   CASE_REFERRAL_DECLINED: { icon: ArrowRightLeft, tone: 'text-tier-emergency bg-tier-emergencyBg', key: 'notify.referralDeclined', label: 'Referral declined' },
   CASE_REFERRAL_COMPLETED:{ icon: ArrowRightLeft, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.referralCompleted', label: 'Opinion returned' },
   CASE_REFERRAL_RETURNED: { icon: ArrowRightLeft, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.referralReturned', label: 'Case handed back' },
-  CASE_REFERRAL_CANCELLED:{ icon: ArrowRightLeft, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.referralCancelled', label: 'Referral withdrawn' }
+  CASE_REFERRAL_CANCELLED:{ icon: ArrowRightLeft, tone: 'text-ink-muted bg-surface-sunken', key: 'notify.referralCancelled', label: 'Referral withdrawn' },
+  REFERRAL_REACHED:       { icon: ArrowRightLeft, tone: 'text-tier-low bg-tier-lowBg', key: 'notify.referralReached', label: 'Patient reached hospital' },
+  REFERRAL_OUTCOME:       { icon: ArrowRightLeft, tone: 'text-gov-700 bg-gov-50', key: 'notify.referralOutcome', label: 'Hospital recorded the outcome' }
 };
 
 // Anything not listed above is still shown, plainly. It used to fall through to
@@ -90,6 +92,16 @@ const destinationFor = (n, t, role) => {
         return p.patient_id
           ? { to: '/assistant/assessment/' + p.patient_id, label: t('notify.viewCase', 'View case') }
           : null;
+      }
+      return p.visit_id
+        ? { to: '/doctor/cases/' + p.visit_id, label: t('notify.openCase', 'Open case') }
+        : null;
+    case 'REFERRAL_REACHED':
+    case 'REFERRAL_OUTCOME':
+      // The hospital closed part of the loop. An assistant follows referrals up
+      // from the dashboard worklist; a doctor sees it on the case.
+      if (role === 'CLINIC_ASSISTANT') {
+        return { to: '/assistant/dashboard', label: t('notify.viewFollowUps', 'View follow-ups') };
       }
       return p.visit_id
         ? { to: '/doctor/cases/' + p.visit_id, label: t('notify.openCase', 'Open case') }

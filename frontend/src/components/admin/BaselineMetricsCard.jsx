@@ -117,14 +117,33 @@ export default function BaselineMetricsCard() {
               })}
             </p>
 
-            {data?.not_yet_measurable && (
+            {/* Present once migration 16 is applied. An unknown past its
+                follow-up time counts against completion, never for it. */}
+            {data?.referral_completion && (
+              <p className="text-[11px] text-ink-muted mt-2">
+                {data.referral_completion.due > 0
+                  ? t('admin.baseline.referralRate', 'Referral completion: {reached} of {due} referrals past their follow-up time are known to have reached hospital ({rate}%). {unknown} are still unknown.', {
+                    reached: formatNumber(data.referral_completion.reached),
+                    due: formatNumber(data.referral_completion.due),
+                    rate: formatNumber(Math.round((data.referral_completion.rate || 0) * 100)),
+                    unknown: formatNumber(data.referral_completion.unknown)
+                  })
+                  : t('admin.baseline.referralNone', 'Referral completion: no tracked referral has reached its follow-up time yet.')}
+              </p>
+            )}
+
+            {data?.not_yet_measurable && Object.keys(data.not_yet_measurable).length > 0 && (
               <div className="mt-3 p-3 rounded-field bg-surface-sunken border border-line">
                 <p className="text-[11px] font-semibold text-ink">
                   {t('admin.baseline.notMeasurable', 'Not yet measurable')}
                 </p>
                 <ul className="mt-1 space-y-1 text-[11px] text-ink-muted list-disc pl-4">
-                  <li>{t('admin.baseline.referralCompletion', 'Referral completion: facility referrals have no status yet, so arrival and outcome are unknown.')}</li>
-                  <li>{t('admin.baseline.followUpAdherence', 'Follow-up adherence: nothing schedules a follow-up yet, so adherence cannot be counted.')}</li>
+                  {data.not_yet_measurable.referral_completion && (
+                    <li>{t('admin.baseline.referralCompletion', 'Referral completion: facility referrals have no status yet, so arrival and outcome are unknown.')}</li>
+                  )}
+                  {data.not_yet_measurable.follow_up_adherence && (
+                    <li>{t('admin.baseline.followUpAdherence', 'Follow-up adherence: nothing schedules a follow-up yet, so adherence cannot be counted.')}</li>
+                  )}
                 </ul>
               </div>
             )}

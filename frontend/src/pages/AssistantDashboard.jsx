@@ -12,6 +12,7 @@ import { TierBadge } from '../components/TierSystem';
 import { maskAadhaar } from '../config/patientFields';
 import { Button, Card, CardHeader, Stat, Alert, EmptyState, Spinner, Badge, cn } from '../components/ui';
 import UrgentRegistrationModal from '../components/UrgentRegistrationModal';
+import ReferralFollowUpsCard from '../components/ReferralFollowUpsCard';
 import { useI18n } from '../i18n/index.jsx';
 import { consultationStatusLabel, joinActionLabel } from '../i18n/serverLabels.js';
 
@@ -336,6 +337,9 @@ export default function AssistantDashboard() {
           )}
         </div>
       </Card>
+
+      {/* ---- Referral follow-ups: renders nothing unless referral_tracking is on ---- */}
+      <ReferralFollowUpsCard />
 
       {/* ---- Emergency bypass ---- */}
       <Card className="border-l-4 border-l-tier-emergency">

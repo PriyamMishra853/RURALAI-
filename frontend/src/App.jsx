@@ -24,6 +24,7 @@ import DoctorCaseViewPage from './pages/DoctorCaseViewPage';
 
 import AdminDashboard from './pages/AdminDashboard';
 import CallPage from './pages/CallPage';
+import HospitalReferralPage from './pages/HospitalReferralPage';
 
 /**
  * Route table.
@@ -57,6 +58,9 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            {/* The hospital acknowledgement link. Public on purpose: the receiving
+                hospital has no account here. The token is the only credential. */}
+            <Route path="/r/:token" element={<HospitalReferralPage />} />
             {/*
               There is deliberately no /register route. Doctor and clinic
               assistant accounts are created by an administrator through the
