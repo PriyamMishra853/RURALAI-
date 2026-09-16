@@ -13,6 +13,8 @@ import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { aiRateLimiter } from '../middleware/rateLimit.middleware.js';
 import { ROLES } from '../config/roles.js';
+import { requireFeature, FEATURES } from '../config/features.js';
+import { extractIntake } from '../controllers/intake.controller.js';
 
 // Cap upload size: memoryStorage buffers the whole file in heap, so an
 // unbounded upload is a trivial denial-of-service.
@@ -59,5 +61,15 @@ router.post('/analyze-document', upload.single('file'), analyzeDocumentAI);
 router.post('/risk-assessment', getRiskAssessment);
 router.post('/analyze-image', upload.single('image'), analyzeImageAI);
 router.post('/interpret-report', authorizeRoles('CLINIC_ASSISTANT', 'DOCTOR'), interpretReport);
+
+// CHATBOX voice intake (Roadmap v3, F2). Behind voice_intake: with the flag
+// off this route answers 404, exactly as a route that was never written. It
+// reads a transcript and proposes form fields; it stores nothing.
+router.post(
+  '/intake-extract',
+  authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR),
+  requireFeature(FEATURES.VOICE_INTAKE),
+  extractIntake
+);
 
 export default router;
