@@ -26,6 +26,7 @@ import visionRoutes from './routes/vision.routes.js';
 import voiceRoutes from './routes/voice.routes.js';
 import referralTrackingRoutes from './routes/referralTracking.routes.js';
 import publicReferralRoutes from './routes/publicReferral.routes.js';
+import followUpRoutes from './routes/followUp.routes.js';
 
 const app = express();
 
@@ -208,6 +209,7 @@ app.use('/api/referral', referralRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/referral-tracking', referralTrackingRoutes);
+app.use('/api/follow-ups', followUpRoutes);
 // Deliberately unauthenticated — see publicReferral.routes.js.
 app.use('/api/public/referrals', publicReferralRoutes);
 

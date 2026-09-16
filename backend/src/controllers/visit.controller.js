@@ -5,6 +5,8 @@ import { notify, EVENTS } from '../services/notificationService.js';
 import { ROLES } from '../config/roles.js';
 import { validateVitalsRanges, DURATION_UNITS } from '../services/vitalsValidation.js';
 import { intakeStartedAt } from '../services/intakeProvenanceRules.js';
+import { isEnabled, FEATURES } from '../config/features.js';
+import { completeForReturnVisit } from '../services/followUpService.js';
 
 /**
  * Clinical visits.
@@ -170,6 +172,15 @@ export const createVisit = async (req, res) => {
     const { error: timingErr } = await supabaseAdmin
       .from('visits').update({ intake_started_at: startedAt }).eq('id', visit.id);
     if (timingErr) console.warn('intake start not recorded:', timingErr.message);
+  }
+
+  // The patient came back: this visit keeps any follow-up a doctor asked for.
+  if (isEnabled(FEATURES.FOLLOW_UP_TRACKING)) {
+    await completeForReturnVisit({
+      visit: { id: visit.id, patient_id: visit.patient_id || patient.aadhaar_number, created_at: visit.created_at || new Date().toISOString() },
+      actor: { id: req.user.id, role: req.user.role },
+      ip: req.ip
+    });
   }
 
   await logAuditEvent({

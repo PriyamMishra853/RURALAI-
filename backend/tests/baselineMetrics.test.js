@@ -94,6 +94,14 @@ describe('what the baseline says it cannot measure', () => {
     expect(res.body.not_yet_measurable.follow_up_adherence).toBeDefined();
   });
 
+  it('stops calling follow-up adherence unmeasurable once the figure exists', async () => {
+    rpcResult.data = { window_days: 30, follow_up_adherence: { due: 5, kept: 3, rate: 0.6 } };
+    const res = mockRes();
+    await getBaselineMetrics({ query: {}, scope: { kind: 'national' } }, res);
+    expect(res.body.follow_up_adherence.rate).toBe(0.6);
+    expect(res.body.not_yet_measurable.follow_up_adherence).toBeUndefined();
+  });
+
   it('fails loudly rather than returning an empty baseline', async () => {
     rpcResult.error = { message: 'function baseline_metrics does not exist' };
     const res = mockRes();

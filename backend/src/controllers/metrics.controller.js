@@ -56,7 +56,7 @@ export const getBaselineMetrics = async (req, res) => {
       // Only until migration 16: after it the function returns
       // referral_completion, and this note would contradict the figure beside it.
       ...(data?.referral_completion === undefined ? { referral_completion: 'Facility referrals have no status, so arrival and outcome are unknown. Closed-loop referral (Roadmap v3, Phase 1) makes this measurable.' } : {}),
-      follow_up_adherence: 'A follow-up decision stores a day count that nothing acts on. The follow-up engine (Roadmap v3, Phase 4) makes this measurable.'
+      ...(data?.follow_up_adherence === undefined ? { follow_up_adherence: 'A follow-up decision stores a day count that nothing acts on. The follow-up engine (Roadmap v3, Phase 4) makes this measurable.' } : {})
     }
   });
 };

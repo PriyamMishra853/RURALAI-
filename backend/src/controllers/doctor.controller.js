@@ -7,6 +7,8 @@ import { withSignedUrls } from '../services/imageAccess.js';
 import { isEnabled, FEATURES } from '../config/features.js';
 import { effectiveStatus } from '../services/caseReferralRules.js';
 import { createReferralForDecision } from '../services/hospitalReferralService.js';
+import { createFollowUpForDecision } from '../services/followUpService.js';
+import { parseDays, MIN_DAYS, MAX_DAYS } from '../services/followUpRules.js';
 
 /**
  * The doctor's caseload.
@@ -245,6 +247,11 @@ export const recordDoctorReview = async (req, res) => {
   if (decision === 'refer_hospital' && !String(referral_hospital || '').trim()) {
     return res.status(400).json({ error: 'Name the hospital you are referring the patient to.' });
   }
+  // Only enforced where a follow-up is actually scheduled from it: without the
+  // feature the day count is still just part of the note, as it always was.
+  if (decision === 'follow_up' && isEnabled(FEATURES.FOLLOW_UP_TRACKING) && !parseDays(follow_up_days)) {
+    return res.status(400).json({ error: `Follow up in how many days? Enter ${MIN_DAYS} to ${MAX_DAYS}.` });
+  }
 
   const meds = Array.isArray(prescriptions)
     ? prescriptions.filter((m) => m && String(m.name || '').trim())
@@ -336,6 +343,17 @@ export const recordDoctorReview = async (req, res) => {
     })
     : null;
 
+  // Follow-up recall (Roadmap v3, Phase 4): the day count becomes a scheduled
+  // follow-up the clinic works from. Never fails the review.
+  const scheduled = decision === 'follow_up' && isEnabled(FEATURES.FOLLOW_UP_TRACKING)
+    ? await createFollowUpForDecision({
+      visit: { ...visit, id: req.params.id },
+      doctor: { id: req.user.id, role: req.user.role },
+      days: follow_up_days,
+      ip: req.ip
+    })
+    : null;
+
   await logAuditEvent({
     actorId: req.user.id, actorRole: req.user.role,
     action: 'DOCTOR_REVIEW_RECORDED', entityType: 'VISITS',
@@ -389,6 +407,9 @@ export const recordDoctorReview = async (req, res) => {
         follow_up_due_at: tracked.referral.follow_up_due_at,
         ack_path: `/r/${tracked.ackToken}`
       }
+    } : {}),
+    ...(scheduled ? {
+      follow_up: { id: scheduled.id, due_at: scheduled.due_at, window_ends_at: scheduled.window_ends_at }
     } : {})
   });
 };

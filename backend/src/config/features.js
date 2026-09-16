@@ -28,7 +28,8 @@ export const FEATURES = {
   /** Phase 2 — F2, CHATBOX voice intake. */
   VOICE_INTAKE: 'voice_intake',
   /** Phase 1 — closed-loop hospital referral and the hospital acknowledgement link. */
-  REFERRAL_TRACKING: 'referral_tracking'
+  REFERRAL_TRACKING: 'referral_tracking',
+  FOLLOW_UP_TRACKING: 'follow_up_tracking'
 };
 
 const KNOWN = new Set(Object.values(FEATURES));
