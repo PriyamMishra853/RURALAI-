@@ -20,6 +20,8 @@ import DoctorReviewPanel from '../components/DoctorReviewPanel';
 import ReferralPanel from '../components/ReferralPanel';
 import { useI18n } from '../i18n/index.jsx';
 import { speechTag } from '../i18n/speech.js';
+import ChatboxIntakeModal from '../components/ChatboxIntakeModal';
+import { useFeature, FEATURES } from '../context/FeatureContext';
 
 export default function PatientAssessmentVisitPage() {
   const { t, lang, language, rtl, formatNumber, formatDate } = useI18n();
@@ -53,6 +55,14 @@ export default function PatientAssessmentVisitPage() {
   const [withdrawing, setWithdrawing] = useState(false);
   // Doctor selected by the assistant for case handoff / calls (core feature)
   const [selectedDoctor, setSelectedDoctor] = useState(null);
+
+  // CHATBOX voice intake (Roadmap v3, F2). Hidden unless this deployment has
+  // switched the feature on; the manual form below is unchanged either way.
+  const chatboxOn = useFeature(FEATURES.VOICE_INTAKE);
+  const [showChatbox, setShowChatbox] = useState(false);
+  // Which fields arrived by voice, so the form can say so rather than present
+  // them as though someone had typed them.
+  const [voiceFields, setVoiceFields] = useState(() => new Set());
 
   // Real Microphone Recording Refs
   const mediaRecorderRef = useRef(null);
@@ -173,6 +183,49 @@ export default function PatientAssessmentVisitPage() {
     setVitals((prev) => ({ ...prev, [field]: value }));
     setConfirmedVitals((prev) => new Set(prev).add(field));
     setVitalErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+  };
+
+  /**
+   * Values the CHATBOX proposed and the assistant accepted.
+   *
+   * They land in the form as ordinary editable values, marked as heard rather
+   * than typed. Two rules hold here as well as on the server:
+   *
+   *   · a field the assistant already filled is left alone
+   *   · a spoken vital does NOT join confirmedVitals. That Set is what stops an
+   *     assessment running on numbers nobody checked against the patient, and a
+   *     figure read off a screen is not a measurement taken from an arm. The
+   *     untouched-vitals warning should still fire, and it does.
+   */
+  const applyChatboxValues = (values, unusable = []) => {
+    const heard = new Set(voiceFields);
+    const keepTyped = (previous, spoken, mark) => {
+      if (previous?.trim()) return previous;
+      heard.add(mark);
+      return spoken;
+    };
+
+    const spokenComplaint = [values.chief_complaint, values.symptoms].filter(Boolean).join('. ');
+    if (spokenComplaint) setSymptomsText((prev) => keepTyped(prev, spokenComplaint, 'symptoms'));
+    if (values.medical_history) setMedicalHistory((prev) => keepTyped(prev, values.medical_history, 'medical_history'));
+    if (values.known_allergies) setKnownAllergies((prev) => keepTyped(prev, values.known_allergies, 'known_allergies'));
+
+    if (values.symptom_duration_value && !durationValue) {
+      setDurationValue(String(values.symptom_duration_value));
+      if (values.symptom_duration_unit) setDurationUnit(values.symptom_duration_unit);
+      heard.add('duration');
+    }
+
+    const spokenVitals = values.vitals || {};
+    if (Object.keys(spokenVitals).length) {
+      setVitals((prev) => ({ ...prev, ...spokenVitals }));
+      for (const key of Object.keys(spokenVitals)) heard.add(key);
+    }
+
+    setVoiceFields(heard);
+    if (unusable.length) {
+      console.info('CHATBOX heard fields this form has nowhere to put:', unusable.join(', '));
+    }
   };
 
   const validateVitalsBounds = () => {
@@ -865,6 +918,11 @@ export default function PatientAssessmentVisitPage() {
             <div>
               <label className="block text-xs font-semibold text-ink-muted mb-1">
                 {t('assess.complaintLabel', 'Chief complaint & symptoms — speak or type in {language}', { language: language.native })}
+                {voiceFields.has('symptoms') && (
+                  <span className="ml-1.5 font-normal text-[10px] text-gov-700">
+                    {t('assess.heard', 'heard — check it')}
+                  </span>
+                )}
               </label>
               <div className="relative">
                 <textarea
@@ -885,6 +943,22 @@ export default function PatientAssessmentVisitPage() {
                     : t('assess.recordVoice', 'Record symptoms by voice')}
                 </button>
               </div>
+
+              {/* CHATBOX (Roadmap v3, F2). The microphone above records symptoms
+                  into this one box; this takes the whole intake — duration,
+                  history, allergies, vitals — and proposes them for checking.
+                  Neither replaces the form, and this button is absent entirely
+                  unless the deployment has switched the feature on. */}
+              {chatboxOn && (
+                <button
+                  type="button"
+                  onClick={() => setShowChatbox(true)}
+                  className="mt-2 w-full py-2 rounded-field border border-gov-200 bg-gov-50 text-gov-700 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-gov-100 transition-colors"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  {t('assess.chatbox', 'CHATBOX — say the whole intake')}
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1040,6 +1114,14 @@ export default function PatientAssessmentVisitPage() {
                         localised unit beside a clinical number is a
                         misreading waiting to happen. */}
                     {t(f.labelKey, f.label)} <span className="font-normal text-ink-subtle">({f.unit})</span>
+                    {/* A number that arrived by voice was read off a screen,
+                        not taken from an arm. It says so until the assistant
+                        touches it — at which point it becomes theirs. */}
+                    {voiceFields.has(f.key) && (
+                      <span className="ml-1.5 font-normal text-[10px] text-gov-700">
+                        {t('assess.heard', 'heard — check it')}
+                      </span>
+                    )}
                   </label>
                   <input
                     id={`vital-${f.key}`}
@@ -1682,6 +1764,40 @@ export default function PatientAssessmentVisitPage() {
           )}
 
         </div>
+      )}
+
+      {/* CHATBOX voice intake. Proposes values for this form and writes
+          nothing itself; absent entirely unless the feature is switched on. */}
+      {chatboxOn && (
+        <ChatboxIntakeModal
+          open={showChatbox}
+          onClose={() => setShowChatbox(false)}
+          language={lang}
+          speechLang={speechTag(lang)}
+          onApply={applyChatboxValues}
+          typed={{
+            chief_complaint: symptomsText,
+            medical_history: medicalHistory,
+            known_allergies: knownAllergies,
+            symptom_duration_value: durationValue,
+            /*
+             * Only vitals the assistant actually touched count as typed.
+             *
+             * This form pre-fills six defaults. Sending those would make every
+             * spoken reading look like an attempt to overwrite something a
+             * person had entered, the server would refuse all six, and the
+             * CHATBOX could never fill a vital at all.
+             */
+            vitals: {
+              temperature_f: confirmedVitals.has('temperature') ? vitals.temperature : '',
+              blood_pressure_systolic: confirmedVitals.has('blood_pressure_systolic') ? vitals.blood_pressure_systolic : '',
+              blood_pressure_diastolic: confirmedVitals.has('blood_pressure_diastolic') ? vitals.blood_pressure_diastolic : '',
+              pulse_bpm: confirmedVitals.has('pulse') ? vitals.pulse : '',
+              spo2_percent: confirmedVitals.has('spo2') ? vitals.spo2 : '',
+              respiratory_rate: confirmedVitals.has('respiratory_rate') ? vitals.respiratory_rate : ''
+            }
+          }}
+        />
       )}
 
       {/* OCR Mandatory Verification Modal */}
