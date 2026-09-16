@@ -74,13 +74,26 @@ export const createReferral = async (req, res) => {
   return res.status(201).json({ referral: data, ack_path: `/r/${built.token}` });
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * GET /api/referral-tracking?scope=open|all
+ * GET /api/referral-tracking?visit_id=<uuid>
  *
  * The follow-up worklist: overdue first, then whatever needs an answer soonest.
+ *
+ * With visit_id it is one case's referral history instead, for the case view:
+ * every status, newest first. A referral that ended as "did not reach" is still
+ * the answer the assistant looking at that case needs, so scope does not apply.
+ * District scoping does — a visit id from another district finds nothing.
  */
 export const listReferrals = async (req, res) => {
-  const all = req.query.scope === 'all';
+  const { visit_id: visitId } = req.query;
+  // Checked here because Postgres would refuse a malformed uuid with a 500.
+  if (visitId !== undefined && !(typeof visitId === 'string' && UUID_RE.test(visitId))) {
+    return res.status(400).json({ error: 'visit_id is not a valid visit id.' });
+  }
+  const all = Boolean(visitId) || req.query.scope === 'all';
 
   let query = supabaseAdmin
     .from('hospital_referrals')
@@ -88,6 +101,7 @@ export const listReferrals = async (req, res) => {
     .eq('district_id', req.user.districtId)
     .order('created_at', { ascending: false })
     .limit(200);
+  if (visitId) query = query.eq('visit_id', visitId);
   if (!all) query = query.in('status', OPEN_STATUSES);
 
   const { data, error } = await query;
@@ -97,7 +111,7 @@ export const listReferrals = async (req, res) => {
   }
 
   const now = new Date();
-  const referrals = sortForFollowUp((data || []).map((row) => {
+  const rows = (data || []).map((row) => {
     const visit = first(row.visits);
     return {
       ...withoutJoins(row),
@@ -106,7 +120,9 @@ export const listReferrals = async (req, res) => {
       risk_level: visit?.risk_level || null,
       patient: visit ? withAge(first(visit.patients)) : null
     };
-  }), now);
+  });
+  // A case's history reads in the order it happened; only the worklist is triaged.
+  const referrals = visitId ? rows : sortForFollowUp(rows, now);
 
   return res.json({
     referrals,

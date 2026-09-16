@@ -632,6 +632,7 @@ time counts against completion.
 | Method | Path | Roles | Notes |
 |---|---|---|---|
 | GET | `/api/referral-tracking?scope=open` or `all` | CA, DR | District worklist, overdue first. `{ referrals, counts: { overdue, open } }` |
+| GET | `/api/referral-tracking?visit_id=<uuid>` | CA, DR | One case's referrals, for the case view: every status, newest first, same response shape. Still scoped to the caller's district — a visit elsewhere returns an empty list. `scope` is ignored. **400** if `visit_id` is not a uuid |
 | POST | `/api/referral-tracking` | CA | `{ visit_id, hospital_name, hospital_district? }`. HIGH/EMERGENCY visits only (**409** otherwise). **201** `{ referral, ack_path }` — the only time the token leaves the server |
 | POST | `/api/referral-tracking/:id/:action` | CA, DR | `reached` · `not_reached { reason }` · `outcome { outcome }` · `lost`, each with optional `notes`. Guarded: **409** if it changed underneath |
 | POST | `/api/referral-tracking/:id/ack-link` | CA, DR | Issues a fresh hospital link; the previous one stops working |

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Building2, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import { useI18n } from '../i18n/index.jsx';
-import { OUTCOME_OPTIONS } from '../components/ReferralFollowUpsCard';
+import { OUTCOME_OPTIONS } from '../components/ReferralFollowUpActions';
 
 /**
  * The hospital acknowledgement page (Roadmap v3, Phase 1).

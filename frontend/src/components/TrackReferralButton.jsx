@@ -5,6 +5,7 @@ import { useI18n } from '../i18n/index.jsx';
 import { useAuth } from '../context/AuthContext';
 import { useFeature, FEATURES } from '../context/FeatureContext';
 import { Button } from './ui';
+import { REFERRAL_TRACKED_EVENT } from './HospitalReferralStatus';
 
 /**
  * "We are sending the patient here" — the assistant's explicit confirmation on
@@ -38,6 +39,8 @@ export default function TrackReferralButton({ visitId, hospital }) {
         hospital_district: hospital.district || null
       });
       setState({ saving: false, result: res.data, error: null });
+      // The case view's referral status lives elsewhere on the page; tell it.
+      window.dispatchEvent(new CustomEvent(REFERRAL_TRACKED_EVENT, { detail: { visitId } }));
     } catch (err) {
       setState({ saving: false, result: null, error: err.response?.data?.error || t('track.failed', 'The referral could not be recorded.') });
     }
