@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **64 HTTP routes** across 13 routers, the WebSocket protocol, and the Python
+All **65 HTTP routes** across 13 routers, the WebSocket protocol, and the Python
 inference service's 4 endpoints. Four of the routes exist only when a
 [feature flag](#feature-flags) switches them on.
 
@@ -69,7 +69,7 @@ probe for an unreleased feature. They are marked **flag** below.
 |---|---|
 | `baseline_metrics` | `GET /api/admin/metrics/baseline` |
 | `doctor_referral` | `GET /api/doctor/referrals` · `POST /api/doctor/cases/:id/referrals` · `POST /api/doctor/referrals/:id/:action`, and the referral fields on `GET /api/doctor/cases/:id` |
-| `voice_intake` | None yet. Reserved for Roadmap v3 Phase 2 |
+| `voice_intake` | `POST /api/ai/intake-extract` |
 
 ---
 
@@ -399,6 +399,50 @@ transcribed lab values.
 
 **200** — `interpretation_possible`, `overall_impression`, `possible_conditions`
 (capped at `moderate`), `urgency_flags`, `recommended_next_step`, `engine`.
+
+---
+
+### `POST /api/ai/intake-extract` — CA, DR · flag: `voice_intake`
+The CHATBOX (Roadmap v3, F2). Reads a transcript and **proposes** fields for the
+manual form.
+
+```json
+{ "transcript": "Ram Naresh, sixty-eight, thirst three days, BP one forty by ninety, pulse ninety-six",
+  "typed": { "chief_complaint": "…", "vitals": { "pulse_bpm": 80 } } }
+```
+
+`typed` is whatever the assistant has already entered. It is sent so the proposal
+cannot overwrite it, and it is never stored.
+
+**200**
+```json
+{ "ok": true,
+  "accept": {
+    "chief_complaint":         { "value": "Thirst and frequent urination", "source": "voice", "confirmed": false },
+    "symptom_duration_value":  { "value": 3, "source": "voice", "confirmed": false },
+    "blood_pressure_systolic": { "value": 140, "source": "voice", "confirmed": false, "read_back": true } },
+  "skipped":   [{ "field": "pulse_bpm", "value": 96, "reason": "typed" }],
+  "questions": [{ "field": "current_medications", "question": "Is the patient taking any medicine at the moment?" }],
+  "dropped":   ["diagnosis"],
+  "vital_errors": [] }
+```
+
+**Nothing is stored** — no audio, no transcript, no draft. Every value is
+`confirmed: false` until a person confirms it in the form, which remains the path
+of record.
+
+Refusals are explicit rather than silent: a value the assistant typed is never
+replaced (`reason: "typed"`), an impossible reading is refused and asked again
+(`reason: "implausible"`, with the question in `questions`), and half a blood
+pressure leaves with its partner (`reason: "incomplete"`). Anything the model
+invents — a diagnosis, a risk level — appears in `dropped` and is never proposed.
+Vitals face the same range checks the manual form applies, because it is the same
+function.
+
+**400** nothing said yet · transcript longer than 4,000 characters
+**200 with `ok: false`** and `fallback: "manual"` when the provider is
+unreachable, the answer is unparseable, or no model is configured. A failure
+hands the assistant back to the form; it is never a 500 and never a spinner.
 
 ---
 
@@ -866,6 +910,7 @@ Exact match, then fuzzy at score ≥ 80.
 | POST | `/api/ai/risk-assessment` | CA, DR |
 | POST | `/api/ai/analyze-image` | CA, DR |
 | POST | `/api/ai/interpret-report` | CA, DR |
+| POST | `/api/ai/intake-extract` | CA, DR · flag |
 | POST | `/api/vision/analyze` | CA, DR |
 | POST | `/api/vision/analyze-image` | CA, DR |
 | POST | `/api/voice/transcribe` | CA, DR |
