@@ -2,8 +2,8 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **65 HTTP routes** across 13 routers, the WebSocket protocol, and the Python
-inference service's 4 endpoints. Four of the routes exist only when a
+All **71 HTTP routes** across 15 routers, the WebSocket protocol, and the Python
+inference service's 4 endpoints. Eleven of the routes exist only when a
 [feature flag](#feature-flags) switches them on.
 
 **Base URL:** `/api` · **Auth:** `Authorization: Bearer <token>` on everything
@@ -70,6 +70,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `baseline_metrics` | `GET /api/admin/metrics/baseline` |
 | `doctor_referral` | `GET /api/doctor/referrals` · `POST /api/doctor/cases/:id/referrals` · `POST /api/doctor/referrals/:id/:action`, and the referral fields on `GET /api/doctor/cases/:id` |
 | `voice_intake` | `POST /api/ai/intake-extract` |
+| `referral_tracking` | `/api/referral-tracking` (4 routes) · `/api/public/referrals` (2 routes) · the `hospital_referral` field on a doctor review · the link on the referral PDF |
 
 ---
 
@@ -526,7 +527,8 @@ doctor decide it, because `POST /cases/:id/review` still requires the assignment
 `decision` ∈ `treat_locally` | `prescribe` | `refer_hospital` | `follow_up` |
 `no_action_needed`.
 
-**201** `{ review, prescription_id, visit_status }`
+**201** `{ review, prescription_id, visit_status }` — plus, with `referral_tracking` on and a
+`refer_hospital` decision, `hospital_referral: { id, referral_code, follow_up_due_at, ack_path }`
 **400** decision invalid · no diagnosis · `prescribe` with no medicine ·
 `refer_hospital` with no hospital
 **409** the case is from a previous day, or already reviewed
@@ -596,6 +598,34 @@ Supabase's REST interface has no multi-statement transaction, so each write is
 guarded rather than wrapped: a referral changes only from the state it was read
 in, and a transfer moves the case only while it is still where the referral said.
 Every answer is audited as `CASE_REFERRAL_<OUTCOME>`.
+
+### Closed-loop hospital referral · flag: `referral_tracking`
+
+A referral to hospital is followed up until the patient is known to have arrived,
+not arrived, or been lost. Created by a doctor's `refer_hospital` decision, or by an
+assistant confirming an emergency is being sent — never inferred from a hospital
+being displayed. Due in 24 h (emergency) or 72 h (routine); an unknown past that
+time counts against completion.
+
+| Method | Path | Roles | Notes |
+|---|---|---|---|
+| GET | `/api/referral-tracking?scope=open` or `all` | CA, DR | District worklist, overdue first. `{ referrals, counts: { overdue, open } }` |
+| POST | `/api/referral-tracking` | CA | `{ visit_id, hospital_name, hospital_district? }`. HIGH/EMERGENCY visits only (**409** otherwise). **201** `{ referral, ack_path }` — the only time the token leaves the server |
+| POST | `/api/referral-tracking/:id/:action` | CA, DR | `reached` · `not_reached { reason }` · `outcome { outcome }` · `lost`, each with optional `notes`. Guarded: **409** if it changed underneath |
+| POST | `/api/referral-tracking/:id/ack-link` | CA, DR | Issues a fresh hospital link; the previous one stops working |
+| GET | `/api/public/referrals/:token` | **public** | What a hospital desk sees: code, first name, age, referring district, hospital. No Aadhaar, no notes, no diagnosis |
+| POST | `/api/public/referrals/:token/:action` | **public** | `reached` · `outcome { outcome }` only. **403** for anything else, **409** if the outcome is already recorded |
+
+The public token is 192 random bits, stored only as a SHA-256 hash, expires after
+14 days, and is rate-limited per address (`RATE_LIMIT_PUBLIC_REFERRAL`, default 60
+per 10 min). Unknown, malformed and expired tokens all answer the same **404**.
+Hospital actions are audited with no staff actor and `via: "hospital_link"`, and
+notify the referring staff (`REFERRAL_REACHED`, `REFERRAL_OUTCOME`). Printing the
+HIGH referral PDF prints the referral code and a fresh link.
+
+`not_reached` reasons: `cost` `transport` `distance` `family_refused` `improved`
+`died_before_arrival` `other`. Outcomes: `admitted` `treated_discharged`
+`referred_onward` `left_against_advice` `died`.
 
 ---
 
@@ -816,6 +846,9 @@ With `doctor_referral` (values added by migration 15): `CASE_REFERRAL_REQUESTED`
 identifiers and names only. The clinical question is read on the case, under the
 case's own access rule.
 
+With `referral_tracking` (migration 16): `REFERRAL_REACHED` · `REFERRAL_OUTCOME`, sent
+when the receiving hospital confirms arrival or records the outcome.
+
 Every one is **persisted before it is pushed**.
 
 ---
@@ -923,6 +956,12 @@ Exact match, then fuzzy at score ≥ 80.
 | GET | `/api/doctor/referrals` | DR · flag |
 | POST | `/api/doctor/cases/:id/referrals` | DR · flag |
 | POST | `/api/doctor/referrals/:id/:action` | DR · flag |
+| GET | `/api/referral-tracking` | CA, DR · flag |
+| POST | `/api/referral-tracking` | CA · flag |
+| POST | `/api/referral-tracking/:id/:action` | CA, DR · flag |
+| POST | `/api/referral-tracking/:id/ack-link` | CA, DR · flag |
+| GET | `/api/public/referrals/:token` | public · flag |
+| POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |
 | GET | `/api/consultations/availability/slots` | CA, DR |
 | GET | `/api/consultations/availability/doctors` | CA, DR |
