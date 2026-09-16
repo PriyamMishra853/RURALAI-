@@ -14,6 +14,7 @@ import { ageFromDob } from '../services/patientFields.js';
 import { buildTierWorkflow } from '../services/tierWorkflowService.js';
 import { signedImageUrl } from '../services/imageAccess.js';
 import { languageForRequest } from '../config/languages.js';
+import { normaliseProvenance } from '../services/intakeProvenanceRules.js';
 
 export const transcribeSpeech = async (req, res) => {
   try {
@@ -241,6 +242,18 @@ export const analyzePatientCase = async (req, res) => {
       risk_level: storedRisk
     }).eq('id', visit_id);
     if (visitErr) console.warn('visits risk update failed:', visitErr.message);
+
+    // Where each value this assessment ran on came from, as the form was at
+    // this moment — a re-run replaces it, because the values may have changed.
+    // Scoped to the caller's district, and never allowed to fail the assessment.
+    const provenance = normaliseProvenance(req.body.intake_provenance);
+    if (provenance && req.user?.districtId) {
+      const { error: provErr } = await supabaseAdmin.from('visits')
+        .update({ intake_provenance: provenance })
+        .eq('id', visit_id)
+        .eq('district_id', req.user.districtId);
+      if (provErr) console.warn('intake provenance not recorded:', provErr.message);
+    }
 
     logAuditEvent({
       actorId: req.user?.id,

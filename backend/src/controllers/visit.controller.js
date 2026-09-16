@@ -4,6 +4,7 @@ import { AADHAAR_RE, digitsOnly, withAge } from '../services/patientFields.js';
 import { notify, EVENTS } from '../services/notificationService.js';
 import { ROLES } from '../config/roles.js';
 import { validateVitalsRanges, DURATION_UNITS } from '../services/vitalsValidation.js';
+import { intakeStartedAt } from '../services/intakeProvenanceRules.js';
 
 /**
  * Clinical visits.
@@ -84,7 +85,8 @@ export const createVisit = async (req, res) => {
     aadhaar_number, chief_complaint,
     symptom_duration_value, symptom_duration_unit, symptom_duration,
     medical_history, known_allergies,
-    current_medications, vitals, symptoms, assigned_doctor_id
+    current_medications, vitals, symptoms, assigned_doctor_id,
+    intake_elapsed_seconds
   } = req.body || {};
 
   // The patient is identified by Aadhaar, in the body rather than the URL.
@@ -155,6 +157,19 @@ export const createVisit = async (req, res) => {
         source: typeof s === 'object' && s.source ? s.source : 'typed'
       }))
     );
+  }
+
+  /*
+   * When the intake really began. This row is created at the first assessment
+   * or upload, long after the assistant started on the patient, so created_at
+   * cannot be the start. Written on its own and never allowed to fail the
+   * visit: a missing timing costs one data point, a failed visit costs a case.
+   */
+  const startedAt = intakeStartedAt(intake_elapsed_seconds);
+  if (startedAt) {
+    const { error: timingErr } = await supabaseAdmin
+      .from('visits').update({ intake_started_at: startedAt }).eq('id', visit.id);
+    if (timingErr) console.warn('intake start not recorded:', timingErr.message);
   }
 
   await logAuditEvent({
