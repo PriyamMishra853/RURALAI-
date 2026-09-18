@@ -5,39 +5,69 @@
       "id": "en-fever-full-vitals",
       "lang": "en",
       "transcript": "Patient has fever for three days. Temperature one oh one point four, pulse ninety six, BP one forty over ninety.",
-      "vitals": { "temperature_f": 101.4, "pulse_bpm": 96, "blood_pressure_systolic": 140, "blood_pressure_diastolic": 90 },
-      "duration": { "value": 3, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "temperature_f": 101.4,
+        "pulse_bpm": 96,
+        "blood_pressure_systolic": 140,
+        "blood_pressure_diastolic": 90
+      },
+      "duration": {
+        "value": 3,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "en-cough-weeks-spo2",
       "lang": "en",
       "transcript": "Cough and cold since two weeks. SpO2 is ninety four percent.",
-      "vitals": { "spo2_percent": 94 },
-      "duration": { "value": 14, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "spo2_percent": 94
+      },
+      "duration": {
+        "value": 14,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "en-diabetic-sugar-bp",
       "lang": "en",
       "transcript": "Known diabetic. Sugar two hundred and forty. BP one sixty by one hundred.",
-      "vitals": { "blood_glucose_mgdl": 240, "blood_pressure_systolic": 160, "blood_pressure_diastolic": 100 },
-      "contains": { "medical_history": "diabet" }
+      "vitals": {
+        "blood_glucose_mgdl": 240,
+        "blood_pressure_systolic": 160,
+        "blood_pressure_diastolic": 100
+      },
+      "contains": {
+        "medical_history": "diabet"
+      }
     },
     {
       "id": "en-allergy-no-vitals",
       "lang": "en",
       "transcript": "Headache for one day. She is allergic to penicillin.",
       "vitals": {},
-      "duration": { "value": 1, "unit": "days" },
-      "contains": { "known_allergies": "penicillin" }
+      "duration": {
+        "value": 1,
+        "unit": "days"
+      },
+      "contains": {
+        "known_allergies": "penicillin"
+      }
     },
     {
       "id": "en-implausible-temperature",
       "lang": "en",
       "transcript": "Temperature one thousand and one.",
       "vitals": {},
-      "rejected": ["temperature_f"]
+      "rejected": [
+        "temperature_f"
+      ]
     },
     {
       "id": "en-half-blood-pressure",
@@ -51,13 +81,21 @@
       "transcript": "Hello, is the doctor available today?",
       "vitals": {},
       "duration": null,
-      "absent": ["chief_complaint", "medical_history", "known_allergies", "is_pregnant"]
+      "absent": [
+        "chief_complaint",
+        "medical_history",
+        "known_allergies",
+        "is_pregnant"
+      ]
     },
     {
       "id": "en-breathing-oxygen",
       "lang": "en",
       "transcript": "Breathing fast, respiratory rate twenty eight per minute, oxygen eighty nine.",
-      "vitals": { "respiratory_rate": 28, "spo2_percent": 89 }
+      "vitals": {
+        "respiratory_rate": 28,
+        "spo2_percent": 89
+      }
     },
     {
       "id": "en-celsius-not-converted",
@@ -70,101 +108,238 @@
       "lang": "en",
       "transcript": "Woman aged twenty five with abdominal pain since one day.",
       "vitals": {},
-      "duration": { "value": 1, "unit": "days" },
-      "absent": ["is_pregnant"]
+      "duration": {
+        "value": 1,
+        "unit": "days"
+      },
+      "absent": [
+        "is_pregnant"
+      ]
     },
     {
       "id": "en-pregnancy-mentioned",
       "lang": "en",
       "transcript": "She is seven months pregnant. BP one twenty over eighty.",
-      "vitals": { "blood_pressure_systolic": 120, "blood_pressure_diastolic": 80 },
-      "present": ["is_pregnant"]
+      "vitals": {
+        "blood_pressure_systolic": 120,
+        "blood_pressure_diastolic": 80
+      },
+      "present": [
+        "is_pregnant"
+      ]
     },
     {
       "id": "en-self-correction",
       "lang": "en",
       "transcript": "Pulse is eighty, sorry, eighty eight.",
-      "vitals": { "pulse_bpm": 88 }
+      "vitals": {
+        "pulse_bpm": 88
+      }
     },
     {
       "id": "en-bp-not-taken",
       "lang": "en",
       "transcript": "Fasting sugar one twenty. BP not taken yet.",
-      "vitals": { "blood_glucose_mgdl": 120 }
+      "vitals": {
+        "blood_glucose_mgdl": 120
+      }
     },
     {
       "id": "hi-roman-fever",
       "lang": "hi",
       "transcript": "Mareez ko teen din se bukhar hai, temperature 102, pulse 110.",
-      "vitals": { "temperature_f": 102, "pulse_bpm": 110 },
-      "duration": { "value": 3, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "temperature_f": 102,
+        "pulse_bpm": 110
+      },
+      "duration": {
+        "value": 3,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "hi-devanagari-stomach",
       "lang": "hi",
       "transcript": "मरीज़ को दो दिन से पेट में दर्द है, बीपी 130/85, नब्ज़ 88",
-      "vitals": { "blood_pressure_systolic": 130, "blood_pressure_diastolic": 85, "pulse_bpm": 88 },
-      "duration": { "value": 2, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "blood_pressure_systolic": 130,
+        "blood_pressure_diastolic": 85,
+        "pulse_bpm": 88
+      },
+      "duration": {
+        "value": 2,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "hi-devanagari-sugar-history",
       "lang": "hi",
       "transcript": "शुगर 180 है, पहले से बीपी की बीमारी है",
-      "vitals": { "blood_glucose_mgdl": 180 },
-      "present": ["medical_history"]
+      "vitals": {
+        "blood_glucose_mgdl": 180
+      },
+      "present": [
+        "medical_history"
+      ]
     },
     {
       "id": "hi-codemixed-spo2",
       "lang": "hi",
       "transcript": "Patient ka SpO2 ninety one hai aur saans lene mein takleef hai.",
-      "vitals": { "spo2_percent": 91 },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "spo2_percent": 91
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "hi-not-measured",
       "lang": "hi",
       "transcript": "Bachche ko paanch din se dast ho rahe hain, temperature abhi naapa nahi.",
       "vitals": {},
-      "duration": { "value": 5, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "duration": {
+        "value": 5,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "hi-spoken-hindi-numbers",
       "lang": "hi",
       "transcript": "BP ek sau chaalis by nabbe hai.",
-      "vitals": { "blood_pressure_systolic": 140, "blood_pressure_diastolic": 90 }
+      "vitals": {
+        "blood_pressure_systolic": 140,
+        "blood_pressure_diastolic": 90
+      }
     },
     {
       "id": "mr-devanagari-fever",
       "lang": "mr",
       "transcript": "रुग्णाला चार दिवसांपासून ताप आहे, तापमान 101, नाडी 100",
-      "vitals": { "temperature_f": 101, "pulse_bpm": 100 },
-      "duration": { "value": 4, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "temperature_f": 101,
+        "pulse_bpm": 100
+      },
+      "duration": {
+        "value": 4,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "mr-roman-cough-weeks",
       "lang": "mr",
       "transcript": "Patient la don athavdyapasun khokla ahe, oxygen 95.",
-      "vitals": { "spo2_percent": 95 },
-      "duration": { "value": 14, "unit": "days" },
-      "present": ["chief_complaint|symptoms"]
+      "vitals": {
+        "spo2_percent": 95
+      },
+      "duration": {
+        "value": 14,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
     },
     {
       "id": "mr-devanagari-bp-sugar",
       "lang": "mr",
       "transcript": "रक्तदाब 150/95, साखर 210, मधुमेह आहे",
-      "vitals": { "blood_pressure_systolic": 150, "blood_pressure_diastolic": 95, "blood_glucose_mgdl": 210 },
-      "present": ["medical_history"]
+      "vitals": {
+        "blood_pressure_systolic": 150,
+        "blood_pressure_diastolic": 95,
+        "blood_glucose_mgdl": 210
+      },
+      "present": [
+        "medical_history"
+      ]
     },
     {
       "id": "mr-headache-no-vitals",
       "lang": "mr",
       "transcript": "डोकेदुखी आहे, कोणतीही ॲलर्जी नाही",
       "vitals": {},
-      "present": ["chief_complaint|symptoms"]
+      "present": [
+        "chief_complaint|symptoms"
+      ]
+    },
+    {
+      "id": "ta-fever-vitals",
+      "lang": "ta",
+      "transcript": "நோயாளிக்கு மூன்று நாட்களாக காய்ச்சல், வெப்பநிலை 102, துடிப்பு 96",
+      "vitals": {
+        "temperature_f": 102,
+        "pulse_bpm": 96
+      },
+      "duration": {
+        "value": 3,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
+    },
+    {
+      "id": "te-bp-sugar",
+      "lang": "te",
+      "transcript": "రక్తపోటు 150/95, చక్కెర 220, మధుమేహం ఉంది",
+      "vitals": {
+        "blood_pressure_systolic": 150,
+        "blood_pressure_diastolic": 95,
+        "blood_glucose_mgdl": 220
+      },
+      "present": [
+        "medical_history"
+      ]
+    },
+    {
+      "id": "bn-cough-spo2",
+      "lang": "bn",
+      "transcript": "রোগীর পাঁচ দিন ধরে কাশি, অক্সিজেন 93",
+      "vitals": {
+        "spo2_percent": 93
+      },
+      "duration": {
+        "value": 5,
+        "unit": "days"
+      },
+      "present": [
+        "chief_complaint|symptoms"
+      ]
+    },
+    {
+      "id": "gu-pregnant-bp",
+      "lang": "gu",
+      "transcript": "દર્દી છ મહિનાની ગર્ભવતી છે, બ્લડ પ્રેશર 120/80",
+      "vitals": {
+        "blood_pressure_systolic": 120,
+        "blood_pressure_diastolic": 80
+      },
+      "present": [
+        "is_pregnant"
+      ]
+    },
+    {
+      "id": "en-medicines-and-glucose",
+      "lang": "en",
+      "transcript": "He is on metformin five hundred twice a day. Fasting sugar one ninety.",
+      "vitals": {
+        "blood_glucose_mgdl": 190
+      },
+      "contains": {
+        "current_medications": "metformin"
+      }
     }
   ]
 }

@@ -34,13 +34,17 @@ export const SOURCES = ['typed', 'dictated', 'voice', 'default'];
 export const MODES = ['manual', 'voice_assisted'];
 
 /** The form's keys are the UI's; the record uses the column names. */
-const FIELD_ALIASES = { temperature: 'temperature_f', pulse: 'pulse_bpm', spo2: 'spo2_percent' };
+const FIELD_ALIASES = {
+  temperature: 'temperature_f', pulse: 'pulse_bpm', spo2: 'spo2_percent',
+  weight: 'weight_kg', height: 'height_cm'
+};
 
 export const FIELD_KEYS = [
   'symptoms', 'duration', 'medical_history', 'known_allergies',
+  'current_medications', 'is_pregnant',
   'temperature_f', 'blood_pressure_systolic', 'blood_pressure_diastolic',
   'pulse_bpm', 'spo2_percent', 'respiratory_rate', 'blood_glucose_mgdl',
-  'weight', 'height'
+  'weight_kg', 'height_cm'
 ];
 
 // A form left open over lunch is not an intake that took three hours.
@@ -71,7 +75,11 @@ export const normaliseProvenance = (raw) => {
     const field = canonicalField(key);
     const source = typeof entry === 'string' ? entry : entry?.source;
     if (!field || !SOURCES.includes(source)) continue;
-    fields[field] = { source, confirmed: confirmedFor(source, entry?.confirmed) };
+    const confirmed = confirmedFor(source, entry?.confirmed);
+    // Corrected, not merely ticked: F2 measures how often a heard value had to
+    // be changed, and by which field.
+    const edited = confirmed && source !== 'typed' && entry?.edited === true;
+    fields[field] = edited ? { source, confirmed, edited } : { source, confirmed };
   }
 
   const entries = Object.values(fields);
@@ -83,6 +91,7 @@ export const normaliseProvenance = (raw) => {
     dictated: count((f) => f.source === 'dictated'),
     voice: count((f) => f.source === 'voice'),
     voice_confirmed: count((f) => f.source === 'voice' && f.confirmed),
+    voice_edited: count((f) => f.source === 'voice' && f.edited),
     default: count((f) => f.source === 'default'),
     default_unconfirmed: count((f) => f.source === 'default' && !f.confirmed)
   };
@@ -91,6 +100,7 @@ export const normaliseProvenance = (raw) => {
   // stays in the manual baseline. Only the CHATBOX makes an intake voice-assisted.
   const mode = counts.voice > 0 ? 'voice_assisted' : 'manual';
   const sessions = Number.parseInt(raw.voice?.sessions, 10);
+  const opened = Number.parseInt(raw.voice?.opened, 10);
 
   return {
     v: PROVENANCE_VERSION,
@@ -99,7 +109,10 @@ export const normaliseProvenance = (raw) => {
     voice: mode === 'voice_assisted'
       ? {
           consent: raw.voice?.consent === true,
-          sessions: Number.isFinite(sessions) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, sessions)) : 1
+          sessions: Number.isFinite(sessions) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, sessions)) : 1,
+          // How many times it was opened, against how many produced anything:
+          // F2's "share of sessions abandoned to the form".
+          opened: Number.isFinite(opened) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, opened)) : undefined
         }
       : null,
     counts

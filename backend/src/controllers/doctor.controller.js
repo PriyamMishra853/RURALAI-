@@ -140,7 +140,8 @@ export const getDoctorCaseDetails = async (req, res) => {
     .select(`
       ${QUEUE_FIELDS},
       visit_vitals ( temperature_f, blood_pressure_systolic, blood_pressure_diastolic,
-                     pulse_bpm, spo2_percent, respiratory_rate, blood_glucose_mgdl, recorded_at ),
+                     pulse_bpm, spo2_percent, respiratory_rate, blood_glucose_mgdl,
+                     weight_kg, height_cm, recorded_at ),
       visit_symptoms ( description, source, created_at ),
       patient_documents ( id, document_type, ocr_text, extracted_data, verified_at, created_at ),
       patient_images ( id, image_url, storage_bucket, storage_path, observation, severity_impression, engine, created_at ),

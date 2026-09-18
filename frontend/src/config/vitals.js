@@ -103,10 +103,13 @@ export const VITAL_FIELDS = [
 /** Measured, never defaulted — left blank for the assistant to fill. */
 export const MEASURED_FIELDS = [
   { key: 'weight', labelKey: 'vital.weight', label: 'Weight', unit: 'kg', min: 0.5, max: 500, step: 0.1, decimals: 1 },
-  { key: 'height', labelKey: 'vital.height', label: 'Height', unit: 'cm', min: 20, max: 250, step: 0.5, decimals: 1 }
+  { key: 'height', labelKey: 'vital.height', label: 'Height', unit: 'cm', min: 20, max: 250, step: 0.5, decimals: 1 },
+  // Heard by the CHATBOX and stored by the server from the start; until now
+  // the form had no box for it, so a spoken sugar reading had nowhere to land.
+  { key: 'blood_glucose_mgdl', labelKey: 'vital.glucose', label: 'Blood glucose', unit: 'mg/dL', min: 20, max: 800, step: 1, decimals: 0 }
 ];
 
-/** Starting state: typical adult values for the six, blanks for the two. */
+/** Starting state: typical adult values for the six, blanks for the measured. */
 export const defaultVitals = () => {
   const v = {};
   for (const f of VITAL_FIELDS) v[f.key] = String(f.normal);

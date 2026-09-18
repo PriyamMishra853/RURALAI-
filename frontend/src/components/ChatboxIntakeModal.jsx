@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Loader2, X, Volume2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mic, MicOff, Loader2, X, Volume2, VolumeX, AlertCircle, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { useI18n } from '../i18n/index.jsx';
 
@@ -26,6 +26,7 @@ import { useI18n } from '../i18n/index.jsx';
  * worker had just said aloud, which is the one failure this feature cannot have.
  */
 const VITALS_TO_FORM = {
+  blood_glucose_mgdl: 'blood_glucose_mgdl',
   temperature_f: 'temperature',
   blood_pressure_systolic: 'blood_pressure_systolic',
   blood_pressure_diastolic: 'blood_pressure_diastolic',
@@ -34,18 +35,19 @@ const VITALS_TO_FORM = {
   respiratory_rate: 'respiratory_rate'
 };
 
-/** Fields the server can hear but this form has nowhere to put. */
-const NOT_ON_THIS_FORM = {
-  current_medications: 'Current medicines',
-  is_pregnant: 'Pregnancy',
-  blood_glucose_mgdl: 'Blood glucose'
-};
-
+/**
+ * Every field the server can hear now has a box on the form (migration 19 gave
+ * pregnancy and the measured vitals somewhere to be stored). Anything outside
+ * these two maps is still reported to the assistant rather than dropped
+ * silently — that is what the "heard, nowhere to put it" line is for.
+ */
 const TEXT_TO_FORM = {
   chief_complaint: 'chief_complaint',
   symptoms: 'symptoms',
   medical_history: 'medical_history',
   known_allergies: 'known_allergies',
+  current_medications: 'current_medications',
+  is_pregnant: 'is_pregnant',
   symptom_duration_value: 'symptom_duration_value',
   symptom_duration_unit: 'symptom_duration_unit'
 };
@@ -72,7 +74,7 @@ const label = (t, field) => {
 };
 
 export default function ChatboxIntakeModal({
-  open, onClose, typed, onApply, consent = false, onConsent, language = 'en', speechLang = 'en-IN'
+  open, onClose, typed, onApply, onOpened, consent = false, onConsent, language = 'en', speechLang = 'en-IN'
 }) {
   const { t } = useI18n();
   const [recording, setRecording] = useState(false);
@@ -80,10 +82,14 @@ export default function ChatboxIntakeModal({
   const [transcript, setTranscript] = useState('');
   const [proposal, setProposal] = useState(null);
   const [problem, setProblem] = useState(null);
+  const [muted, setMuted] = useState(false);
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+
+  /** A screen that keeps talking after it is closed is its own problem. */
+  const stopSpeaking = () => window.speechSynthesis?.cancel();
 
   /** A microphone left open is a microphone still listening. */
   const releaseMicrophone = () => {
@@ -91,11 +97,16 @@ export default function ChatboxIntakeModal({
     streamRef.current = null;
   };
 
-  useEffect(() => () => releaseMicrophone(), []);
+  useEffect(() => () => { releaseMicrophone(); stopSpeaking(); }, []);
+
+  // Counted on opening, not on applying: the gap between the two is F2's
+  // "share of sessions abandoned to the form".
+  useEffect(() => { if (open) onOpened?.(); }, [open]);
 
   useEffect(() => {
     if (!open) {
       releaseMicrophone();
+      stopSpeaking();
       setRecording(false);
       setStage('idle');
       setTranscript('');
@@ -121,6 +132,7 @@ export default function ChatboxIntakeModal({
       }
       setProposal(res.data);
       setStage('done');
+      if (!muted) say(res.data);
     } catch (err) {
       // 404 means the feature is switched off on this deployment; anything else
       // is a bad moment on a rural link. Either way the answer is the form.
@@ -183,16 +195,30 @@ export default function ChatboxIntakeModal({
     setRecording(false);
   };
 
-  /** Numbers, spoken back, because a misheard one is the whole risk. */
-  const readBack = () => {
-    if (!proposal || !window.speechSynthesis) return;
+  /**
+   * Numbers read back, and the questions asked out loud.
+   *
+   * Spoken automatically when a proposal arrives, because the assistant is
+   * looking at the patient rather than the screen, and a misheard number is
+   * the whole risk of this feature. The button repeats it; muting stops it,
+   * and is remembered for the rest of the session in case the room is one
+   * where a talking screen is unwelcome.
+   */
+  const speakable = (p) => {
+    if (!p) return '';
     const parts = [];
-    for (const [field, entry] of Object.entries(proposal.accept)) {
-      if (!entry.read_back) continue;
-      parts.push(`${label(t, field)} ${entry.value}`);
+    for (const [field, entry] of Object.entries(p.accept || {})) {
+      if (entry.read_back) parts.push(`${label(t, field)} ${entry.value}`);
     }
-    if (!parts.length) return;
-    const utterance = new SpeechSynthesisUtterance(parts.join('. '));
+    for (const q of p.questions || []) parts.push(q.question);
+    return parts.join('. ');
+  };
+
+  const say = (p = proposal) => {
+    const text = speakable(p);
+    if (!text || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = speechLang;
     window.speechSynthesis.speak(utterance);
   };
@@ -294,10 +320,21 @@ export default function ChatboxIntakeModal({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-[11px] font-semibold text-ink-muted">{t('chatbox.proposed', 'Proposed — check every number')}</p>
-                  {accepted.some(([, e]) => e.read_back) && (
-                    <button type="button" onClick={readBack} className="ml-auto text-[11px] text-gov-700 font-semibold flex items-center gap-1">
-                      <Volume2 className="w-3.5 h-3.5" /> {t('chatbox.readBack', 'Read the numbers back')}
-                    </button>
+                  {speakable(proposal) && (
+                    <div className="ml-auto flex items-center gap-3">
+                      <button type="button" onClick={() => say()} className="text-[11px] text-gov-700 font-semibold flex items-center gap-1">
+                        <Volume2 className="w-3.5 h-3.5" /> {t('chatbox.readBack', 'Read it back')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setMuted((m) => !m); stopSpeaking(); }}
+                        className="text-[11px] text-ink-muted flex items-center gap-1"
+                      >
+                        {muted
+                          ? <><VolumeX className="w-3.5 h-3.5" /> {t('chatbox.unmute', 'Speak automatically')}</>
+                          : <><VolumeX className="w-3.5 h-3.5" /> {t('chatbox.mute', 'Stop speaking')}</>}
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -335,7 +372,7 @@ export default function ChatboxIntakeModal({
               {heardButHomeless.length > 0 && (
                 <p className="text-[11px] text-ink-muted">
                   {t('chatbox.notOnForm', 'Heard, but this form has no field for it — write it into the history box if it matters:')}{' '}
-                  {heardButHomeless.map((f) => NOT_ON_THIS_FORM[f] || label(t, f)).join(', ')}
+                  {heardButHomeless.map((f) => label(t, f)).join(', ')}
                 </p>
               )}
 

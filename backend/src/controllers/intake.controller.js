@@ -36,7 +36,7 @@ const MAX_TRANSCRIPT = 4000;
  * dropped there — but a prompt that invites a guess wastes a round trip
  * producing values that will be thrown away.
  */
-export const INTAKE_EXTRACTION_PROMPT = `You convert what a clinic assistant said out loud into fields of an intake form in an Indian rural clinic. The speech may mix English with Hindi or Marathi.
+export const INTAKE_EXTRACTION_PROMPT = `You convert what a clinic assistant said out loud into fields of an intake form in an Indian rural clinic. The speech may mix English with any Indian language — most often Hindi or Marathi, also Tamil, Telugu, Bengali, Gujarati and others — in its own script or written in Latin letters.
 
 Return ONLY a JSON object with any of these keys:
   chief_complaint       what the patient came with, in the speaker's words

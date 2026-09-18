@@ -88,7 +88,7 @@ export const createVisit = async (req, res) => {
     symptom_duration_value, symptom_duration_unit, symptom_duration,
     medical_history, known_allergies,
     current_medications, vitals, symptoms, assigned_doctor_id,
-    intake_elapsed_seconds
+    intake_elapsed_seconds, is_pregnant
   } = req.body || {};
 
   // The patient is identified by Aadhaar, in the body rather than the URL.
@@ -137,6 +137,11 @@ export const createVisit = async (req, res) => {
       medical_history: medical_history || null,
       known_allergies: known_allergies || null,
       current_medications: current_medications || null,
+      // Three states, and the third is the common one: absent means nobody
+      // asked. Recording that as "not pregnant" would be an invented answer.
+      // Sent only when it was answered, so a database still on migration 18
+      // keeps creating visits exactly as before.
+      ...(typeof is_pregnant === 'boolean' ? { is_pregnant } : {}),
       status: 'in_progress',
       is_demo: false
     }])

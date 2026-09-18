@@ -719,10 +719,26 @@ completion is a measured number.
 > exact, 0 fabricated — the exit criterion is met on text.** It measures extraction,
 > not speech recognition.
 >
-> **Not done:** a transcript retention policy (nothing is retained, so none is
-> needed yet); recorded audio for the test set; and a real result for intake time,
-> which needs the flags on and real intakes. It has never been run against a real
-> microphone.
+> **Completing F2 (migration 19).** Every field F2 names is now on the form and in
+> the database: current medicines and blood glucose had columns but no input,
+> pregnancy had neither, and weight and height had an input but no column — the form
+> collected them and threw them away. Pregnancy is three-state, because "not asked"
+> recorded as "no" is an invented answer. Clarifying questions and the numbers are
+> now spoken aloud when the proposal arrives, not only on a button press, with a
+> mute for a shared room. The prompt names the wider language set, and the test set
+> covers Tamil, Telugu, Bengali and Gujarati. Corrections and abandoned sessions are
+> counted: `voice_fields_corrected`, and `voice_sessions_opened` against
+> `voice_sessions_applied`. **Consent and retention are now written down** —
+> 08-security.md §10.4: nothing is kept, and what it would take to keep anything.
+>
+> Known variance: on repeat runs of the test set, one Marathi phrase ("मधुमेह आहे")
+> sometimes lands in symptoms rather than medical history. Vitals were exact on
+> every run; the gate only fails on a vital, which is the rule that matters.
+>
+> **Not done:** recorded audio for the test set (this measures extraction, not
+> speech recognition); a real result for intake time, which needs the flags on and
+> real intakes; and triage does not yet read pregnancy — it is recorded and shown,
+> not acted on. It has never been run against a real microphone.
 >
 > The doctor's case view names vitals that were never measured (a default nobody
 > confirmed) and values heard by voice, checked or not.

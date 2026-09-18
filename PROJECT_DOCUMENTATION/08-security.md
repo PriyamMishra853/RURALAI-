@@ -535,7 +535,31 @@ that a copied link is not a lasting disclosure.
 | Demo phone numbers cannot dial | Placeholder format |
 | Clinical text stays on-device for TTS | Browser `SpeechSynthesis`, not cloud TTS |
 
-### 10.4 Retention
+### 10.4 Voice intake: consent and retention
+
+The CHATBOX (Roadmap v3, F2, flag `voice_intake`) records the assistant's voice.
+Audio is personal data and this is the whole policy, stated because the feature
+would otherwise be a recording nobody agreed to.
+
+| Question | Answer |
+|---|---|
+| What is recorded | Only while the assistant holds the button. No always-listening mode |
+| Who consents | The assistant ticks that they have told the patient and the patient agreed. The microphone will not start until they do, and the tick is recorded in `visits.intake_provenance` as `voice.consent` |
+| Where the audio goes | To Groq's `whisper-large-v3-turbo` for transcription, over TLS, as one request. Groq is a processor here, and this is a cross-border transfer |
+| What is kept | **Nothing.** No audio file is written to disk or to storage, no transcript row is created, no draft is persisted. `POST /api/ai/intake-extract` is stateless: `intake.controller.js` holds the transcript in memory for one request |
+| What survives the session | Only what the assistant applies into the form and submits — the same fields a typed intake produces — plus a per-field note of where each value came from and whether a person confirmed it (`intake_provenance`) |
+| How long the transcript lives in the browser | Until the modal closes. No local storage, no service worker cache |
+| What the record can prove | That a value arrived by voice, that consent was recorded, and whether a person confirmed or corrected it. It cannot reproduce what was said, by design |
+
+Because nothing is retained, there is no retention period to set and no deletion
+request to service for audio or transcripts. If a future phase stores
+transcripts — F3 names extraction improvement from confirmed transcripts as a
+possibility — that is a new decision needing its own consent wording, a
+retention period, access controls equal to the visit's, and a data-protection
+impact assessment. **None of that exists yet, which is exactly why nothing is
+stored today.**
+
+### 10.5 Retention
 
 Clinical records are **append-only**. The only removal is a soft delete on
 `visits`, guarded four ways and recording who withdrew it and why. Staff are

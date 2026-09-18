@@ -98,6 +98,46 @@ describe('normaliseProvenance', () => {
   });
 });
 
+describe('what the CHATBOX measures', () => {
+  it('separates a corrected value from one that was only ticked', () => {
+    const p = normaliseProvenance({
+      fields: {
+        pulse: { source: 'voice', confirmed: true, edited: true },
+        spo2: { source: 'voice', confirmed: true },
+        temperature: { source: 'voice', confirmed: false, edited: true }
+      },
+      voice: { consent: true, sessions: 2, opened: 5 }
+    });
+    expect(p.fields.pulse_bpm).toEqual({ source: 'voice', confirmed: true, edited: true });
+    expect(p.fields.spo2_percent.edited).toBeUndefined();
+    // Unconfirmed cannot also be corrected: correcting it is what confirms it.
+    expect(p.fields.temperature_f).toEqual({ source: 'voice', confirmed: false });
+    expect(p.counts).toMatchObject({ voice: 3, voice_confirmed: 2, voice_edited: 1 });
+  });
+
+  it('counts sessions opened against sessions applied', () => {
+    const p = normaliseProvenance({
+      fields: { pulse: { source: 'voice', confirmed: true } },
+      voice: { consent: true, sessions: 2, opened: 5 }
+    });
+    expect(p.voice).toEqual({ consent: true, sessions: 2, opened: 5 });
+  });
+
+  it('holds the fields F2 named that the form now has boxes for', () => {
+    const p = normaliseProvenance({
+      fields: {
+        current_medications: 'typed',
+        is_pregnant: { source: 'voice', confirmed: true },
+        weight: 'typed',
+        height: { source: 'default', confirmed: false },
+        blood_glucose_mgdl: 'typed'
+      }
+    });
+    expect(Object.keys(p.fields).sort())
+      .toEqual(['blood_glucose_mgdl', 'current_medications', 'height_cm', 'is_pregnant', 'weight_kg']);
+  });
+});
+
 describe('intakeStartedAt', () => {
   const now = new Date('2026-09-17T10:00:00.000Z');
 

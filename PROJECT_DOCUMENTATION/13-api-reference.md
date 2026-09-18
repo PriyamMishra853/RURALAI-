@@ -206,8 +206,13 @@ Router guards: `authenticateUser` → `denyAdminClinicalAccess`.
   "symptom_duration_value": 3, "symptom_duration_unit": "days",
   "medical_history": "…", "known_allergies": "…", "current_medications": "…",
   "vitals": { … }, "symptoms": ["…"], "assigned_doctor_id": "…",
-  "intake_elapsed_seconds": 312 }
+  "intake_elapsed_seconds": 312, "is_pregnant": true }
 ```
+
+`vitals` accepts `weight`/`weight_kg` and `height`/`height_cm` as well as the six
+defaulted vitals and `blood_glucose_mgdl`; all are range-checked, and one that was
+not measured is left out of the row rather than written as null. `is_pregnant` is
+sent only when it was answered — absent means nobody asked, which is not `false`.
 Vitals are range-checked before insert. A named doctor must be active and in the
 caller's district.
 
@@ -338,14 +343,17 @@ Alias: `POST /api/ai/analyze-patient`.
   "intake_provenance": {
     "fields": { "symptoms": { "source": "voice", "confirmed": true },
                 "temperature": { "source": "default", "confirmed": false },
-                "pulse": { "source": "typed" } },
-    "voice": { "consent": true, "sessions": 1 } } }
+                "pulse": { "source": "voice", "confirmed": true, "edited": true } },
+    "voice": { "consent": true, "sessions": 1, "opened": 2 } } }
 ```
 
 `intake_provenance` is optional. Sources are `typed`, `dictated` (symptom
 microphone), `voice` (CHATBOX) and `default` (the form's starting value). Only
 `typed` is confirmed by itself; every other source is confirmed only on an explicit
-`true`. Unknown fields and sources are dropped. The normalised record, with `mode`
+`true`. `edited: true` on a confirmed voice value means a person changed it rather
+than agreeing with it, and `voice.opened` against `voice.sessions` is how often the
+CHATBOX was opened against how often it produced anything — the two measures F2 asks
+for. Unknown fields and sources are dropped. The normalised record, with `mode`
 (`manual` | `voice_assisted`) and counts, replaces `visits.intake_provenance`, scoped
 to the caller's district, and a failed write never fails the assessment.
 
@@ -826,7 +834,8 @@ clamped to 1–365 (default 30). Demo data is excluded unless `includeDemo=true`
   "intake_minutes_by_mode": { "manual":         { "n": 96, "median": 3.9, "p90": 12.5 },
                               "voice_assisted": { "n": 14, "median": 2.6, "p90": 6.0 } },
   "intake_provenance": { "recorded": 110, "with_unconfirmed_defaults": 31, "voice_assisted": 14,
-                         "voice_fields": 52, "voice_fields_confirmed": 52, "voice_without_consent": 0 },
+                         "voice_fields": 52, "voice_fields_confirmed": 52, "voice_fields_corrected": 7,
+                         "voice_sessions_opened": 19, "voice_sessions_applied": 16, "voice_without_consent": 0 },
   "registration_to_decision_minutes":      { "n": 40,  "median": 22.0, "p90": 95.0 },
   "handoff_to_decision_minutes":           { "n": 38,  "median": 9.0,  "p90": 41.0 },
   "instant_consult_wait_minutes":          { "n": 0,   "median": null, "p90": null },

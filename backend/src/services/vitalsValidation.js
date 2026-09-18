@@ -48,6 +48,10 @@ export const validateVitalsRanges = (vitals) => {
   const spo2        = check(num(vitals.spo2_percent, vitals.spo2, vitals.oxygen_saturation), 50, 100, 'SpO2', '%');
   const respiratory = check(num(vitals.respiratory_rate), 5, 80, 'Respiratory rate', '/min');
   const glucose     = check(num(vitals.blood_glucose_mgdl), 20, 800, 'Blood glucose', ' mg/dL');
+  // Collected by the form since the beginning and dropped here until
+  // migration 19 gave visit_vitals somewhere to put them.
+  const weight      = check(num(vitals.weight_kg, vitals.weight), 0.5, 500, 'Weight', ' kg');
+  const height      = check(num(vitals.height_cm, vitals.height), 20, 250, 'Height', ' cm');
 
   if (systolic !== null && diastolic !== null && diastolic >= systolic) {
     errors.push(`Diastolic BP (${diastolic}) must be lower than systolic (${systolic}). Check the reading.`);
@@ -63,7 +67,11 @@ export const validateVitalsRanges = (vitals) => {
       pulse_bpm: pulse,
       spo2_percent: spo2,
       respiratory_rate: respiratory,
-      blood_glucose_mgdl: glucose
+      blood_glucose_mgdl: glucose,
+      // Omitted rather than sent as null, so a database still on migration 18
+      // — where these columns do not exist — stores the rest as it always did.
+      ...(weight !== null ? { weight_kg: weight } : {}),
+      ...(height !== null ? { height_cm: height } : {})
     }
   };
 };

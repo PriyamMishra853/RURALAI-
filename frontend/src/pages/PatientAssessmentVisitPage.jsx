@@ -44,6 +44,9 @@ export default function PatientAssessmentVisitPage() {
   const [durationUnit, setDurationUnit] = useState('days');
   const [medicalHistory, setMedicalHistory] = useState('');
   const [knownAllergies, setKnownAllergies] = useState('');
+  const [currentMedications, setCurrentMedications] = useState('');
+  // '' = nobody asked, which is not the same as "no" and is stored as neither.
+  const [isPregnant, setIsPregnant] = useState('');
   const [recording, setRecording] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState(null);
 
@@ -69,6 +72,10 @@ export default function PatientAssessmentVisitPage() {
   const [heardFields, setHeardFields] = useState(() => new Set());
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [voiceSessions, setVoiceSessions] = useState(0);
+  // Opened against applied: how often the CHATBOX was abandoned to the form.
+  const [voiceOpened, setVoiceOpened] = useState(0);
+  // Heard values a person changed, rather than only ticking them as right.
+  const [editedFields, setEditedFields] = useState(() => new Set());
   // The symptom microphone's transcript: null, 'unchanged' or 'edited'.
   const [dictation, setDictation] = useState(null);
   // When the assistant began on this patient, on a clock nobody can reset.
@@ -182,6 +189,8 @@ export default function PatientAssessmentVisitPage() {
       symptom_duration_unit: durationUnit,
       medical_history: medicalHistory || null,
       known_allergies: knownAllergies || null,
+      current_medications: currentMedications || null,
+      ...(isPregnant ? { is_pregnant: isPregnant === 'yes' } : {}),
       vitals,
       intake_elapsed_seconds: intakeStartRef.current === null
         ? null
@@ -202,13 +211,16 @@ export default function PatientAssessmentVisitPage() {
    * saying it is right. Either way it is theirs now, and a checked vital counts
    * as confirmed against the patient.
    */
-  const checkHeard = (key) => {
+  const checkHeard = (key, { edited = false } = {}) => {
     setVoiceFields((prev) => {
       if (!prev.has(key)) return prev;
       const next = new Set(prev);
       next.delete(key);
       return next;
     });
+    // Changing a heard value is a correction; ticking it is agreement. F2
+    // measures the difference, per field.
+    if (edited && heardFields.has(key)) setEditedFields((prev) => new Set(prev).add(key));
     if (VITAL_FIELDS.some((f) => f.key === key)) {
       setConfirmedVitals((prev) => new Set(prev).add(key));
     }
@@ -243,37 +255,50 @@ export default function PatientAssessmentVisitPage() {
    */
   const buildIntakeProvenance = () => {
     const fields = {};
-    const heard = (key) => ({ source: 'voice', confirmed: !voiceFields.has(key) });
+    const heard = (key) => ({
+      source: 'voice',
+      confirmed: !voiceFields.has(key),
+      edited: editedFields.has(key)
+    });
 
     if (heardFields.has('symptoms')) fields.symptoms = heard('symptoms');
     else if (dictation) fields.symptoms = { source: 'dictated', confirmed: dictation === 'edited' };
     else if (symptomsText.trim()) fields.symptoms = { source: 'typed' };
 
-    const text = { duration: durationValue, medical_history: medicalHistory, known_allergies: knownAllergies };
+    const text = {
+      duration: durationValue,
+      medical_history: medicalHistory,
+      known_allergies: knownAllergies,
+      current_medications: currentMedications,
+      is_pregnant: isPregnant
+    };
     for (const [key, value] of Object.entries(text)) {
       if (heardFields.has(key)) fields[key] = heard(key);
       else if (String(value || '').trim()) fields[key] = { source: 'typed' };
     }
 
-    for (const f of VITAL_FIELDS) {
+    for (const f of [...VITAL_FIELDS, ...MEASURED_FIELDS]) {
       // A cleared field was neither typed nor defaulted; it has no value to describe.
       if (String(vitals[f.key] ?? '').trim() === '') continue;
       if (heardFields.has(f.key)) fields[f.key] = heard(f.key);
-      else if (String(vitals[f.key]) === String(f.normal)) {
+      // A measured field has no default to sit at: if it holds anything, someone put it there.
+      else if (f.normal !== undefined && String(vitals[f.key]) === String(f.normal)) {
         fields[f.key] = { source: 'default', confirmed: confirmedVitals.has(f.key) };
       } else fields[f.key] = { source: 'typed' };
     }
 
     return {
       fields,
-      voice: heardFields.size ? { consent: voiceConsent, sessions: voiceSessions } : undefined
+      voice: heardFields.size
+        ? { consent: voiceConsent, sessions: voiceSessions, opened: voiceOpened }
+        : undefined
     };
   };
 
   const handleVitalsChange = (field, value) => {
     setVitals((prev) => ({ ...prev, [field]: value }));
     setConfirmedVitals((prev) => new Set(prev).add(field));
-    checkHeard(field);
+    checkHeard(field, { edited: true });
     setVitalErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
   };
 
@@ -301,6 +326,11 @@ export default function PatientAssessmentVisitPage() {
     if (spokenComplaint) setSymptomsText((prev) => keepTyped(prev, spokenComplaint, 'symptoms'));
     if (values.medical_history) setMedicalHistory((prev) => keepTyped(prev, values.medical_history, 'medical_history'));
     if (values.known_allergies) setKnownAllergies((prev) => keepTyped(prev, values.known_allergies, 'known_allergies'));
+    if (values.current_medications) setCurrentMedications((prev) => keepTyped(prev, values.current_medications, 'current_medications'));
+    if (typeof values.is_pregnant === 'boolean' && !isPregnant) {
+      setIsPregnant(values.is_pregnant ? 'yes' : 'no');
+      heard.add('is_pregnant');
+    }
 
     if (values.symptom_duration_value && !durationValue) {
       setDurationValue(String(values.symptom_duration_value));
@@ -696,6 +726,7 @@ export default function PatientAssessmentVisitPage() {
         symptom_duration: durationValue ? `${durationValue} ${durationUnit}` : '',
         medical_history: medicalHistory,
         known_allergies: knownAllergies,
+        current_medications: currentMedications,
         vitals,
         verified_ocr_data: verifiedOCRData,
         vision_observation: visionObservation,
@@ -1031,7 +1062,7 @@ export default function PatientAssessmentVisitPage() {
                   value={symptomsText}
                   onChange={(e) => {
                     setSymptomsText(e.target.value);
-                    checkHeard('symptoms');
+                    checkHeard('symptoms', { edited: true });
                     if (dictation === 'unchanged') setDictation('edited');
                   }}
                   className="w-full bg-surface-raised border border-line-strong rounded-field p-3 text-xs text-ink focus:border-gov-500 outline-none leading-relaxed"
@@ -1083,7 +1114,7 @@ export default function PatientAssessmentVisitPage() {
                     value={durationValue}
                     onChange={(e) => {
                       setDurationValue(e.target.value.replace(/\D/g, '').slice(0, 3));
-                      checkHeard('duration');
+                      checkHeard('duration', { edited: true });
                     }}
                     placeholder={t('assess.durationPlaceholder', 'e.g. 3')}
                     aria-label={t('assess.durationAria', 'Symptom duration amount')}
@@ -1100,7 +1131,7 @@ export default function PatientAssessmentVisitPage() {
                       <button
                         key={u}
                         type="button"
-                        onClick={() => { setDurationUnit(u); checkHeard('duration'); }}
+                        onClick={() => { setDurationUnit(u); checkHeard('duration', { edited: true }); }}
                         className={`px-3 py-2 text-xs font-semibold capitalize transition-colors ${
                           durationUnit === u
                             ? 'bg-gov-600 text-white'
@@ -1133,7 +1164,7 @@ export default function PatientAssessmentVisitPage() {
                 <textarea
                   rows={2}
                   value={medicalHistory}
-                  onChange={(e) => { setMedicalHistory(e.target.value); checkHeard('medical_history'); }}
+                  onChange={(e) => { setMedicalHistory(e.target.value); checkHeard('medical_history', { edited: true }); }}
                   placeholder={t('assess.historyPlaceholder', 'e.g. Type 2 diabetes since 2019, hypertension')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
                 />
@@ -1150,10 +1181,54 @@ export default function PatientAssessmentVisitPage() {
                 <input
                   type="text"
                   value={knownAllergies}
-                  onChange={(e) => { setKnownAllergies(e.target.value); checkHeard('known_allergies'); }}
+                  onChange={(e) => { setKnownAllergies(e.target.value); checkHeard('known_allergies', { edited: true }); }}
                   placeholder={t('assess.allergiesPlaceholder', 'e.g. Penicillin — rash. Enter None if the patient reports none.')}
                   className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
                 />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-ink-muted mb-1">
+                  {t('assess.medicines', 'Medicines the patient is taking now')}
+                  {heardBadge('current_medications')}
+                </label>
+                <input
+                  type="text"
+                  value={currentMedications}
+                  onChange={(e) => { setCurrentMedications(e.target.value); checkHeard('current_medications', { edited: true }); }}
+                  placeholder={t('assess.medicinesPlaceholder', 'e.g. Metformin 500 mg twice a day')}
+                  className="w-full bg-surface-raised border border-line-strong rounded-field px-3.5 py-2 text-xs text-ink focus:border-gov-500 outline-none"
+                />
+              </div>
+
+              {/* Three states on purpose. Unanswered is stored as unanswered:
+                  it changes triage and which hospital can receive a referral,
+                  and "not asked" recorded as "no" would be an invented answer. */}
+              <div className="sm:col-span-2">
+                <span className="block text-xs font-semibold text-ink-muted mb-1">
+                  {t('assess.pregnancy', 'Pregnant?')}
+                  {heardBadge('is_pregnant')}
+                </span>
+                <div className="flex gap-2">
+                  {[
+                    ['', 'assess.pregnancy.unasked', 'Not asked'],
+                    ['yes', 'assess.pregnancy.yes', 'Yes'],
+                    ['no', 'assess.pregnancy.no', 'No']
+                  ].map(([value, key, en]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => { setIsPregnant(value); checkHeard('is_pregnant', { edited: true }); }}
+                      className={`px-3 py-2 rounded-field text-xs font-semibold transition-colors ${
+                        isPregnant === value
+                          ? 'bg-gov-600 text-white'
+                          : 'bg-surface-raised border border-line-strong text-ink-muted hover:bg-surface-sunken'
+                      }`}
+                    >
+                      {t(key, en)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1883,6 +1958,7 @@ export default function PatientAssessmentVisitPage() {
           language={lang}
           speechLang={speechTag(lang)}
           onApply={applyChatboxValues}
+          onOpened={() => setVoiceOpened((n) => n + 1)}
           consent={voiceConsent}
           onConsent={() => setVoiceConsent(true)}
           typed={{
@@ -1898,7 +1974,10 @@ export default function PatientAssessmentVisitPage() {
              * person had entered, the server would refuse all six, and the
              * CHATBOX could never fill a vital at all.
              */
+            current_medications: currentMedications,
+            is_pregnant: isPregnant,
             vitals: {
+              blood_glucose_mgdl: vitals.blood_glucose_mgdl || '',
               temperature_f: confirmedVitals.has('temperature') ? vitals.temperature : '',
               blood_pressure_systolic: confirmedVitals.has('blood_pressure_systolic') ? vitals.blood_pressure_systolic : '',
               blood_pressure_diastolic: confirmedVitals.has('blood_pressure_diastolic') ? vitals.blood_pressure_diastolic : '',
