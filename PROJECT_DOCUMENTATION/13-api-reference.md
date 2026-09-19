@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **73 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
+All **74 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
 inference service's 4 endpoints. Thirteen of the routes belong to a
 [feature flag](#feature-flags); all five flags are on by default, and a
 deployment that sets `FEATURE_FLAGS` to a shorter list — or an empty string —
@@ -76,6 +76,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `doctor_referral` | `GET /api/doctor/referrals` · `POST /api/doctor/cases/:id/referrals` · `POST /api/doctor/referrals/:id/:action`, and the referral fields on `GET /api/doctor/cases/:id` |
 | `voice_intake` | `POST /api/ai/intake-extract` |
 | `referral_tracking` | `/api/referral-tracking` (4 routes) · `/api/public/referrals` (2 routes) · the `hospital_referral` field on a doctor review · the link on the referral PDF |
+| `fhir_export` | `GET /api/visits/:id/fhir` |
 | `follow_up_tracking` | `/api/follow-ups` (2 routes) · the `follow_up` field on a doctor review · `follow_up_days` required (1–90) on a `follow_up` decision · a new visit completing the patient's follow-ups |
 
 ---
@@ -230,6 +231,31 @@ the intake.
 ### `GET /api/visits/:id` — CA, DR
 Doctor → `assigned_doctor_id = me`; assistant → `district_id`. Excludes withdrawn
 visits. Returns the visit with patient, vitals, symptoms and assessments.
+
+### `GET /api/visits/:id/fhir` — CA, DR · flag: `fhir_export`
+
+The visit as a **FHIR R4 document** (`application/fhir+json`): a Bundle of type
+`document` beginning with a Composition, then Organization, Practitioner(s),
+Patient, Encounter, one Observation per measured vital (blood pressure as one
+observation with two components, glucose as a laboratory result), Condition for
+the doctor's diagnosis, MedicationRequest per prescribed item, and ServiceRequest
+for a hospital referral.
+
+Three rules it enforces, each with tests:
+- **The patient is identified by `patients.patient_uid`** (migration 20), never by
+  Aadhaar. The Aadhaar number appears nowhere in the document; the server checks
+  the serialised bundle for it before sending and answers **500** rather than leak it.
+- **A vital left at the form default and never confirmed is not exported.** It was
+  never measured, and another hospital would read it as a reading. Where the visit
+  predates provenance (migration 17), the document says so in the section title.
+- **The AI draft is not exported.** The doctor's diagnosis is the clinical record.
+
+Scoped like the case: a doctor may export one assigned to them, an assistant one in
+their district. Every export is audited as `VISIT_EXPORTED_FHIR` with the resource
+count. **404** outside scope · **409** if the patient has no internal identifier yet.
+
+*Structural validity is checked in tests (document shape, resolvable references,
+identified resources); it has not been through the official HL7 validator.*
 
 ### `GET /api/visits/:id/review` — CA, DR
 The doctor's decision, for the assistant.
@@ -1033,6 +1059,7 @@ Exact match, then fuzzy at score ≥ 80.
 | POST | `/api/referral-tracking/:id/ack-link` | CA, DR · flag |
 | GET | `/api/follow-ups` | CA, DR · flag |
 | POST | `/api/follow-ups/:id/:action` | CA, DR · flag |
+| GET | `/api/visits/:id/fhir` | CA, DR · flag |
 | GET | `/api/public/referrals/:token` | public · flag |
 | POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |

@@ -29,7 +29,8 @@ export const FEATURES = {
   VOICE_INTAKE: 'voice_intake',
   /** Phase 1 — closed-loop hospital referral and the hospital acknowledgement link. */
   REFERRAL_TRACKING: 'referral_tracking',
-  FOLLOW_UP_TRACKING: 'follow_up_tracking'
+  FOLLOW_UP_TRACKING: 'follow_up_tracking',
+  FHIR_EXPORT: 'fhir_export'
 };
 
 const KNOWN = new Set(Object.values(FEATURES));
@@ -58,7 +59,8 @@ export const parseFlags = (raw) => {
  * these features out of the way.
  */
 export const DEFAULT_FEATURES = [
-  'baseline_metrics', 'doctor_referral', 'voice_intake', 'referral_tracking', 'follow_up_tracking'
+  'baseline_metrics', 'doctor_referral', 'voice_intake', 'referral_tracking',
+  'follow_up_tracking', 'fhir_export'
 ].join(',');
 
 let enabled = parseFlags(process.env.FEATURE_FLAGS ?? DEFAULT_FEATURES);

@@ -19,7 +19,8 @@ export const FEATURES = {
   DOCTOR_REFERRAL: 'doctor_referral',
   VOICE_INTAKE: 'voice_intake',
   REFERRAL_TRACKING: 'referral_tracking',
-  FOLLOW_UP_TRACKING: 'follow_up_tracking'
+  FOLLOW_UP_TRACKING: 'follow_up_tracking',
+  FHIR_EXPORT: 'fhir_export'
 };
 
 const EMPTY = { features: new Set(), ready: false };

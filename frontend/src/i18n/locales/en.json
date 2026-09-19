@@ -273,6 +273,8 @@
   "case.diagnosis": "Diagnosis",
   "case.diagnosisPlaceholder": "e.g. Acute viral febrile illness",
   "case.documentCount": "{count} document(s)",
+  "case.exportFailed": "The record could not be exported.",
+  "case.exportFhir": "Download record (FHIR)",
   "case.finalAuthority": "Final authority",
   "case.followUpDays": "Follow up in (days)",
   "case.forDuration": "for {duration}",

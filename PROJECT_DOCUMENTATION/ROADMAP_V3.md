@@ -770,6 +770,22 @@ confirmed before submission, and no typed value is ever overwritten.
 
 ### Phase 3 — Continuity and interoperability · *XL*
 
+> **Status: started.** Two pieces are built and deployed:
+> - **Internal patient identifier** (migration 20): every patient has a random
+>   `patient_uid`. Nothing is re-keyed yet — that is a contraction and waits for the
+>   checkpoint to retire (ground rule 5) — but anything leaving the system now
+>   identifies the patient by it.
+> - **FHIR R4 export** (`fhir_export`): `GET /api/visits/:id/fhir` returns the visit
+>   as a FHIR document, and the doctor's case view has a download button. No Aadhaar
+>   anywhere in it (checked on the serialised bundle before sending), no unconfirmed
+>   default exported as a measurement, no AI draft. Checked against five real
+>   production visits as well as in tests; **not** yet run through the official HL7
+>   validator.
+>
+> **Not done:** the consent model (treatment, sharing, training use — the hard part
+> of this phase), ABHA linkage, consent-based cross-district access, FHIR *ingest*
+> as opposed to export, and ABDM Health Information Provider groundwork.
+
 **Goal.** A patient's history follows them across facilities and district lines,
 with consent, on approved standards.
 

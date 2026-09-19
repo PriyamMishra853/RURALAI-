@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Stethoscope, Video, CheckCircle2, ArrowLeft, AlertCircle, RefreshCw,
-  Lock, Plus, Trash2, Loader2, Bot, ClipboardCheck, Thermometer, Activity
+  Lock, Plus, Trash2, Loader2, Bot, ClipboardCheck, Thermometer, Activity, Download
 } from 'lucide-react';
 import api from '../services/api';
 import ScheduleConsultationModal from '../components/ScheduleConsultationModal';
@@ -53,6 +53,7 @@ export default function DoctorCaseViewPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const referralsOn = useFeature(FEATURES.DOCTOR_REFERRAL);
+  const fhirOn = useFeature(FEATURES.FHIR_EXPORT);
 
   const [visit, setVisit] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -70,6 +71,7 @@ export default function DoctorCaseViewPage() {
   const [submitError, setSubmitError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [showRefer, setShowRefer] = useState(false);
 
   const fetchCase = useCallback(async () => {
@@ -95,6 +97,28 @@ export default function DoctorCaseViewPage() {
    * exactly like a reading — a 98.6 °F here may be a thermometer or may be the
    * form. The same goes for a value heard by the CHATBOX and never checked.
    */
+  /**
+   * The visit as a FHIR R4 document, saved as a file the doctor can hand over.
+   * The browser cannot simply follow a link: the endpoint needs the session
+   * token, so it is fetched and saved rather than opened.
+   */
+  const downloadFhir = async () => {
+    setExporting(true);
+    try {
+      const res = await api.get(`/visits/${visitId}/fhir`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${visit?.visit_code || 'visit'}.fhir.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setSubmitError(err.response?.data?.error || t('case.exportFailed', 'The record could not be exported.'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const intakeNotes = useMemo(() => {
     const fields = visit?.intake_provenance?.fields;
     if (!fields) return null;
@@ -244,6 +268,19 @@ export default function DoctorCaseViewPage() {
               </p>
             </div>
           </div>
+
+          {/* The record in a form another hospital's system can read. Hidden
+              unless this deployment has the export switched on. */}
+          {fhirOn && (
+            <button
+              type="button"
+              onClick={downloadFhir}
+              disabled={exporting}
+              className="w-full lg:w-auto px-4 py-2.5 rounded-field bg-surface-raised border border-line-strong hover:bg-surface-sunken disabled:opacity-40 text-ink font-semibold text-xs flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4" /> {t('case.exportFhir', 'Download record (FHIR)')}
+            </button>
+          )}
 
           <button
             type="button"
