@@ -3,8 +3,10 @@
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
 All **73 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
-inference service's 4 endpoints. Thirteen of the routes exist only when a
-[feature flag](#feature-flags) switches them on.
+inference service's 4 endpoints. Thirteen of the routes belong to a
+[feature flag](#feature-flags); all five flags are on by default, and a
+deployment that sets `FEATURE_FLAGS` to a shorter list — or an empty string —
+answers 404 on the ones it leaves out.
 
 **Base URL:** `/api` · **Auth:** `Authorization: Bearer <token>` on everything
 except `POST /api/auth/login`, `GET /api/health` and `GET /api/features`.

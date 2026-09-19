@@ -52,7 +52,10 @@ These hold today and are not renegotiated by anything below.
    checkpoint is retired. Otherwise the checkpoint stops running against the live
    database (section 8).
 6. **New capability ships behind a feature flag that defaults off,** so the demo
-   state can be shown from a current build as well as from the checkpoint.
+   state can be shown from a current build as well as from the checkpoint. Once a
+   feature is released the default flips in the repository — `DEFAULT_FEATURES` in
+   `features.js`, so a deploy is the release and nothing depends on a variable set
+   by hand in a dashboard. `FEATURE_FLAGS=` still turns everything off.
 7. **Measure before changing.** Each phase names the PS outcome it moves and
    records a baseline first. A claim of improvement needs a before.
 

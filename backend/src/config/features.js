@@ -43,7 +43,25 @@ export const parseFlags = (raw) => {
   return enabled;
 };
 
-let enabled = parseFlags(process.env.FEATURE_FLAGS);
+/**
+ * Released features, on unless a deployment turns them off.
+ *
+ * These shipped behind flags so the demo checkpoint could be shown from a
+ * current build while they were unproven. They are built, tested and their
+ * migrations (14-19) are applied, so the deploy is the release: a push now
+ * switches them on, rather than someone remembering to set a variable in a
+ * dashboard that the repository cannot see.
+ *
+ * Setting FEATURE_FLAGS overrides this entirely, including to an empty string,
+ * which turns everything off — that is how the checkpoint behaviour is
+ * restored, and how a deployment whose database is behind on migrations keeps
+ * these features out of the way.
+ */
+export const DEFAULT_FEATURES = [
+  'baseline_metrics', 'doctor_referral', 'voice_intake', 'referral_tracking', 'follow_up_tracking'
+].join(',');
+
+let enabled = parseFlags(process.env.FEATURE_FLAGS ?? DEFAULT_FEATURES);
 
 export const isEnabled = (flag) => enabled.has(flag);
 
