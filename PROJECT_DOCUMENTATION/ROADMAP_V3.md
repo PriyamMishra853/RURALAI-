@@ -853,6 +853,24 @@ patients are visible. Follow-up adherence is a measured number.
 
 ### Phase 5 — Learning system · *XL*
 
+> **Status: the curation harness exists** (`npm run dataset:export`, doc 12's P0).
+> It writes a versioned dataset of verified cases with a manifest and a datasheet,
+> and it is mostly refusals: only patients with an active **training** consent, only
+> cases a doctor reviewed and diagnosed, only measurements a person confirmed, and
+> nothing that could name anybody — no Aadhaar, no internal identifier, no name,
+> phone, village line or date of birth; age in bands, dates to the month, location
+> to the district. The patient reference links cases inside one dataset and nowhere
+> else. It refuses to run without a stated purpose and a recorded approval, and
+> refuses to write anywhere git would pick up.
+>
+> Run against production it exported **0 cases** of 2,808 visits: nobody has given
+> training consent yet, which is the correct answer and the point of the gate.
+>
+> **Not done:** everything else — the separate learning plane, clinician QA sampling,
+> retraining, benchmarks, the model registry, shadow scoring and promotion.
+> **Ethics committee approval remains a hard gate**; the export records an approval
+> reference, it does not grant one.
+
 **Goal.** F3: the model improves from verified cases, safely, lawfully and
 reversibly.
 

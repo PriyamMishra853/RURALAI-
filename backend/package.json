@@ -30,7 +30,8 @@
     "check:languages": "node src/scripts/checkLanguages.js",
     "check:fonts": "node src/scripts/checkFonts.js",
     "fonts:install": "node src/scripts/fetchFonts.js",
-    "eval:intake": "node src/scripts/evalIntakeExtraction.js"
+    "eval:intake": "node src/scripts/evalIntakeExtraction.js",
+    "dataset:export": "node src/scripts/exportTrainingDataset.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.17.0",
