@@ -22,6 +22,7 @@ import HospitalReferralStatus from '../components/HospitalReferralStatus';
 import { useI18n } from '../i18n/index.jsx';
 import { speechTag } from '../i18n/speech.js';
 import ChatboxIntakeModal from '../components/ChatboxIntakeModal';
+import ConsentPanel from '../components/ConsentPanel';
 import { useFeature, FEATURES } from '../context/FeatureContext';
 
 export default function PatientAssessmentVisitPage() {
@@ -1692,6 +1693,10 @@ export default function PatientAssessmentVisitPage() {
             />
           )}
           <HospitalReferralStatus visitId={visitId} />
+
+          {/* Consent belongs where the patient is: the assistant is with them
+              now, and the record cannot leave the clinic without it. */}
+          <ConsentPanel aadhaarNumber={patientId} />
 
           {/* The doctor's decision, arriving live. Rendered first, above the AI
               result: once a case has gone to a doctor, what the doctor said is

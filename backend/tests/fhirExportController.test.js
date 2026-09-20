@@ -10,9 +10,18 @@ import { describe, expect, it, beforeEach, jest } from '@jest/globals';
 
 const AADHAAR = '234567890123';
 const db = {};
+// Sharing consent, granted, unless a test says otherwise: an export is a
+// disclosure and the gate refuses without it.
+const sharingConsent = () => [{
+  id: 'c1', patient_id: AADHAAR, purpose: 'share_with_facility', status: 'granted',
+  method: 'verbal', language: 'mr', wording_version: 'v1-2026-09',
+  granted_at: '2026-09-01T00:00:00.000Z', expires_at: '2027-01-01T00:00:00.000Z'
+}];
+
 const reset = () => {
   db.filters = [];
   db.audits = [];
+  db.consents = sharingConsent();
   db.visit = {
     id: 'visit-1', visit_code: 'VIS-1', status: 'completed', created_at: '2026-09-19T04:00:00.000Z',
     district_id: 'dist-1', chief_complaint: 'Fever', assistant_id: 'ast-1', assigned_doctor_id: 'doc-1',
@@ -43,9 +52,13 @@ jest.unstable_mockModule('../src/config/supabase.js', () => {
         if (table === 'hospital_referrals') return { data: null, error: null };
         return { data: null, error: null };
       },
-      then: (resolve) => resolve(table === 'staff_profiles'
-        ? { data: [{ id: 'doc-1', full_name: 'Dr Rao' }, { id: 'ast-1', full_name: 'Sunita' }], error: null }
-        : { data: null, error: null })
+      then: (resolve) => {
+        if (table === 'staff_profiles') {
+          return resolve({ data: [{ id: 'doc-1', full_name: 'Dr Rao' }, { id: 'ast-1', full_name: 'Sunita' }], error: null });
+        }
+        if (table === 'patient_consents') return resolve({ data: db.consents, error: null });
+        return resolve({ data: null, error: null });
+      }
     };
     return chain;
   };
@@ -56,6 +69,7 @@ jest.unstable_mockModule('../src/middleware/audit.middleware.js', () => ({
   logAuditEvent: async (event) => { db.audits.push(event); }
 }));
 
+const { setFlagsForTest } = await import('../src/config/features.js');
 const { exportVisitAsFhir } = await import('../src/controllers/fhirExport.controller.js');
 
 const makeRes = () => {
@@ -75,7 +89,10 @@ const run = async (user) => {
 const DOCTOR = { id: 'doc-1', role: 'DOCTOR', districtId: 'dist-1' };
 const ASSISTANT = { id: 'ast-1', role: 'CLINIC_ASSISTANT', districtId: 'dist-1' };
 
-beforeEach(reset);
+beforeEach(() => {
+  reset();
+  setFlagsForTest('fhir_export,patient_consent');
+});
 
 describe('scope', () => {
   it('limits a doctor to cases assigned to them', async () => {
@@ -124,5 +141,37 @@ describe('the exported document', () => {
       action: 'VISIT_EXPORTED_FHIR', entityType: 'VISITS', entityId: 'visit-1', actorId: 'ast-1'
     });
     expect(db.audits[0].metadata.resources).toBeGreaterThan(3);
+  });
+});
+
+describe('consent to send the record out of the clinic', () => {
+  it('refuses when the patient was never asked, and says so in the audit', async () => {
+    db.consents = [];
+    const res = await run(DOCTOR);
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toMatch(/has not been asked/);
+    expect(res.body.needs).toBe('share_with_facility');
+    expect(db.audits[0]).toMatchObject({ action: 'VISIT_EXPORT_REFUSED_NO_CONSENT' });
+  });
+
+  it('refuses on a withdrawn or expired consent', async () => {
+    db.consents = [{ ...sharingConsent()[0], status: 'withdrawn', withdrawn_at: '2026-09-10T00:00:00.000Z' }];
+    expect((await run(DOCTOR)).statusCode).toBe(403);
+    db.consents = [{ ...sharingConsent()[0], expires_at: '2026-09-02T00:00:00.000Z' }];
+    expect((await run(DOCTOR)).statusCode).toBe(403);
+  });
+
+  it('is not satisfied by consent to treatment or training', async () => {
+    db.consents = [
+      { ...sharingConsent()[0], purpose: 'treatment', expires_at: null },
+      { ...sharingConsent()[0], purpose: 'training', expires_at: null }
+    ];
+    expect((await run(DOCTOR)).statusCode).toBe(403);
+  });
+
+  it('exports when the feature is off, as it did before consent existed', async () => {
+    setFlagsForTest('fhir_export');
+    db.consents = [];
+    expect((await run(DOCTOR)).statusCode).toBe(200);
   });
 });

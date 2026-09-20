@@ -559,7 +559,20 @@ retention period, access controls equal to the visit's, and a data-protection
 impact assessment. **None of that exists yet, which is exactly why nothing is
 stored today.**
 
-### 10.5 Retention
+### 10.5 Consent
+
+Three consents, recorded separately (`patient_consents`, migration 21): treatment,
+sharing the record outside the clinic, and training use. Each stores the language it
+was explained in, the method (spoken, written, thumb impression), the version of the
+wording read out, and who recorded it — what would be needed to show the agreement was
+informed. Withdrawal is a state with a time and a reason, never a deletion.
+
+The gate that exists today is the FHIR export: without an active sharing consent it
+answers 403 and the refusal is audited. Treatment consent does not satisfy it, and
+neither does training consent. Training consent is recorded but nothing reads it yet;
+it becomes a hard gate when the learning system is built.
+
+### 10.6 Retention
 
 Clinical records are **append-only**. The only removal is a soft delete on
 `visits`, guarded four ways and recording who withdrew it and why. Staff are

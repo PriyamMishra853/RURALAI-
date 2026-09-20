@@ -20,7 +20,8 @@ export const FEATURES = {
   VOICE_INTAKE: 'voice_intake',
   REFERRAL_TRACKING: 'referral_tracking',
   FOLLOW_UP_TRACKING: 'follow_up_tracking',
-  FHIR_EXPORT: 'fhir_export'
+  FHIR_EXPORT: 'fhir_export',
+  PATIENT_CONSENT: 'patient_consent'
 };
 
 const EMPTY = { features: new Set(), ready: false };

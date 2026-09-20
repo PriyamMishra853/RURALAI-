@@ -782,9 +782,18 @@ confirmed before submission, and no typed value is ever overwritten.
 >   production visits as well as in tests; **not** yet run through the official HL7
 >   validator.
 >
-> **Not done:** the consent model (treatment, sharing, training use — the hard part
-> of this phase), ABHA linkage, consent-based cross-district access, FHIR *ingest*
-> as opposed to export, and ABDM Health Information Provider groundwork.
+> - **Consent model** (`patient_consent`, migration 21): three purposes kept apart —
+>   treatment, sharing the record outside the clinic, and training use. Each records
+>   the language it was explained in, how it was given (spoken, written, thumb
+>   impression), the version of the wording read out, and who recorded it. Withdrawal
+>   is a state, not a delete; sharing consent expires after 180 days. **The FHIR
+>   export now refuses without an active sharing consent**, and says which of never
+>   asked / expired / withdrawn applies. Consent uptake is on the admin baseline.
+>
+> **Not done:** ABHA linkage, consent-based cross-**district** access (the consent
+> exists; the cross-district read path does not), FHIR *ingest* as opposed to export,
+> and ABDM Health Information Provider groundwork. Training consent is recorded and
+> counted but nothing reads it yet — Phase 5 is where it becomes a gate.
 
 **Goal.** A patient's history follows them across facilities and district lines,
 with consent, on approved standards.

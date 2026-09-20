@@ -30,7 +30,8 @@ export const FEATURES = {
   /** Phase 1 — closed-loop hospital referral and the hospital acknowledgement link. */
   REFERRAL_TRACKING: 'referral_tracking',
   FOLLOW_UP_TRACKING: 'follow_up_tracking',
-  FHIR_EXPORT: 'fhir_export'
+  FHIR_EXPORT: 'fhir_export',
+  PATIENT_CONSENT: 'patient_consent'
 };
 
 const KNOWN = new Set(Object.values(FEATURES));
@@ -60,7 +61,7 @@ export const parseFlags = (raw) => {
  */
 export const DEFAULT_FEATURES = [
   'baseline_metrics', 'doctor_referral', 'voice_intake', 'referral_tracking',
-  'follow_up_tracking', 'fhir_export'
+  'follow_up_tracking', 'fhir_export', 'patient_consent'
 ].join(',');
 
 let enabled = parseFlags(process.env.FEATURE_FLAGS ?? DEFAULT_FEATURES);

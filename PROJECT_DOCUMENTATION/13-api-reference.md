@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **74 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
+All **77 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
 inference service's 4 endpoints. Thirteen of the routes belong to a
 [feature flag](#feature-flags); all five flags are on by default, and a
 deployment that sets `FEATURE_FLAGS` to a shorter list — or an empty string —
@@ -77,6 +77,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `voice_intake` | `POST /api/ai/intake-extract` |
 | `referral_tracking` | `/api/referral-tracking` (4 routes) · `/api/public/referrals` (2 routes) · the `hospital_referral` field on a doctor review · the link on the referral PDF |
 | `fhir_export` | `GET /api/visits/:id/fhir` |
+| `patient_consent` | `/api/patients/consents` (3 routes) · the sharing gate on the FHIR export |
 | `follow_up_tracking` | `/api/follow-ups` (2 routes) · the `follow_up` field on a doctor review · `follow_up_days` required (1–90) on a `follow_up` decision · a new visit completing the patient's follow-ups |
 
 ---
@@ -232,6 +233,29 @@ the intake.
 Doctor → `assigned_doctor_id = me`; assistant → `district_id`. Excludes withdrawn
 visits. Returns the visit with patient, vitals, symptoms and assessments.
 
+### `POST /api/patients/consents` — CA, DR · flag: `patient_consent`
+
+`{ aadhaar_number }` → `{ state, history, wording, wording_version }`. Three purposes,
+recorded and read separately: `treatment`, `share_with_facility`, `training`. `state`
+says, per purpose, whether it is granted, until when, and — when it is not — whether it
+was never asked, has expired, or was withdrawn. `wording` is the sentence that must be
+read to the patient, returned with the version stored against each consent so the
+screen and the record cannot drift apart.
+
+### `POST /api/patients/consents/grant` — CA, DR · flag: `patient_consent`
+
+`{ aadhaar_number, purpose, method, language, note? }`. `method` is `verbal`,
+`written` or `thumb_impression`; `language` is the language it was explained in, and is
+required — consent taken in a language the patient does not speak is not informed
+consent. Sharing consent expires after 180 days; treatment and training run until
+withdrawn. Asking again **replaces** the standing answer (the old one is withdrawn, so
+the history still shows it existed). **201** · audited as `PATIENT_CONSENT_GRANTED`.
+
+### `POST /api/patients/consents/withdraw` — CA, DR · flag: `patient_consent`
+
+`{ aadhaar_number, purpose, reason? }`. Withdrawal is a state, never a delete.
+**404** if nothing is standing · **409** if it changed underneath · audited.
+
 ### `GET /api/visits/:id/fhir` — CA, DR · flag: `fhir_export`
 
 The visit as a **FHIR R4 document** (`application/fhir+json`): a Bundle of type
@@ -250,7 +274,11 @@ Three rules it enforces, each with tests:
   predates provenance (migration 17), the document says so in the section title.
 - **The AI draft is not exported.** The doctor's diagnosis is the clinical record.
 
-Scoped like the case: a doctor may export one assigned to them, an assistant one in
+**With `patient_consent` on, the export requires an active `share_with_facility`
+consent** and answers **403** with the reason (never asked · expired · withdrawn) and
+`needs: "share_with_facility"`; the refusal is audited as
+`VISIT_EXPORT_REFUSED_NO_CONSENT`. Consent to treatment or to training does not satisfy
+it. Scoped like the case: a doctor may export one assigned to them, an assistant one in
 their district. Every export is audited as `VISIT_EXPORTED_FHIR` with the resource
 count. **404** outside scope · **409** if the patient has no internal identifier yet.
 
@@ -1060,6 +1088,9 @@ Exact match, then fuzzy at score ≥ 80.
 | GET | `/api/follow-ups` | CA, DR · flag |
 | POST | `/api/follow-ups/:id/:action` | CA, DR · flag |
 | GET | `/api/visits/:id/fhir` | CA, DR · flag |
+| POST | `/api/patients/consents` | CA, DR · flag |
+| POST | `/api/patients/consents/grant` | CA, DR · flag |
+| POST | `/api/patients/consents/withdraw` | CA, DR · flag |
 | GET | `/api/public/referrals/:token` | public · flag |
 | POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |

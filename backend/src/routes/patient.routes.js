@@ -3,7 +3,9 @@ import {
   createPatient, getPatients, lookupByAadhaar, getPatientDetail, updatePatient,
   registerUrgentPatient
 } from '../controllers/patient.controller.js';
+import { getConsents, grantConsent, withdrawConsent } from '../controllers/consent.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
+import { requireFeature, FEATURES } from '../config/features.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { patientSearchRateLimiter } from '../middleware/rateLimit.middleware.js';
 import { ROLES } from '../config/roles.js';
@@ -23,6 +25,12 @@ const CLINICAL = authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR);
 // are the routes an attacker would walk to probe which Aadhaars are registered.
 router.post('/lookup', patientSearchRateLimiter, CLINICAL, lookupByAadhaar);
 router.post('/detail', patientSearchRateLimiter, CLINICAL, getPatientDetail);
+
+// Consent, keyed by Aadhaar in the body like every other patient read.
+const CONSENT = [requireFeature(FEATURES.PATIENT_CONSENT), patientSearchRateLimiter, CLINICAL];
+router.post('/consents', ...CONSENT, getConsents);
+router.post('/consents/grant', ...CONSENT, grantConsent);
+router.post('/consents/withdraw', ...CONSENT, withdrawConsent);
 
 router.get('/', patientSearchRateLimiter, CLINICAL, getPatients);
 router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), createPatient);

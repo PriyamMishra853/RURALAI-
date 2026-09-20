@@ -2,6 +2,9 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { logAuditEvent } from '../middleware/audit.middleware.js';
 import { ROLES } from '../config/roles.js';
 import { buildVisitBundle, bundleProblems } from '../services/fhirBundle.js';
+import { isEnabled, FEATURES } from '../config/features.js';
+import { consentsFor } from './consent.controller.js';
+import { refusalForSharing } from '../services/consentRules.js';
 
 /**
  * GET /api/visits/:id/fhir — the visit as a FHIR R4 document.
@@ -26,7 +29,7 @@ export const exportVisitAsFhir = async (req, res) => {
       id, visit_code, status, created_at, district_id, chief_complaint, symptom_duration,
       medical_history, known_allergies, current_medications, is_pregnant, intake_started_at,
       intake_provenance, assistant_id, assigned_doctor_id,
-      patients ( patient_uid, full_name, gender, date_of_birth, village_line1, village_line2, address_district, pin_code ),
+      patients ( patient_uid, aadhaar_number, full_name, gender, date_of_birth, village_line1, village_line2, address_district, pin_code ),
       visit_vitals ( temperature_f, blood_pressure_systolic, blood_pressure_diastolic, pulse_bpm,
                      spo2_percent, respiratory_rate, blood_glucose_mgdl, weight_kg, height_cm, recorded_at ),
       doctor_reviews ( clinical_notes, decision, created_at ),
@@ -51,6 +54,25 @@ export const exportVisitAsFhir = async (req, res) => {
     // Migration 20 gives every patient one. Without it the export would have to
     // fall back to the Aadhaar number, and it will not.
     return res.status(409).json({ error: 'This patient has no internal identifier yet, so the record cannot be exported.' });
+  }
+
+  /*
+   * The gate (Roadmap v3, Phase 3). This is the one route that sends a whole
+   * record out of the clinic, so it is the one that has to ask whether the
+   * patient agreed to that. Treatment consent does not cover it: being treated
+   * here is not agreeing to be sent elsewhere.
+   */
+  if (isEnabled(FEATURES.PATIENT_CONSENT)) {
+    const { consents } = await consentsFor(patient.aadhaar_number);
+    const refusal = refusalForSharing(consents);
+    if (refusal) {
+      await logAuditEvent({
+        actorId: req.user.id, actorRole: req.user.role,
+        action: 'VISIT_EXPORT_REFUSED_NO_CONSENT', entityType: 'VISITS', entityId: visit.id,
+        metadata: { reason: refusal }, ip: req.ip
+      });
+      return res.status(403).json({ error: refusal, needs: 'share_with_facility' });
+    }
   }
 
   const [{ data: district }, { data: staff }] = await Promise.all([
