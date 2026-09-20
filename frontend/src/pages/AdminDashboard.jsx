@@ -7,6 +7,7 @@ import { ROLES, ROLE_LABEL, ROLE_KEY } from '../config/roles';
 import { useI18n } from '../i18n/index.jsx';
 import { useFeature, FEATURES } from '../context/FeatureContext';
 import BaselineMetricsCard from '../components/admin/BaselineMetricsCard';
+import DistrictOutcomesCard from '../components/admin/DistrictOutcomesCard';
 
 /**
  * Admin console.
@@ -208,6 +209,9 @@ export default function AdminDashboard({ auditOnly = false }) {
           <TrendChart data={analytics?.trend || []} />
 
           {baselineOn && <BaselineMetricsCard />}
+
+          {/* Which districts to ask about. Self-gated on district_outcomes. */}
+          <DistrictOutcomesCard />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <RiskChart distribution={analytics?.risk_distribution || {}} />

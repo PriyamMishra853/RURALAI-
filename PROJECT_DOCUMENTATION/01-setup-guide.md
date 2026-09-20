@@ -159,7 +159,7 @@ decommissioning a model is a config change rather than a code change.
 | `RESEND_API_KEY` | Staff account invitation email |
 | `GOOGLE_MAPS_API_KEY` | Upgrades referral straight-line distance to live driving distance. Entirely optional — the straight-line answer is computed first and stands if the call fails |
 | `DEMO_ACCOUNT_PASSWORD` | Shared password for seeded demo accounts. Written to a gitignored credentials file, never compiled into the frontend bundle |
-| `FEATURE_FLAGS` | Comma-separated features: `baseline_metrics`, `doctor_referral`, `voice_intake`, `referral_tracking`, `follow_up_tracking`, `fhir_export`, `patient_consent`. **Leave it unset** — every released feature is then on, which is what this repository ships. Set a shorter list to run with only some, or an empty string to turn all of them off (the demo checkpoint's behaviour, and what a database behind on migrations 14-19 should use). Unknown names are ignored with a warning, never enabled |
+| `FEATURE_FLAGS` | Comma-separated features: `baseline_metrics`, `doctor_referral`, `voice_intake`, `referral_tracking`, `follow_up_tracking`, `fhir_export`, `patient_consent`, `district_outcomes`. **Leave it unset** — every released feature is then on, which is what this repository ships. Set a shorter list to run with only some, or an empty string to turn all of them off (the demo checkpoint's behaviour, and what a database behind on migrations 14-19 should use). Unknown names are ignored with a warning, never enabled |
 | `RATE_LIMIT_AI_PER_MIN` | AI and OCR calls **per signed-in user** per minute. Default 20. Not per clinic: a centre shares one public address, so an address-keyed limit is a limit on the whole building |
 | `RATE_LIMIT_PATIENT_SEARCH` | Patient lookups per signed-in user per 5 minutes. Default 60 |
 | `RATE_LIMIT_GLOBAL_PER_MIN` | Runaway guard for everything under `/api`, keyed by address because it runs before anyone is identified. Default 1200 — a whole centre's budget, not one person's |
@@ -283,7 +283,7 @@ npm run seed -- --confirm   # demo regions, staff, patients, visits (destructive
 npm run seed:schedules # doctor working hours — without these every date reads "Closed"
 npm run seed:daily     # deterministic 5 cases per doctor for today
 npm run seed:maharashtra -- --confirm   # Maharashtra's 36 districts; additive, never touches Uttar Pradesh
-npm run db:migrate 14_baseline_metrics.sql 15_case_referrals.sql 16_referral_tracking.sql 17_intake_provenance.sql 18_follow_ups.sql 19_intake_fields.sql 20_patient_uid.sql 21_patient_consent.sql   # before switching on the optional features
+npm run db:migrate 14_baseline_metrics.sql 15_case_referrals.sql 16_referral_tracking.sql 17_intake_provenance.sql 18_follow_ups.sql 19_intake_fields.sql 20_patient_uid.sql 21_patient_consent.sql 22_district_outcomes.sql   # before switching on the optional features
 npm run rag:seed       # 3 clinical protocols into Qdrant
 npm run eval:intake    # CHATBOX extraction test set — calls Groq once per case, writes nothing; exit 1 if any vital is not exact
 ```

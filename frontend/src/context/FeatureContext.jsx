@@ -21,7 +21,8 @@ export const FEATURES = {
   REFERRAL_TRACKING: 'referral_tracking',
   FOLLOW_UP_TRACKING: 'follow_up_tracking',
   FHIR_EXPORT: 'fhir_export',
-  PATIENT_CONSENT: 'patient_consent'
+  PATIENT_CONSENT: 'patient_consent',
+  DISTRICT_OUTCOMES: 'district_outcomes'
 };
 
 const EMPTY = { features: new Set(), ready: false };

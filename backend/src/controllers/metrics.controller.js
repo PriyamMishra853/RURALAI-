@@ -60,3 +60,37 @@ export const getBaselineMetrics = async (req, res) => {
     }
   });
 };
+
+/**
+ * GET /api/admin/metrics/districts — the same outcomes, one row per district.
+ *
+ * baseline_metrics() answers "how is this scope doing". A state administrator
+ * needs the other question: which districts are the ones to ask about. One
+ * median for a state hides the district where nobody is following anything up.
+ *
+ * Scoped exactly as the baseline is, so a district admin sees their district
+ * and nobody sees outside their own. Counts and medians only.
+ */
+export const getDistrictOutcomes = async (req, res) => {
+  const days = parseWindow(req.query.days);
+  const includeDemo = req.query.includeDemo === 'true';
+
+  const { data, error } = await supabaseAdmin.rpc('district_outcomes', {
+    ...scopeArgs(req.scope),
+    window_days: days,
+    include_demo: includeDemo
+  });
+
+  if (error) {
+    console.error('district_outcomes failed:', error.message);
+    return res.status(500).json({ error: 'Could not compute the district outcomes.' });
+  }
+
+  return res.json({
+    scope: req.scope?.kind || 'national',
+    ...(data || {}),
+    // Said in the payload, because a dashboard that hides the sample size
+    // invites reading a median of three cases as a finding.
+    note: 'Each figure carries the number of cases behind it. Read n before the median.'
+  });
+};

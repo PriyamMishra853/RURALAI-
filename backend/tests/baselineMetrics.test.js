@@ -19,7 +19,7 @@ jest.unstable_mockModule('../src/config/supabase.js', () => ({
   }
 }));
 
-const { getBaselineMetrics, scopeArgs, parseWindow } = await import('../src/controllers/metrics.controller.js');
+const { getBaselineMetrics, getDistrictOutcomes, scopeArgs, parseWindow } = await import('../src/controllers/metrics.controller.js');
 const { parseFlags, requireFeature, setFlagsForTest, isEnabled, enabledFeatures, FEATURES } =
   await import('../src/config/features.js');
 
@@ -138,5 +138,40 @@ describe('feature flags', () => {
     expect(isEnabled(FEATURES.DOCTOR_REFERRAL)).toBe(true);
     expect(enabledFeatures()).toEqual(['doctor_referral']);
     setFlagsForTest('');
+  });
+});
+
+describe('outcomes by district', () => {
+  const run = async (scope, query = {}) => {
+    const res = mockRes();
+    await getDistrictOutcomes({ query, scope }, res);
+    return res;
+  };
+
+  it('is scoped exactly as the baseline is', async () => {
+    await run({ kind: 'district', stateId: 's1', districtId: 'd1' });
+    expect(calls[0]).toMatchObject({
+      name: 'district_outcomes',
+      args: { scope_state: null, scope_district: 'd1', window_days: 30, include_demo: false }
+    });
+    await run({ kind: 'state', stateId: 's1' }, { days: '90', includeDemo: 'true' });
+    expect(calls[1].args).toMatchObject({ scope_state: 's1', scope_district: null, window_days: 90, include_demo: true });
+  });
+
+  it('returns the rows with the sample size beside each figure', async () => {
+    rpcResult.data = {
+      window_days: 30,
+      districts: [{ district: 'Pune', state: 'Maharashtra', visits: 12, decision_minutes: { n: 4, median: 22 } }]
+    };
+    const res = await run({ kind: 'state', stateId: 's1' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.districts[0]).toMatchObject({ district: 'Pune', decision_minutes: { n: 4, median: 22 } });
+    expect(res.body.note).toMatch(/Read n before the median/);
+  });
+
+  it('fails loudly rather than returning an empty dashboard', async () => {
+    rpcResult.error = { message: 'function district_outcomes does not exist' };
+    const res = await run({ kind: 'national' });
+    expect(res.statusCode).toBe(500);
   });
 });

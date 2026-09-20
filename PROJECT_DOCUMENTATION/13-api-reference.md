@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **77 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
+All **78 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
 inference service's 4 endpoints. Thirteen of the routes belong to a
 [feature flag](#feature-flags); all five flags are on by default, and a
 deployment that sets `FEATURE_FLAGS` to a shorter list — or an empty string —
@@ -78,6 +78,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `referral_tracking` | `/api/referral-tracking` (4 routes) · `/api/public/referrals` (2 routes) · the `hospital_referral` field on a doctor review · the link on the referral PDF |
 | `fhir_export` | `GET /api/visits/:id/fhir` |
 | `patient_consent` | `/api/patients/consents` (3 routes) · the sharing gate on the FHIR export |
+| `district_outcomes` | `GET /api/admin/metrics/districts` |
 | `follow_up_tracking` | `/api/follow-ups` (2 routes) · the `follow_up` field on a doctor review · `follow_up_days` required (1–90) on a `follow_up` decision · a new visit completing the patient's follow-ups |
 
 ---
@@ -916,6 +917,29 @@ follow-up adherence cannot be measured yet, so they are **named** under
 `not_yet_measurable` and never reported as a number. **500** if
 `baseline_metrics()` is missing — apply `14_baseline_metrics.sql`.
 
+### `GET /api/admin/metrics/districts?days=30&includeDemo=false` — SA, STA, DA, AU · flag: `district_outcomes`
+
+The same measures as the baseline, one row per district, scoped identically — a
+district admin sees their district, a state admin their state's districts.
+
+```json
+{ "scope": "state", "window_days": 30, "generated_at": "…",
+  "districts": [
+    { "district": "Pune", "state": "Maharashtra", "visits": 58,
+      "decision_minutes":             { "n": 6,  "median": 9.3 },
+      "instant_consult_wait_minutes": { "n": 0,  "median": null },
+      "referral_completion":          { "due": 4, "rate": 0.75 },
+      "follow_up_adherence":          { "due": 9, "rate": 0.667 },
+      "sharing_consent":              { "patients": 36, "granted": 12 } }
+  ],
+  "note": "Each figure carries the number of cases behind it. Read n before the median." }
+```
+
+Every figure carries its sample size, and a district with nothing to measure returns
+`null` rather than `0` — a zero reads as a result. Counts and medians only: no patient,
+visit or staff member is identifiable. **500** if `district_outcomes()` is missing —
+apply `22_district_outcomes.sql`.
+
 ### `GET /api/admin/audit` — SA, STA, DA, **AU**
 Query: `page`, `pageSize` (default 100), `action`. Already redacted at write time.
 The reason the `AUDITOR` role exists.
@@ -1091,6 +1115,7 @@ Exact match, then fuzzy at score ≥ 80.
 | POST | `/api/patients/consents` | CA, DR · flag |
 | POST | `/api/patients/consents/grant` | CA, DR · flag |
 | POST | `/api/patients/consents/withdraw` | CA, DR · flag |
+| GET | `/api/admin/metrics/districts` | SA, STA, DA, AU · flag |
 | GET | `/api/public/referrals/:token` | public · flag |
 | POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |

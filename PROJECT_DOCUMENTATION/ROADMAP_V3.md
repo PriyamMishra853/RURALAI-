@@ -906,6 +906,16 @@ correct realtime delivery and rate limits.
 
 ### Phase 7 — Supply, diagnostics and outcome dashboards · *M*
 
+> **Status: started.** `district_outcomes()` (migration 22) and
+> `GET /api/admin/metrics/districts` return the outcomes the PS names, one row per
+> district, scoped exactly as the baseline is — with an admin dashboard table that
+> shows the sample size beside every figure and a dash, never a zero, where there was
+> nothing to measure. Registration to doctor decision, consultation wait, referral
+> completion, follow-up adherence and sharing-consent uptake are all there.
+>
+> **Not done:** medicine stock visibility (needs a state inventory system to read
+> from) and diagnostic test ordering and tracking. Both are integrations, not screens.
+
 **Goal.** Visibility of medicine, diagnostics and the outcomes the PS names.
 
 **Scope.**
