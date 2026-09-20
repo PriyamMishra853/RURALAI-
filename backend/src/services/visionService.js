@@ -1,4 +1,4 @@
-import { geminiGenerateJson } from '../config/gemini.js';
+import { geminiGenerateJson, lastAnsweringModel } from '../config/gemini.js';
 import { GEMINI_VISION_MODEL } from '../config/models.js';
 
 /**
@@ -106,7 +106,7 @@ export const analyzeInjuryImage = async (imageBuffer, mimeType = 'image/jpeg') =
         ...(Array.isArray(parsed.warnings) ? parsed.warnings : []),
         'This computer-vision observation is non-diagnostic. Final clinical judgement rests with the reviewing doctor.'
       ],
-      engine: GEMINI_VISION_MODEL
+      engine: lastAnsweringModel() || GEMINI_VISION_MODEL
     };
   }
 

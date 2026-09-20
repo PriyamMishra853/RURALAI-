@@ -12,11 +12,51 @@ import { GEMINI_VISION_MODEL, GEMINI_VISION_FALLBACKS } from './models.js';
 const urlFor = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
+/**
+ * How long one attempt may take before it is abandoned.
+ *
+ * Measured on production: a lab report that reads successfully takes 15-31 s.
+ * A read that failed burned the whole 75 s job budget, because a request that
+ * hangs had nothing to stop it — so the job died having never tried the
+ * fallback that would have answered. 45 s is comfortably above a real read and
+ * well below the budget.
+ */
+const ATTEMPT_TIMEOUT_MS = Number(process.env.GEMINI_ATTEMPT_TIMEOUT_MS) || 45000;
+
+/**
+ * How long a model that just refused is left alone.
+ *
+ * 503 and 429 come in runs, not one at a time. Without this every upload pays
+ * the same failing round trip before reaching the model that works, which is
+ * exactly the time the job did not have.
+ */
+const COOL_OFF_MS = Number(process.env.GEMINI_COOL_OFF_MS) || 60000;
+
+const unavailableUntil = new Map();
+
+const markUnavailable = (model, now) => unavailableUntil.set(model, now + COOL_OFF_MS);
+
 /** Models to try, preferred first. Duplicates collapsed. */
-const modelChain = () => [...new Set([GEMINI_VISION_MODEL, ...GEMINI_VISION_FALLBACKS])];
+const allModels = () => [...new Set([GEMINI_VISION_MODEL, ...GEMINI_VISION_FALLBACKS])];
+
+/**
+ * The chain to try now: models not cooling off, in preference order. If every
+ * model is cooling off the full chain is used anyway — a stale cool-off must
+ * never be the reason a clinic gets no answer at all.
+ */
+const modelChain = (now = Date.now()) => {
+  const all = allModels();
+  const ready = all.filter((m) => (unavailableUntil.get(m) || 0) <= now);
+  return ready.length ? ready : all;
+};
+
+/** Test seam: forget which models are cooling off. */
+export const resetGeminiAvailability = () => unavailableUntil.clear();
 
 /** Which model actually answered last — surfaced so the UI can show it. */
 export let lastGeminiModel = null;
+
+export const lastAnsweringModel = () => lastGeminiModel;
 
 /** Inline payloads Gemini will accept. A PDF is read natively, all pages. */
 export const SUPPORTED_INLINE_TYPES = [
@@ -71,17 +111,22 @@ export const geminiGenerateJson = async (systemInstruction, userText, files = nu
   let lastError = null;
 
   for (const model of modelChain()) {
+    const startedAt = Date.now();
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), ATTEMPT_TIMEOUT_MS);
     try {
       const res = await fetch(`${urlFor(model)}?key=${config.gemini.apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: abort.signal
       });
 
       if (res.status === 429 || res.status === 404 || res.status === 503) {
         const text = await res.text();
         lastError = `${model}: ${res.status}`;
-        console.warn(`Gemini ${model} unavailable (${res.status}); trying next in chain.`);
+        markUnavailable(model, Date.now());
+        console.warn(`Gemini ${model} unavailable (${res.status}) after ${Date.now() - startedAt} ms; trying next in chain.`);
         void text;
         continue;
       }
@@ -108,8 +153,14 @@ export const geminiGenerateJson = async (systemInstruction, userText, files = nu
       lastGeminiModel = model;
       return JSON.parse(text);
     } catch (err) {
-      lastError = `${model}: ${err.message}`;
-      console.warn(`Gemini call failed on ${model}:`, err.message);
+      const abandoned = err.name === 'AbortError';
+      lastError = `${model}: ${abandoned ? `no answer in ${ATTEMPT_TIMEOUT_MS} ms` : err.message}`;
+      // A model that hangs is as unavailable as one that refuses, and for the
+      // next caller it is worse: they would wait the same time again.
+      markUnavailable(model, Date.now());
+      console.warn(`Gemini call failed on ${model} after ${Date.now() - startedAt} ms:`, lastError);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

@@ -17,7 +17,10 @@ const gemini = { response: null };
 
 jest.unstable_mockModule('../src/config/gemini.js', () => ({
   geminiGenerateJson: async () => gemini.response,
-  isSupportedInlineType: () => true
+  isSupportedInlineType: () => true,
+  // The reader reports the model that actually answered, which may be a
+  // fallback rather than the configured one.
+  lastAnsweringModel: () => 'gemini-test'
 }));
 
 jest.unstable_mockModule('../src/config/groq.js', () => ({ groq: null, groqChat: async () => null }));

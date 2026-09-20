@@ -1,7 +1,7 @@
 import { createWorker } from 'tesseract.js';
 import { GEMINI_VISION_MODEL, GROQ_TEXT_MODEL } from '../config/models.js';
 import { groq, groqChat } from '../config/groq.js';
-import { geminiGenerateJson, isSupportedInlineType } from '../config/gemini.js';
+import { geminiGenerateJson, isSupportedInlineType, lastAnsweringModel } from '../config/gemini.js';
 
 /**
  * Medical document OCR and extraction.
@@ -193,7 +193,9 @@ export const processMedicalDocument = async (files, kind = 'prescription') => {
     if (parsed && (parsed.raw_text_summary || parsed.medications?.length || parsed.panels?.length)) {
       structuredData = normalize(parsed, kind, inlineFiles.length);
       rawText = parsed.raw_text_summary || '';
-      engine = GEMINI_VISION_MODEL;
+      // The model that actually answered: the chain may have fallen through
+      // to another one, and a label naming the wrong model hides that.
+      engine = lastAnsweringModel() || GEMINI_VISION_MODEL;
       console.log(`Gemini read ${structuredData.pages_read} page(s).`);
     }
   }
@@ -284,7 +286,7 @@ export const processMedicalDocument = async (files, kind = 'prescription') => {
     extracted_data: structuredData,
     ocr_engine: engine,
     files_read: list.length,
-    confidence: engine === GEMINI_VISION_MODEL ? 0.9 : 0.7,
+    confidence: String(engine || '').startsWith('gemini') ? 0.9 : 0.7,
     needs_manual_entry: false
   };
 };
