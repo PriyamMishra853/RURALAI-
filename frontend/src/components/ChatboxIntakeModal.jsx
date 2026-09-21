@@ -1,29 +1,41 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Loader2, X, Volume2, VolumeX, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  Mic, MicOff, Loader2, X, Volume2, VolumeX, AlertCircle, Send, RotateCcw, MessageSquare, CheckCircle2
+} from 'lucide-react';
 import api from '../services/api';
 import { useI18n } from '../i18n/index.jsx';
 
 /**
- * CHATBOX voice intake (Roadmap v3, F2).
+ * CHATBOX — voice or typed intake, in one conversation (Roadmap v3, F2).
  *
- * The assistant speaks; this proposes values for the form behind it. Three
- * things it deliberately does not do:
+ * The assistant talks or types to it, one message at a time, in whatever
+ * order the patient gives the details. Each message fills in more of a draft;
+ * the CHATBOX answers with what it understood and what is still missing, and
+ * the assistant answers that in the next message. Nothing reaches the form
+ * until the assistant applies the draft, and every applied value is marked for
+ * checking there.
  *
- *   · it does not submit anything — the assistant applies the values, then
- *     submits the form themselves, so the form stays the path of record
- *   · it does not keep the audio or the transcript anywhere but this component's
- *     memory, and the server stores neither
- *   · it does not touch a field the assistant already filled in; the server
- *     returns those as skipped and they are shown as skipped
+ * What it deliberately does not do:
  *
- * Push to talk, never always-listening: a clinic room is shared, and audio
- * should leave the device only when someone meant to speak.
+ *   · submit anything — the form stays the path of record
+ *   · keep audio or text anywhere but this component's memory; the server
+ *     stores neither
+ *   · touch a field the assistant already filled in on the form; the server
+ *     returns those as skipped
+ *
+ * A later message may correct an earlier one ("sorry, pulse is 92"): both are
+ * drafts, and the newer draft wins. A typed message is still read by a model,
+ * so typed values need the same checking as spoken ones — they are recorded as
+ * `chat` rather than `voice` so the two can be told apart.
+ *
+ * Push to talk, never always-listening, and only after the assistant has said
+ * the patient agreed. Typing sends no audio and needs no recording consent.
  */
 
 /**
  * The server answers in the database's spelling; this form has its own. The
  * mapping is explicit because a silent mismatch would drop a reading a health
- * worker had just said aloud, which is the one failure this feature cannot have.
+ * worker had just given, which is the one failure this feature cannot have.
  */
 const VITALS_TO_FORM = {
   blood_glucose_mgdl: 'blood_glucose_mgdl',
@@ -35,12 +47,6 @@ const VITALS_TO_FORM = {
   respiratory_rate: 'respiratory_rate'
 };
 
-/**
- * Every field the server can hear now has a box on the form (migration 19 gave
- * pregnancy and the measured vitals somewhere to be stored). Anything outside
- * these two maps is still reported to the assistant rather than dropped
- * silently — that is what the "heard, nowhere to put it" line is for.
- */
 const TEXT_TO_FORM = {
   chief_complaint: 'chief_complaint',
   symptoms: 'symptoms',
@@ -73,20 +79,30 @@ const label = (t, field) => {
   return names[field] || field;
 };
 
+const display = (t, field, value) => {
+  if (field === 'is_pregnant') return value ? t('assess.pregnancy.yes', 'Yes') : t('assess.pregnancy.no', 'No');
+  return String(value);
+};
+
+let turnSeq = 0;
+const nextId = () => { turnSeq += 1; return `turn-${turnSeq}`; };
+
 export default function ChatboxIntakeModal({
   open, onClose, typed, onApply, onOpened, consent = false, onConsent, language = 'en', speechLang = 'en-IN'
 }) {
   const { t } = useI18n();
+  const [turns, setTurns] = useState([]);
+  // The draft so far: field → { value, via, read_back }. Newer messages win.
+  const [session, setSession] = useState({});
+  const [draft, setDraft] = useState('');
   const [recording, setRecording] = useState(false);
-  const [stage, setStage] = useState('idle');       // idle · transcribing · reading · done · failed
-  const [transcript, setTranscript] = useState('');
-  const [proposal, setProposal] = useState(null);
-  const [problem, setProblem] = useState(null);
+  const [busy, setBusy] = useState(null);           // null · 'transcribing' · 'reading'
   const [muted, setMuted] = useState(false);
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+  const threadRef = useRef(null);
 
   /** A screen that keeps talking after it is closed is its own problem. */
   const stopSpeaking = () => window.speechSynthesis?.cancel();
@@ -108,256 +124,211 @@ export default function ChatboxIntakeModal({
       releaseMicrophone();
       stopSpeaking();
       setRecording(false);
-      setStage('idle');
-      setTranscript('');
-      setProposal(null);
-      setProblem(null);
+      setBusy(null);
+      setTurns([]);
+      setSession({});
+      setDraft('');
     }
   }, [open]);
 
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' });
+  }, [turns, busy]);
+
   if (!open) return null;
 
-  const fail = (message) => {
-    setStage('failed');
-    setProblem(message);
-  };
+  const addTurn = (turn) => setTurns((prev) => [...prev, { id: nextId(), ...turn }]);
 
-  const readInto = async (text) => {
-    setStage('reading');
-    try {
-      const res = await api.post('/ai/intake-extract', { transcript: text, typed });
-      if (!res.data?.ok) {
-        fail(res.data?.reason || t('chatbox.failed', 'The reader could not be reached. Type the details instead.'));
-        return;
-      }
-      setProposal(res.data);
-      setStage('done');
-      if (!muted) say(res.data);
-    } catch (err) {
-      // 404 means the feature is switched off on this deployment; anything else
-      // is a bad moment on a rural link. Either way the answer is the form.
-      fail(err.response?.status === 404
-        ? t('chatbox.off', 'Voice intake is not switched on for this clinic yet.')
-        : t('chatbox.failed', 'The reader could not be reached. Type the details instead.'));
-    }
-  };
-
-  const start = async () => {
-    // The audio leaves the building for transcription, so nothing is recorded
-    // until the assistant has said the patient agreed.
-    if (!consent) return;
-    setProblem(null);
-    setProposal(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-
-      const recorder = new MediaRecorder(stream);
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-
-      recorder.onstop = async () => {
-        releaseMicrophone();
-        setStage('transcribing');
-        const form = new FormData();
-        form.append('audio', new Blob(chunksRef.current, { type: 'audio/webm' }), 'speech.webm');
-        form.append('language', language);
-
-        try {
-          const res = await api.post('/voice/transcribe', form, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-          });
-          const heard = res.data?.transcript?.trim();
-          if (!heard) {
-            // The speech service returns no transcript rather than a plausible
-            // substitute. Say why, and let them speak again.
-            fail(res.data?.reason || t('chatbox.nothingHeard', 'Nothing was heard. Try again, closer to the microphone.'));
-            return;
-          }
-          setTranscript(heard);
-          await readInto(heard);
-        } catch {
-          fail(t('chatbox.transcribeFailed', 'The recording could not be sent. Type the details instead.'));
-        }
-      };
-
-      recorder.start();
-      setRecording(true);
-      setStage('idle');
-    } catch {
-      fail(t('chatbox.noMic', 'The microphone could not be opened. Check the browser permission.'));
-    }
-  };
-
-  const stop = () => {
-    recorderRef.current?.state === 'recording' && recorderRef.current.stop();
-    setRecording(false);
-  };
-
-  /**
-   * Numbers read back, and the questions asked out loud.
-   *
-   * Spoken automatically when a proposal arrives, because the assistant is
-   * looking at the patient rather than the screen, and a misheard number is
-   * the whole risk of this feature. The button repeats it; muting stops it,
-   * and is remembered for the rest of the session in case the room is one
-   * where a talking screen is unwelcome.
-   */
-  const speakable = (p) => {
-    if (!p) return '';
-    const parts = [];
-    for (const [field, entry] of Object.entries(p.accept || {})) {
-      if (entry.read_back) parts.push(`${label(t, field)} ${entry.value}`);
-    }
-    for (const q of p.questions || []) parts.push(q.question);
-    return parts.join('. ');
-  };
-
-  const say = (p = proposal) => {
-    const text = speakable(p);
-    if (!text || !window.speechSynthesis) return;
+  /** Numbers read back and questions asked aloud: the assistant is looking at the patient. */
+  const say = (text) => {
+    if (!text || muted || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = speechLang;
     window.speechSynthesis.speak(utterance);
   };
 
+  /** One message, spoken or typed, into the draft. */
+  const send = async (text, via) => {
+    const message = String(text || '').trim();
+    if (!message) return;
+    addTurn({ role: 'you', text: message, via });
+    setBusy('reading');
+
+    try {
+      const res = await api.post('/ai/intake-extract', { transcript: message, typed });
+      if (!res.data?.ok) {
+        addTurn({ role: 'chatbox', problem: res.data?.reason || t('chatbox.failed', 'The reader could not be reached. Type the details into the form instead.') });
+        return;
+      }
+
+      const accepted = Object.entries(res.data.accept || {});
+      const known = { ...session };
+      for (const [field, entry] of accepted) known[field] = { value: entry.value, via, read_back: entry.read_back };
+      setSession(known);
+
+      // Only ask for what the whole conversation still lacks, not just this message.
+      const questions = (res.data.questions || []).filter((q) => !q.field || !(q.field in known));
+      addTurn({ role: 'chatbox', accepted, skipped: res.data.skipped || [], questions });
+
+      const numbers = accepted.filter(([, e]) => e.read_back).map(([f, e]) => `${label(t, f)} ${e.value}`);
+      say([...numbers, ...questions.map((q) => q.question)].join('. '));
+    } catch (err) {
+      addTurn({
+        role: 'chatbox',
+        problem: err.response?.status === 404
+          ? t('chatbox.off', 'Voice intake is not switched on for this clinic yet.')
+          : t('chatbox.failed', 'The reader could not be reached. Type the details into the form instead.')
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendTyped = () => {
+    const text = draft;
+    setDraft('');
+    send(text, 'chat');
+  };
+
+  const startRecording = async () => {
+    // The audio leaves the building for transcription, so nothing is recorded
+    // until the assistant has said the patient agreed.
+    if (!consent) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = async () => {
+        releaseMicrophone();
+        setBusy('transcribing');
+        const form = new FormData();
+        form.append('audio', new Blob(chunksRef.current, { type: 'audio/webm' }), 'speech.webm');
+        form.append('language', language);
+        try {
+          const res = await api.post('/voice/transcribe', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const heard = res.data?.transcript?.trim();
+          if (!heard) {
+            setBusy(null);
+            addTurn({ role: 'chatbox', problem: res.data?.reason || t('chatbox.nothingHeard', 'Nothing was heard. Try again, closer to the microphone — or type it.') });
+            return;
+          }
+          await send(heard, 'voice');
+        } catch {
+          setBusy(null);
+          addTurn({ role: 'chatbox', problem: t('chatbox.transcribeFailed', 'The recording could not be sent. Type it instead.') });
+        }
+      };
+      recorder.start();
+      setRecording(true);
+    } catch {
+      addTurn({ role: 'chatbox', problem: t('chatbox.noMic', 'The microphone could not be opened. Check the browser permission, or type instead.') });
+    }
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+    setRecording(false);
+  };
+
   const apply = () => {
     const values = { vitals: {} };
+    const via = {};
     const unusable = [];
-
-    for (const [field, entry] of Object.entries(proposal?.accept || {})) {
+    for (const [field, entry] of Object.entries(session)) {
       if (VITALS_TO_FORM[field]) {
         values.vitals[VITALS_TO_FORM[field]] = String(entry.value);
+        via[VITALS_TO_FORM[field]] = entry.via;
       } else if (TEXT_TO_FORM[field]) {
         values[field] = entry.value;
+        via[field] = entry.via;
       } else {
         unusable.push(field);
       }
     }
-
-    onApply(values, unusable);
+    onApply(values, unusable, via);
     onClose();
   };
 
-  const accepted = Object.entries(proposal?.accept || {});
-  const heardButHomeless = accepted
-    .map(([field]) => field)
-    .filter((field) => !VITALS_TO_FORM[field] && !TEXT_TO_FORM[field]);
+  const drafted = Object.entries(session);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-      <div className="bg-surface-raised w-full sm:max-w-lg rounded-t-card sm:rounded-card shadow-overlay max-h-[92vh] overflow-y-auto">
-        <div className="px-5 py-3 border-b border-line flex items-center gap-3 sticky top-0 bg-surface-raised">
-          <Mic className="w-4 h-4 text-gov-600" />
+      <div className="bg-surface-raised w-full sm:max-w-lg rounded-t-card sm:rounded-card shadow-overlay h-[92vh] sm:h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="px-5 py-3 border-b border-line flex items-center gap-3">
+          <MessageSquare className="w-4 h-4 text-gov-600" />
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-ink">{t('chatbox.title', 'CHATBOX — say the intake')}</h3>
+            <h3 className="text-sm font-bold text-ink">{t('chatbox.chatTitle', 'CHATBOX — speak or type the intake')}</h3>
             <p className="text-[11px] text-ink-muted">
-              {t('chatbox.subtitle', 'Speak naturally. Nothing is saved until you apply it and submit the form.')}
+              {t('chatbox.chatSubtitle', 'One message at a time, in any order. Nothing reaches the form until you apply it.')}
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label={t('action.close', 'Close')} className="ml-auto p-1.5 rounded-field hover:bg-surface-sunken">
+          <button
+            type="button"
+            onClick={() => { setMuted((m) => !m); stopSpeaking(); }}
+            aria-label={muted ? t('chatbox.unmute', 'Speak automatically') : t('chatbox.mute', 'Stop speaking')}
+            className="ml-auto p-1.5 rounded-field hover:bg-surface-sunken"
+          >
+            {muted ? <VolumeX className="w-4 h-4 text-ink-muted" /> : <Volume2 className="w-4 h-4 text-gov-600" />}
+          </button>
+          <button type="button" onClick={onClose} aria-label={t('action.close', 'Close')} className="p-1.5 rounded-field hover:bg-surface-sunken">
             <X className="w-4 h-4 text-ink-muted" />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {/* Consent is a recorded act, not a line of small print. Once given it
-              stays for this patient's form; if the patient changes their mind,
-              close the CHATBOX and type. */}
-          <label className="flex items-start gap-2 text-[11px] text-ink-muted bg-surface-sunken border border-line rounded-field p-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={consent}
-              disabled={consent}
-              onChange={(e) => { if (e.target.checked) onConsent?.(); }}
-            />
-            <span>
-              {t('chatbox.consentLine',
-                'The recording is sent for transcription and is not stored — not the audio, not the text. '
-                + 'I have told the patient, and they agree to be recorded.')}
-            </span>
-          </label>
-
-          <button
-            type="button"
-            onClick={recording ? stop : start}
-            disabled={!consent || stage === 'transcribing' || stage === 'reading'}
-            className={`w-full py-3 rounded-field font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-60 ${
-              recording ? 'bg-tier-emergency text-white animate-pulse' : 'bg-gov-600 text-white hover:bg-gov-700'
-            }`}
-          >
-            {recording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            {recording ? t('chatbox.stop', 'Stop and read it') : t('chatbox.start', 'Hold the details, then speak')}
-          </button>
-
-          {(stage === 'transcribing' || stage === 'reading') && (
-            <p className="text-xs text-ink-muted flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {stage === 'transcribing'
-                ? t('chatbox.transcribing', 'Listening back…')
-                : t('chatbox.reading', 'Sorting what you said into fields…')}
-            </p>
-          )}
-
-          {transcript && (
-            <div>
-              <p className="text-[11px] font-semibold text-ink-muted mb-1">{t('chatbox.heard', 'What was heard')}</p>
-              <p className="text-xs text-ink bg-surface-sunken border border-line rounded-field p-3 leading-relaxed">{transcript}</p>
+        {/* The conversation */}
+        <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-surface-sunken/40">
+          {turns.length === 0 && (
+            <div className="text-center text-xs text-ink-muted px-6 py-8">
+              <p className="font-semibold text-ink">{t('chatbox.emptyTitle', 'Tell it what you know, however it comes')}</p>
+              <p className="mt-2">
+                {t('chatbox.emptyExample', 'For example: “fever for three days, BP 140 over 90, pulse 96, known diabetic on metformin”. Hindi, Marathi and other languages work too.')}
+              </p>
             </div>
           )}
 
-          {problem && (
-            <p role="alert" className="text-xs text-tier-emergency flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {problem}
-            </p>
-          )}
-
-          {proposal && (
-            <>
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[11px] font-semibold text-ink-muted">{t('chatbox.proposed', 'Proposed — check every number')}</p>
-                  {speakable(proposal) && (
-                    <div className="ml-auto flex items-center gap-3">
-                      <button type="button" onClick={() => say()} className="text-[11px] text-gov-700 font-semibold flex items-center gap-1">
-                        <Volume2 className="w-3.5 h-3.5" /> {t('chatbox.readBack', 'Read it back')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setMuted((m) => !m); stopSpeaking(); }}
-                        className="text-[11px] text-ink-muted flex items-center gap-1"
-                      >
-                        {muted
-                          ? <><VolumeX className="w-3.5 h-3.5" /> {t('chatbox.unmute', 'Speak automatically')}</>
-                          : <><VolumeX className="w-3.5 h-3.5" /> {t('chatbox.mute', 'Stop speaking')}</>}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {accepted.length === 0 ? (
-                  <p className="text-xs text-ink-muted">{t('chatbox.nothingUsable', 'Nothing in that could be used. Say it again, or type it.')}</p>
-                ) : (
-                  <ul className="divide-y divide-line border border-line rounded-field">
-                    {accepted.map(([field, entry]) => (
-                      <li key={field} className="px-3 py-2 flex items-center gap-3 text-xs">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-gov-600 shrink-0" />
-                        <span className="text-ink-muted">{label(t, field)}</span>
-                        <span className="ml-auto font-semibold text-ink tabular-nums">{String(entry.value)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+          {turns.map((turn) => (turn.role === 'you' ? (
+            <div key={turn.id} className="flex justify-end">
+              <div className="max-w-[85%] bg-gov-600 text-white rounded-card rounded-br-sm px-3 py-2 text-xs leading-relaxed">
+                <p className="text-[10px] uppercase tracking-wider opacity-75 mb-0.5 flex items-center gap-1">
+                  {turn.via === 'voice' ? <Mic className="w-3 h-3" /> : <MessageSquare className="w-3 h-3" />}
+                  {turn.via === 'voice' ? t('chatbox.youSaid', 'You said') : t('chatbox.youTyped', 'You typed')}
+                </p>
+                {turn.text}
               </div>
-
-              {proposal.skipped?.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-semibold text-ink-muted mb-1">{t('chatbox.skipped', 'Not used')}</p>
-                  <ul className="space-y-1 text-[11px] text-ink-muted">
-                    {proposal.skipped.map((s, i) => (
+            </div>
+          ) : (
+            <div key={turn.id} className="flex justify-start">
+              <div className="max-w-[90%] bg-surface-raised border border-line rounded-card rounded-bl-sm px-3 py-2 text-xs text-ink space-y-2">
+                {turn.problem && (
+                  <p role="alert" className="text-tier-emergency flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {turn.problem}
+                  </p>
+                )}
+                {turn.accepted?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-ink-muted mb-1">{t('chatbox.understood', 'Understood — check every number')}</p>
+                    <ul className="space-y-0.5">
+                      {turn.accepted.map(([field, entry]) => (
+                        <li key={field} className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3 h-3 text-gov-600 shrink-0" />
+                          <span className="text-ink-muted">{label(t, field)}</span>
+                          <span className="ml-auto font-semibold tabular-nums">{display(t, field, entry.value)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {turn.accepted?.length === 0 && !turn.problem && (
+                  <p className="text-ink-muted">{t('chatbox.nothingUsable', 'Nothing in that could be used. Say it another way, or type it.')}</p>
+                )}
+                {turn.skipped?.length > 0 && (
+                  <ul className="text-[11px] text-ink-muted space-y-0.5">
+                    {turn.skipped.map((s, i) => (
                       <li key={`${s.field}-${i}`}>
                         <span className="text-ink">{label(t, s.field)}</span>{' — '}
                         {s.reason === 'typed' && t('chatbox.r.typed', 'you already entered a value, which is kept')}
@@ -366,40 +337,98 @@ export default function ChatboxIntakeModal({
                       </li>
                     ))}
                   </ul>
-                </div>
-              )}
+                )}
+                {turn.questions?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-ink-muted mb-1">{t('chatbox.stillNeeded', 'Still worth asking')}</p>
+                    <ul className="list-disc pl-4 space-y-0.5 text-ink-muted">
+                      {turn.questions.map((q, i) => <li key={i}>{q.question}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )))}
 
-              {heardButHomeless.length > 0 && (
-                <p className="text-[11px] text-ink-muted">
-                  {t('chatbox.notOnForm', 'Heard, but this form has no field for it — write it into the history box if it matters:')}{' '}
-                  {heardButHomeless.map((f) => label(t, f)).join(', ')}
-                </p>
-              )}
-
-              {proposal.questions?.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-semibold text-ink-muted mb-1">{t('chatbox.stillNeeded', 'Still worth asking')}</p>
-                  <ul className="list-disc pl-4 space-y-1 text-[11px] text-ink-muted">
-                    {proposal.questions.map((q, i) => <li key={i}>{q.question}</li>)}
-                  </ul>
-                </div>
-              )}
-            </>
+          {busy && (
+            <p className="text-xs text-ink-muted flex items-center gap-2 px-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              {busy === 'transcribing' ? t('chatbox.transcribing', 'Listening back…') : t('chatbox.reading', 'Sorting it into fields…')}
+            </p>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-line flex gap-2 sticky bottom-0 bg-surface-raised">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-field border border-line-strong text-xs font-semibold text-ink-muted">
-            {t('chatbox.typeInstead', 'Type it instead')}
-          </button>
-          <button
-            type="button"
-            onClick={apply}
-            disabled={!proposal || accepted.length === 0}
-            className="ml-auto px-4 py-2 rounded-field bg-gov-600 text-white text-xs font-semibold disabled:opacity-50"
-          >
-            {t('chatbox.apply', 'Put these in the form')}
-          </button>
+        {/* The draft so far, and applying it */}
+        {drafted.length > 0 && (
+          <div className="px-4 py-2 border-t border-line bg-surface-raised flex items-center gap-2">
+            <p className="text-[11px] text-ink-muted min-w-0 truncate">
+              {t('chatbox.draftCount', '{count} value(s) ready: {fields}', {
+                count: drafted.length,
+                fields: drafted.map(([f]) => label(t, f)).join(', ')
+              })}
+            </p>
+            <button
+              type="button"
+              onClick={() => setSession({})}
+              aria-label={t('chatbox.startOver', 'Start over')}
+              className="ml-auto p-1.5 rounded-field hover:bg-surface-sunken shrink-0"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-ink-muted" />
+            </button>
+            <button
+              type="button"
+              onClick={apply}
+              className="shrink-0 px-3 py-1.5 rounded-field bg-gov-600 hover:bg-gov-700 text-white text-xs font-semibold"
+            >
+              {t('chatbox.applyDraft', 'Put into the form')}
+            </button>
+          </div>
+        )}
+
+        {/* Input: type, or hold the mic. Consent gates the microphone only. */}
+        <div className="px-4 py-3 border-t border-line bg-surface-raised space-y-2">
+          {!consent && (
+            <label className="flex items-start gap-2 text-[11px] text-ink-muted cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => { if (e.target.checked) onConsent?.(); }} />
+              <span>
+                {t('chatbox.consentMic', 'To use the microphone: the recording is sent for transcription and not stored. I have told the patient, and they agree to be recorded.')}
+              </span>
+            </label>
+          )}
+          <div className="flex items-end gap-2">
+            <textarea
+              rows={1}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTyped(); }
+              }}
+              disabled={recording || busy === 'transcribing'}
+              placeholder={t('chatbox.typeHere', 'Type what the patient told you…')}
+              className="flex-1 resize-none max-h-28 bg-surface-raised border border-line-strong rounded-field px-3 py-2 text-xs text-ink focus:border-gov-500 outline-none"
+            />
+            <button
+              type="button"
+              onClick={recording ? stopRecording : startRecording}
+              disabled={!consent || Boolean(busy)}
+              title={!consent ? t('chatbox.micNeedsConsent', 'Tick the consent line to use the microphone') : undefined}
+              aria-label={recording ? t('chatbox.stop', 'Stop and read it') : t('chatbox.speak', 'Speak')}
+              className={`p-2.5 rounded-field shrink-0 transition-colors disabled:opacity-40 ${
+                recording ? 'bg-tier-emergency text-white animate-pulse' : 'bg-surface-sunken text-gov-700 hover:bg-gov-50'
+              }`}
+            >
+              {recording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={sendTyped}
+              disabled={!draft.trim() || Boolean(busy) || recording}
+              aria-label={t('chatbox.send', 'Send')}
+              className="p-2.5 rounded-field bg-gov-600 text-white shrink-0 hover:bg-gov-700 disabled:opacity-40"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

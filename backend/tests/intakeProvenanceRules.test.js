@@ -63,7 +63,7 @@ describe('normaliseProvenance', () => {
     expect(p.fields.pulse_bpm.confirmed).toBe(false);
     expect(p.fields.spo2_percent.confirmed).toBe(false);
     expect(p.counts).toMatchObject({ voice: 3, voice_confirmed: 1 });
-    expect(p.voice).toEqual({ consent: true, sessions: 2 });
+    expect(p.voice).toMatchObject({ consent: true, sessions: 2, audio: true });
   });
 
   it('records a missing consent as missing, not as given', () => {
@@ -120,7 +120,7 @@ describe('what the CHATBOX measures', () => {
       fields: { pulse: { source: 'voice', confirmed: true } },
       voice: { consent: true, sessions: 2, opened: 5 }
     });
-    expect(p.voice).toEqual({ consent: true, sessions: 2, opened: 5 });
+    expect(p.voice).toEqual({ consent: true, sessions: 2, opened: 5, audio: true });
   });
 
   it('holds the fields F2 named that the form now has boxes for', () => {
@@ -135,6 +135,33 @@ describe('what the CHATBOX measures', () => {
     });
     expect(Object.keys(p.fields).sort())
       .toEqual(['blood_glucose_mgdl', 'current_medications', 'height_cm', 'is_pregnant', 'weight_kg']);
+  });
+});
+
+describe('typed into the CHATBOX', () => {
+  it('is checked like a spoken value, and counted as chat', () => {
+    const p = normaliseProvenance({
+      fields: {
+        pulse: { source: 'chat', confirmed: true },
+        spo2: { source: 'chat' },
+        temperature: { source: 'voice', confirmed: true }
+      },
+      voice: { consent: true, sessions: 2, opened: 2 }
+    });
+    expect(p.mode).toBe('voice_assisted');
+    expect(p.fields.spo2_percent).toEqual({ source: 'chat', confirmed: false });
+    expect(p.counts).toMatchObject({ voice: 3, voice_confirmed: 2, chat: 2 });
+    expect(p.voice.audio).toBe(true);
+  });
+
+  it('records a typed-only session as having recorded nothing', () => {
+    const p = normaliseProvenance({
+      fields: { pulse: { source: 'chat', confirmed: true } },
+      // A client claiming audio does not make it so: the fields say what happened.
+      voice: { consent: false, sessions: 1, audio: true }
+    });
+    expect(p.voice.audio).toBe(false);
+    expect(p.voice.consent).toBe(false);
   });
 });
 

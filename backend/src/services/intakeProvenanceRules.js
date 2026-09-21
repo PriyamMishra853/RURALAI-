@@ -19,6 +19,8 @@
  *   typed     entered by the assistant — typing a value is confirming it
  *   dictated  a verbatim transcript from the symptom microphone
  *   voice     proposed by the CHATBOX from speech, then applied
+ *   chat      proposed by the CHATBOX from a typed message — still a model's
+ *             reading of a sentence, so it is checked like voice
  *   default   the form's starting value. Unconfirmed unless a person said it
  *             was measured and correct — and then the record says exactly
  *             that, rather than pretending it was typed
@@ -30,7 +32,10 @@
  */
 
 export const PROVENANCE_VERSION = 1;
-export const SOURCES = ['typed', 'dictated', 'voice', 'default'];
+export const SOURCES = ['typed', 'dictated', 'voice', 'chat', 'default'];
+
+// Both come out of the CHATBOX and both need a person to check them.
+const CHATBOX_SOURCES = ['voice', 'chat'];
 export const MODES = ['manual', 'voice_assisted'];
 
 /** The form's keys are the UI's; the record uses the column names. */
@@ -89,9 +94,13 @@ export const normaliseProvenance = (raw) => {
   const counts = {
     typed: count((f) => f.source === 'typed'),
     dictated: count((f) => f.source === 'dictated'),
-    voice: count((f) => f.source === 'voice'),
-    voice_confirmed: count((f) => f.source === 'voice' && f.confirmed),
-    voice_edited: count((f) => f.source === 'voice' && f.edited),
+    // "voice" counts everything the CHATBOX filled, spoken or typed; "chat" is
+    // the typed share of it. The metrics were built on "voice" before the chat
+    // existed, and a CHATBOX value is checked the same way either way.
+    voice: count((f) => CHATBOX_SOURCES.includes(f.source)),
+    voice_confirmed: count((f) => CHATBOX_SOURCES.includes(f.source) && f.confirmed),
+    voice_edited: count((f) => CHATBOX_SOURCES.includes(f.source) && f.edited),
+    chat: count((f) => f.source === 'chat'),
     default: count((f) => f.source === 'default'),
     default_unconfirmed: count((f) => f.source === 'default' && !f.confirmed)
   };
@@ -112,7 +121,10 @@ export const normaliseProvenance = (raw) => {
           sessions: Number.isFinite(sessions) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, sessions)) : 1,
           // How many times it was opened, against how many produced anything:
           // F2's "share of sessions abandoned to the form".
-          opened: Number.isFinite(opened) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, opened)) : undefined
+          opened: Number.isFinite(opened) ? Math.min(MAX_VOICE_SESSIONS, Math.max(1, opened)) : undefined,
+          // Whether anything was recorded. A typed-only session sent no audio,
+          // so recording consent does not apply to it.
+          audio: counts.voice > counts.chat
         }
       : null,
     counts

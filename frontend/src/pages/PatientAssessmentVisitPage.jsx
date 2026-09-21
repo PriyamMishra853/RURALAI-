@@ -73,6 +73,9 @@ export default function PatientAssessmentVisitPage() {
   const [heardFields, setHeardFields] = useState(() => new Set());
   const [voiceConsent, setVoiceConsent] = useState(false);
   const [voiceSessions, setVoiceSessions] = useState(0);
+  // Spoken or typed into the CHATBOX, per field. Both are machine drafts; the
+  // record says which, so the measures can tell voice from chat.
+  const [heardVia, setHeardVia] = useState({});
   // Opened against applied: how often the CHATBOX was abandoned to the form.
   const [voiceOpened, setVoiceOpened] = useState(0);
   // Heard values a person changed, rather than only ticking them as right.
@@ -257,7 +260,7 @@ export default function PatientAssessmentVisitPage() {
   const buildIntakeProvenance = () => {
     const fields = {};
     const heard = (key) => ({
-      source: 'voice',
+      source: heardVia[key] === 'chat' ? 'chat' : 'voice',
       confirmed: !voiceFields.has(key),
       edited: editedFields.has(key)
     });
@@ -291,7 +294,13 @@ export default function PatientAssessmentVisitPage() {
     return {
       fields,
       voice: heardFields.size
-        ? { consent: voiceConsent, sessions: voiceSessions, opened: voiceOpened }
+        ? {
+          consent: voiceConsent,
+          sessions: voiceSessions,
+          opened: voiceOpened,
+          // Recording consent only matters if something was recorded.
+          audio: Object.values(heardVia).includes('voice')
+        }
         : undefined
     };
   };
@@ -315,8 +324,9 @@ export default function PatientAssessmentVisitPage() {
    *     figure read off a screen is not a measurement taken from an arm. The
    *     untouched-vitals warning should still fire, and it does.
    */
-  const applyChatboxValues = (values, unusable = []) => {
+  const applyChatboxValues = (values, unusable = [], via = {}) => {
     const heard = new Set(voiceFields);
+    const before = new Set(voiceFields);
     const keepTyped = (previous, spoken, mark) => {
       if (previous?.trim()) return previous;
       heard.add(mark);
@@ -348,6 +358,19 @@ export default function PatientAssessmentVisitPage() {
     setVoiceFields(heard);
     setHeardFields((prev) => new Set([...prev, ...heard]));
     setVoiceSessions((n) => n + 1);
+
+    // How each newly filled field arrived. The form's keys and the CHATBOX's
+    // differ for the complaint and the duration, which are assembled here.
+    const origin = (key) => {
+      if (key === 'symptoms') return via.chief_complaint || via.symptoms;
+      if (key === 'duration') return via.symptom_duration_value;
+      return via[key];
+    };
+    const fresh = [...heard].filter((key) => !before.has(key));
+    setHeardVia((prev) => ({
+      ...prev,
+      ...Object.fromEntries(fresh.map((key) => [key, origin(key) === 'chat' ? 'chat' : 'voice']))
+    }));
     if (unusable.length) {
       console.info('CHATBOX heard fields this form has nowhere to put:', unusable.join(', '));
     }
@@ -1093,7 +1116,7 @@ export default function PatientAssessmentVisitPage() {
                   className="mt-2 w-full py-2 rounded-field border border-gov-200 bg-gov-50 text-gov-700 text-xs font-semibold flex items-center justify-center gap-1.5 hover:bg-gov-100 transition-colors"
                 >
                   <Bot className="w-3.5 h-3.5" />
-                  {t('assess.chatbox', 'CHATBOX — say the whole intake')}
+                  {t('assess.chatboxChat', 'CHATBOX — speak or type the whole intake')}
                 </button>
               )}
             </div>
