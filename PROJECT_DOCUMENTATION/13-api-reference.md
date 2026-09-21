@@ -2,7 +2,7 @@
 
 > **Navigation:** [Index](README.md) · Previous: [12 — Next-Generation Model Roadmap](12-next-generation-model-roadmap.md) · Next: [14 — Testing and Quality](14-testing-and-quality.md)
 
-All **78 HTTP routes** across 16 routers, the WebSocket protocol, and the Python
+All **85 HTTP routes** across 17 routers, the WebSocket protocol, and the Python
 inference service's 4 endpoints. Thirteen of the routes belong to a
 [feature flag](#feature-flags); all five flags are on by default, and a
 deployment that sets `FEATURE_FLAGS` to a shorter list — or an empty string —
@@ -100,6 +100,7 @@ probe for an unreleased feature. They are marked **flag** below.
 | `fhir_export` | `GET /api/visits/:id/fhir` |
 | `patient_consent` | `/api/patients/consents` (3 routes) · the sharing gate on the FHIR export |
 | `district_outcomes` | `GET /api/admin/metrics/districts` |
+| `model_learning` | `/api/learning` (5 routes) · capture of a learning example when a doctor completes a consented visit · restoring the live model on start |
 | `follow_up_tracking` | `/api/follow-ups` (2 routes) · the `follow_up` field on a doctor review · `follow_up_days` required (1–90) on a `follow_up` decision · a new visit completing the patient's follow-ups |
 
 ---
@@ -961,6 +962,33 @@ Every figure carries its sample size, and a district with nothing to measure ret
 visit or staff member is identifiable. **500** if `district_outcomes()` is missing —
 apply `22_district_outcomes.sql`.
 
+### Model learning · flag: `model_learning`
+
+When a doctor records a review with a diagnosis and the patient has an active
+**training** consent, the visit becomes a de-identified learning example (complaint,
+diagnosis, age band, gender — no identifiers), approved by virtue of the doctor's signed
+review. Thirty seconds later a **candidate model** is rebuilt automatically: the shipped
+Naive Bayes base plus every approved example (`partial_fit`, each example weighted
+`LEARN_EXAMPLE_WEIGHT`, default 10), scored on a **frozen benchmark** of 2,910 held-out
+cases beside the live model.
+
+| Method | Path | Roles | |
+|---|---|---|---|
+| GET | `/api/learning/status` | SA, STA, DA, AU, DR | Example counts by outcome (`learned`, `unmatched_diagnosis`, `no_symptoms_matched`), the live and latest candidate versions with benchmark metrics, and whether auto-promotion is on |
+| GET | `/api/learning/examples?status=&outcome=` | SA, STA, DA, AU, DR | De-identified examples, newest first |
+| POST | `/api/learning/candidate` | SA, STA | Retrain now. **201** with the version and per-example outcomes |
+| POST | `/api/learning/versions/:version/promote` | SA | Make a candidate live. **409** if it scores worse than the live model on top-1 or top-3 (tolerance 0.5 pp) — refused whoever asks |
+| POST | `/api/learning/examples/:id/reject` | SA, DR | Take a wrong label out of the next candidate |
+
+`LEARN_AUTO_PROMOTE=true` promotes a candidate automatically when it is not worse. The
+live model is rebuilt from its example list on every start, so a redeploy loses nothing.
+
+### `GET /api/public/stats` — public
+
+The landing page's figures, counted: `{ states: [{ name, districts }], districts, patients,
+doctors }`. Counts only, cached five minutes, **503** rather than an invented figure when
+the database cannot answer.
+
 ### `GET /api/admin/audit` — SA, STA, DA, **AU**
 Query: `page`, `pageSize` (default 100), `action`. Already redacted at write time.
 The reason the `AUDITOR` role exists.
@@ -1137,6 +1165,13 @@ Exact match, then fuzzy at score ≥ 80.
 | POST | `/api/patients/consents/grant` | CA, DR · flag |
 | POST | `/api/patients/consents/withdraw` | CA, DR · flag |
 | GET | `/api/admin/metrics/districts` | SA, STA, DA, AU · flag |
+| GET | `/api/public/stats` | public |
+| POST | `/api/csp-report` | public |
+| GET | `/api/learning/status` | SA, STA, DA, AU, DR · flag |
+| GET | `/api/learning/examples` | SA, STA, DA, AU, DR · flag |
+| POST | `/api/learning/candidate` | SA, STA · flag |
+| POST | `/api/learning/versions/:version/promote` | SA · flag |
+| POST | `/api/learning/examples/:id/reject` | SA, DR · flag |
 | GET | `/api/public/referrals/:token` | public · flag |
 | POST | `/api/public/referrals/:token/:action` | public · flag |
 | GET | `/api/consultations/availability/dates` | CA, DR |

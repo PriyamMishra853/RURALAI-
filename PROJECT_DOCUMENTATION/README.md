@@ -16,6 +16,15 @@ and underserved areas*
 
 If you are evaluating this project and have limited time, read in this order:
 
+**Start here (SIH 2026):**
+- **[PS 26133 — coverage and handoff](PS_26133_COVERAGE_AND_HANDOFF.md)** — every
+  expected outcome in the problem statement mapped to the running system: built,
+  partial or not started, with a concrete plan for each unfinished item and the
+  self-learning model explained.
+- **[SIH pitch guide](SIH_PITCH_GUIDE.md)** — the verdict, the demo script, the
+  development pathway, and honest answers to the questions judges ask.
+- **[STARTUP.md](../STARTUP.md)** — the plan for turning this into a company.
+
 0. **[Architecture and Workflow](ARCHITECTURE.md)** — the whole system on one
    page: deployment topology, the access boundary, the end-to-end clinical
    journey, the AI triage chain, the consultation state machine and the

@@ -233,6 +233,14 @@ Full instructions, including production deployment:
 
 ## Documentation
 
+**For SIH 2026 evaluators:** [PS 26133 coverage and handoff](PROJECT_DOCUMENTATION/PS_26133_COVERAGE_AND_HANDOFF.md) ·
+[Pitch guide](PROJECT_DOCUMENTATION/SIH_PITCH_GUIDE.md) · [Startup plan](STARTUP.md) ·
+[Setup guide](PROJECT_DOCUMENTATION/01-setup-guide.md) · [Architecture](PROJECT_DOCUMENTATION/ARCHITECTURE.md)
+
+**Recognition:** 1st prize, IBM BOB Hackathon (CSJMU Kanpur) · 1st prize, Ideathon (HBTU Kanpur) ·
+presented at AI MANTHAN 2.0 to the Governor of Uttar Pradesh.
+
+
 Complete technical documentation is in
 **[`PROJECT_DOCUMENTATION/`](PROJECT_DOCUMENTATION/README.md)** — written from
 the code, with every claim naming the file, table, endpoint or script that backs

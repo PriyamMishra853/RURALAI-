@@ -722,6 +722,13 @@ completion is a measured number.
 > exact, 0 fabricated — the exit criterion is met on text.** It measures extraction,
 > not speech recognition.
 >
+> **One conversation, spoken or typed (migration 24).** The CHATBOX is now a chat: the
+> assistant speaks or types one message at a time, in any order and language; each
+> message adds to a draft, later messages correct earlier ones, and the CHATBOX answers
+> with what it understood and what is still missing. Typed values are recorded as
+> `chat`, checked exactly like spoken ones; recording consent applies to the microphone
+> only. Proven end to end with real synthesised speech: 10 of 10 fields exact.
+>
 > **Completing F2 (migration 19).** Every field F2 names is now on the form and in
 > the database: current medicines and blood glucose had columns but no input,
 > pregnancy had neither, and weight and height had an input but no column — the form
@@ -853,7 +860,19 @@ patients are visible. Follow-up adherence is a measured number.
 
 ### Phase 5 — Learning system · *XL*
 
-> **Status: the curation harness exists** (`npm run dataset:export`, doc 12's P0).
+> **Status: the model learns from completed visits** (`model_learning`, migration 25).
+> When a doctor signs a diagnosis for a patient with an active training consent, the
+> visit becomes a de-identified learning example; a candidate model — the shipped Naive
+> Bayes plus every approved example, via `partial_fit` — is rebuilt automatically and
+> scored on a **frozen benchmark** of 2,910 held-out cases beside the live model. It goes
+> live only when promoted, and cannot be promoted if worse. The live model is rebuilt
+> from its example list on every start. Measured: base top-1 76.9 %, top-3 87.3 %,
+> top-5 90.7 %; four doctor-confirmed cases moved "urinary tract infection" from outside
+> the top three to second for a local phrasing, benchmark unchanged. The first run also
+> showed the model has **no malaria class** — surfaced as an unmatched diagnosis, not
+> guessed. See PS_26133_COVERAGE_AND_HANDOFF.md §2.
+>
+> **The curation harness also exists** (`npm run dataset:export`, doc 12's P0).
 > It writes a versioned dataset of verified cases with a manifest and a datasheet,
 > and it is mostly refusals: only patients with an active **training** consent, only
 > cases a doctor reviewed and diagnosed, only measurements a person confirmed, and
