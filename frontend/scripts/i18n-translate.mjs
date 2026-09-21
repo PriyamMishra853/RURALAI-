@@ -213,6 +213,7 @@ const callGemini = async (system, user) => {
  * stay missing and fall back to English, which is the designed behaviour.
  */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const PAUSE_MS = Number(process.env.I18N_BATCH_PAUSE_MS) || 0;
 
 /**
  * A rate limit is a "later", not a "no". The provider says how long to wait;
@@ -360,6 +361,9 @@ const main = async () => {
       }
 
       process.stdout.write(`      ${Math.min(i + BATCH, missing.length)}/${missing.length}\r`);
+      // The provider's token limit is per organisation, not per key, so the
+      // only way to stay under it on a long run is to go slower.
+      if (PAUSE_MS) await sleep(PAUSE_MS);
     }
 
     writeJson(file, result);

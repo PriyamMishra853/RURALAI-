@@ -170,7 +170,7 @@ Measured on production (Sept 2026): database 24 MB for ~2,800 visits (~9 KB per 
 **Plan for 20 centres:** move Groq and Gemini to paid tiers (the single biggest lever — tens of dollars a month at this volume); add a second Railway instance behind the same domain once realtime runs over a shared pub/sub (Redis) and rate limits move to a shared store (both listed in ROADMAP Phase 6); add a `facilities` table so each centre is its own unit on the dashboards (today the unit is the district).
 
 ### 3.10 Native-speaker review of translations
-- **Now:** Marathi, Hindi and Gujarati machine-translated to near-full coverage; placeholders validated; marked *unreviewed* in the language picker, which is honest.
+- **Now:** Marathi machine-translated in full (1,319 of 1,319 strings), Gujarati 97 %, Hindi 93 %; placeholders validated; marked *unreviewed* in the language picker, which is honest. The remaining strings fall back to English; `I18N_BATCH_PAUSE_MS=25000 node scripts/i18n-translate.mjs --lang hi` finishes them — the provider's rate limit is per organisation, so going slower is the only fix.
 - **Plan:** export each locale to a spreadsheet (`key · English · Marathi`), have a Marathi-speaking health worker correct it, import, and set `reviewed: true` in `frontend/src/i18n/languages.js`. Clinical terms first: triage tiers, referral instructions, consent wording.
 
 ### 3.11 Enforcing the content security policy
