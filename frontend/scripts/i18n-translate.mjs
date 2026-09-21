@@ -145,9 +145,21 @@ ${JSON.stringify(Object.fromEntries(entries), null, 2)}`;
 
 /* ---------------------------------------------------------------- providers */
 
+/**
+ * Every Groq key the backend has, in rotation. The per-key limit is 8,000
+ * tokens a minute, which a 40-string batch uses most of: with one key, every
+ * other batch was refused and silently left in English.
+ */
+const groqKeys = () => [
+  process.env.GROQ_API_KEY, process.env.Groq_API_Key1, process.env.Groq_API_Key2, process.env.Groq_API_Key3
+].filter(Boolean);
+let groqTurn = 0;
+
 const callGroq = async (system, user) => {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return null;
+  const keys = groqKeys();
+  if (!keys.length) return null;
+  const key = keys[groqTurn % keys.length];
+  groqTurn += 1;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -200,18 +212,37 @@ const callGemini = async (system, user) => {
  * run. A batch that fails on both is reported and skipped — the keys simply
  * stay missing and fall back to English, which is the designed behaviour.
  */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A rate limit is a "later", not a "no". The provider says how long to wait;
+ * without honouring it, a batch refused once was simply skipped, and a full
+ * pass left a quarter of the catalogue in English.
+ */
+const waitFor = (message) => {
+  const seconds = Number(String(message).match(/try again in ([\d.]+)s/i)?.[1]);
+  return Number.isFinite(seconds) ? Math.min(60, seconds + 1) * 1000 : 20000;
+};
+
 const translateBatch = async (lang, entries) => {
   const system = systemPrompt(lang);
   const user = userPrompt(entries);
 
-  for (const [name, fn] of [['Groq', callGroq], ['Gemini', callGemini]]) {
-    try {
-      const out = await fn(system, user);
-      if (out) return out;
-    } catch (err) {
-      console.warn(`      ${name} failed: ${err.message}`);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let limited = null;
+    for (const [name, fn] of [['Groq', callGroq], ['Gemini', callGemini]]) {
+      try {
+        const out = await fn(system, user);
+        if (out) return out;
+      } catch (err) {
+        if (/ 429/.test(err.message)) limited = limited ?? waitFor(err.message);
+        else console.warn(`      ${name} failed: ${err.message.slice(0, 120)}`);
+      }
     }
+    if (limited === null) return null;
+    await sleep(limited);
   }
+  console.warn('      still rate-limited after four waits — left in English for the next pass');
   return null;
 };
 
