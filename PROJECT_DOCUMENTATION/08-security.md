@@ -223,6 +223,21 @@ exposing a key value**.
 
 ---
 
+## 3a. Content security policy
+
+Sent on every response by `middleware/contentSecurity.middleware.js`. It allows the
+app's own origin (including the `/realtime` WebSocket), the configured Supabase origin
+for images and the client, and Google Fonts; it refuses framing (`frame-ancestors
+'none'`), plugins (`object-src 'none'`) and any script not served by this origin.
+There is no `'unsafe-eval'`.
+
+It ships **report-only**: browsers send what it would have blocked to
+`POST /api/csp-report`, which logs one line per violation with query strings and
+fragments stripped (a URL is where a token or an identifier leaks into a log), and
+nothing is blocked. `CSP_ENFORCE=true` switches it to enforcing. The order matters: a
+policy that blocks something the app needs is a blank screen in a clinic, and no test
+suite can prove a policy right for every screen and browser in use.
+
 ## 4. Transport security
 
 | Control | Implementation |

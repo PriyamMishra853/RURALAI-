@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { contentSecurityPolicy, cspReportRoute } from './middleware/contentSecurity.middleware.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -38,12 +39,16 @@ app.set('trust proxy', 1);
 // Middleware
 app.use(
   helmet({
-    // The SPA is served from this same origin; the default CSP would block its
-    // own bundle. A real policy is listed as a gap in docs/PHASE2_PROGRESS.md.
+    // Enforced separately below, in report-only mode, so a wrong directive
+    // shows up as a report instead of a blank screen in a clinic.
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false
   })
 );
+
+// Content security policy, report-only unless CSP_ENFORCE=true — see
+// middleware/contentSecurity.middleware.js for why it starts that way.
+app.use(contentSecurityPolicy());
 
 // Origin allowlist, not `*`. With `*` any website could drive this API using a
 // signed-in user's browser. Configure via CORS_ALLOWED_ORIGINS.
@@ -66,6 +71,8 @@ app.use(
 
 // Uploads arrive as multipart via multer, so JSON bodies are small. The former
 // 50mb ceiling let a single request allocate 50mb of heap.
+app.post('/api/csp-report', ...cspReportRoute);
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 

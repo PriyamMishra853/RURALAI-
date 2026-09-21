@@ -909,9 +909,16 @@ plane.
 > arrives, the answer does not, the assistant presses the button again) already
 > happens on a rural link today, offline client or not.
 >
+> **Content security policy, report-only.** A policy naming exactly the hosts the
+> app uses (its own origin and WebSocket, Supabase, Google Fonts), refusing framing
+> and plugins, ships in report-only mode: browsers report what it would block to
+> `/api/csp-report` and nothing is blocked. `CSP_ENFORCE=true` flips it to enforcing
+> once the reports are quiet — a variable, not a code change, because a wrong
+> directive in enforcing mode is a blank screen in a clinic.
+>
 > **Not done:** the installable app and offline capture themselves, sync with
 > conflict handling, realtime across instances, shared-store rate limiting, the
-> worker pool, the content security policy, and tracing.
+> worker pool, enforcing the CSP, and tracing.
 
 **Goal.** Work without a connection; scale beyond one instance.
 
