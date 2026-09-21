@@ -5,6 +5,8 @@ import { setupRealtimeHub } from './services/realtimeHub.js';
 import { startConsultationSweeper } from './services/consultationSweeper.js';
 import { recoverAbandonedJobs } from './services/documentJobs.js';
 import { purgeExpiredIdempotencyKeys } from './middleware/idempotency.middleware.js';
+import { restoreLiveModel } from './services/learningService.js';
+import { isEnabled, FEATURES } from './config/features.js';
 import { getVideoProvider } from './services/video/index.js';
 
 const PORT = config.port || 5000;
@@ -47,6 +49,13 @@ recoverAbandonedJobs().catch((err) =>
 // Yesterday's idempotency keys are rubbish, not history.
 purgeExpiredIdempotencyKeys().catch((err) =>
   console.warn('Expired idempotency keys could not be purged:', err.message));
+
+// The inference service starts with the shipped base model. Tell it which
+// learned version is live, so a redeploy does not quietly undo what the model
+// learned from the clinics.
+if (isEnabled(FEATURES.MODEL_LEARNING)) {
+  restoreLiveModel().catch((err) => console.warn('Live model could not be restored:', err.message));
+}
 
 // One WebSocket surface: /realtime carries notifications and consultation call
 // signalling together. A second server on /signal used to sit alongside it,

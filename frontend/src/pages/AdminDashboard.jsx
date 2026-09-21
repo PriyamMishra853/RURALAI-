@@ -8,6 +8,7 @@ import { useI18n } from '../i18n/index.jsx';
 import { useFeature, FEATURES } from '../context/FeatureContext';
 import BaselineMetricsCard from '../components/admin/BaselineMetricsCard';
 import DistrictOutcomesCard from '../components/admin/DistrictOutcomesCard';
+import ModelLearningCard from '../components/admin/ModelLearningCard';
 
 /**
  * Admin console.
@@ -212,6 +213,9 @@ export default function AdminDashboard({ auditOnly = false }) {
 
           {/* Which districts to ask about. Self-gated on district_outcomes. */}
           <DistrictOutcomesCard />
+
+          {/* The model learning from completed visits. Self-gated on model_learning. */}
+          <ModelLearningCard />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <RiskChart distribution={analytics?.risk_distribution || {}} />

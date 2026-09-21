@@ -8,6 +8,7 @@ import { isEnabled, FEATURES } from '../config/features.js';
 import { effectiveStatus } from '../services/caseReferralRules.js';
 import { createReferralForDecision } from '../services/hospitalReferralService.js';
 import { createFollowUpForDecision } from '../services/followUpService.js';
+import { captureLearningExample } from '../services/learningService.js';
 import { parseDays, MIN_DAYS, MAX_DAYS } from '../services/followUpRules.js';
 
 /**
@@ -360,6 +361,18 @@ export const recordDoctorReview = async (req, res) => {
       ip: req.ip
     })
     : null;
+
+  // The model learns from this visit (Roadmap v3, F3) — if the patient agreed
+  // to training use. Not awaited: the doctor's decision is saved and answered
+  // whatever happens to the learning step, which logs its own failures.
+  if (isEnabled(FEATURES.MODEL_LEARNING)) {
+    captureLearningExample({
+      visitId: req.params.id,
+      diagnosis: String(diagnosis).trim(),
+      doctor: { id: req.user.id, role: req.user.role },
+      ip: req.ip
+    }).catch((err) => console.warn('learning capture failed:', err.message));
+  }
 
   await logAuditEvent({
     actorId: req.user.id, actorRole: req.user.role,

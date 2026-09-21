@@ -32,7 +32,8 @@ export const FEATURES = {
   FOLLOW_UP_TRACKING: 'follow_up_tracking',
   FHIR_EXPORT: 'fhir_export',
   PATIENT_CONSENT: 'patient_consent',
-  DISTRICT_OUTCOMES: 'district_outcomes'
+  DISTRICT_OUTCOMES: 'district_outcomes',
+  MODEL_LEARNING: 'model_learning'
 };
 
 const KNOWN = new Set(Object.values(FEATURES));
@@ -62,7 +63,7 @@ export const parseFlags = (raw) => {
  */
 export const DEFAULT_FEATURES = [
   'baseline_metrics', 'doctor_referral', 'voice_intake', 'referral_tracking',
-  'follow_up_tracking', 'fhir_export', 'patient_consent', 'district_outcomes'
+  'follow_up_tracking', 'fhir_export', 'patient_consent', 'district_outcomes', 'model_learning'
 ].join(',');
 
 let enabled = parseFlags(process.env.FEATURE_FLAGS ?? DEFAULT_FEATURES);

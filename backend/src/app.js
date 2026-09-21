@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { contentSecurityPolicy, cspReportRoute } from './middleware/contentSecurity.middleware.js';
 import { traceRequests } from './middleware/requestTrace.middleware.js';
+import { getPublicStats } from './controllers/publicStats.controller.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -29,6 +30,7 @@ import voiceRoutes from './routes/voice.routes.js';
 import referralTrackingRoutes from './routes/referralTracking.routes.js';
 import publicReferralRoutes from './routes/publicReferral.routes.js';
 import followUpRoutes from './routes/followUp.routes.js';
+import learningRoutes from './routes/learning.routes.js';
 
 const app = express();
 
@@ -205,6 +207,9 @@ app.get('/api/features', (req, res) => {
   res.json({ features: enabledFeatures() });
 });
 
+// The landing page's figures, counted rather than typed. Counts only.
+app.get('/api/public/stats', getPublicStats);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/patients', patientRoutes);
@@ -222,6 +227,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/referral-tracking', referralTrackingRoutes);
 app.use('/api/follow-ups', followUpRoutes);
+app.use('/api/learning', learningRoutes);
 // Deliberately unauthenticated — see publicReferral.routes.js.
 app.use('/api/public/referrals', publicReferralRoutes);
 

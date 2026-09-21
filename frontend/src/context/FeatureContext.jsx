@@ -22,7 +22,8 @@ export const FEATURES = {
   FOLLOW_UP_TRACKING: 'follow_up_tracking',
   FHIR_EXPORT: 'fhir_export',
   PATIENT_CONSENT: 'patient_consent',
-  DISTRICT_OUTCOMES: 'district_outcomes'
+  DISTRICT_OUTCOMES: 'district_outcomes',
+  MODEL_LEARNING: 'model_learning'
 };
 
 const EMPTY = { features: new Set(), ready: false };

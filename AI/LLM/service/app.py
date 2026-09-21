@@ -26,6 +26,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from rapidfuzz import process as fuzz_process, fuzz
 
+from service import learner
+
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / 'data' / 'models'
 
@@ -41,9 +43,12 @@ try:
     META = json.loads((MODELS / 'symptom_model_meta.json').read_text(encoding='utf-8'))
     SYMPTOMS: List[str] = VOCAB['symptoms']
     SYMPTOM_INDEX = {s: i for i, s in enumerate(SYMPTOMS)}
+    # The shipped model, kept untouched. Every learned version is rebuilt from it.
+    BASE_NB = NB
     STATE['ready'] = True
 except Exception as exc:  # noqa: BLE001 - startup diagnostics
     NB, VOCAB, META, SYMPTOMS, SYMPTOM_INDEX = None, None, None, [], {}
+    BASE_NB = None
     STATE['error'] = f'{type(exc).__name__}: {exc}'
 
 # ------------------------------------------------------- clinical alias layer
@@ -571,3 +576,83 @@ def precautions(disease: str):
     if not items:
         return {'ok': False, 'disease': disease, 'precautions': []}
     return {'ok': True, 'disease': key, 'precautions': items}
+
+
+# ------------------------------------------------------------------ learning
+#
+# Roadmap v3 F3: the model learns from verified clinic cases, and never changes
+# itself. The Node backend owns the examples (consent-gated, doctor-confirmed)
+# and sends the list; this process builds a candidate or activates a version.
+# A version is always "the shipped base plus these examples", so a restart
+# rebuilds it exactly and a rollback is an earlier list.
+
+BENCHMARK = learner.load_benchmark(MODELS / 'frozen_benchmark.json')
+LEARNING = {'live_version': 0, 'live_examples': 0, 'candidate': None, 'candidate_version': None}
+
+
+class LearnExample(BaseModel):
+    id: str
+    symptoms_text: str = ''
+    symptoms: List[str] = Field(default_factory=list)
+    diagnosis: str
+
+
+class LearnRequest(BaseModel):
+    version: int = Field(ge=0)
+    examples: List[LearnExample] = Field(default_factory=list, max_length=20000)
+
+
+def _prepare(req: LearnRequest):
+    return learner.prepare(
+        [e.model_dump() for e in req.examples], match_symptoms, SYMPTOM_INDEX, [str(c) for c in BASE_NB.classes_]
+    )
+
+
+@app.post('/learn/candidate')
+def learn_candidate(req: LearnRequest):
+    """Build a candidate from the examples and score it beside the live model."""
+    if not STATE['ready']:
+        raise HTTPException(503, f'Diagnosis model unavailable: {STATE["error"]}')
+    usable, outcomes = _prepare(req)
+    candidate = learner.build(BASE_NB, usable, vectorise)
+    LEARNING['candidate'], LEARNING['candidate_version'] = candidate, req.version
+    return {
+        'version': req.version,
+        'learned': len(usable),
+        'outcomes': outcomes,
+        'live': {'version': LEARNING['live_version'], 'metrics': learner.evaluate(NB, BENCHMARK, len(SYMPTOMS))},
+        'candidate': {'version': req.version, 'metrics': learner.evaluate(candidate, BENCHMARK, len(SYMPTOMS))},
+        'benchmark': {'cases': len(BENCHMARK['cases']) if BENCHMARK else 0},
+        'example_weight': learner.EXAMPLE_WEIGHT,
+    }
+
+
+@app.post('/learn/activate')
+def learn_activate(req: LearnRequest):
+    """
+    Make this version the live model. Called when a person promotes a
+    candidate, and on every start to restore whatever was last promoted.
+    """
+    global NB
+    if not STATE['ready']:
+        raise HTTPException(503, f'Diagnosis model unavailable: {STATE["error"]}')
+    usable, outcomes = _prepare(req)
+    NB = learner.build(BASE_NB, usable, vectorise)
+    LEARNING['live_version'], LEARNING['live_examples'] = req.version, len(usable)
+    return {
+        'version': req.version,
+        'learned': len(usable),
+        'outcomes': outcomes,
+        'metrics': learner.evaluate(NB, BENCHMARK, len(SYMPTOMS)),
+    }
+
+
+@app.get('/learn/status')
+def learn_status():
+    return {
+        'live_version': LEARNING['live_version'],
+        'live_examples': LEARNING['live_examples'],
+        'candidate_version': LEARNING['candidate_version'],
+        'benchmark_cases': len(BENCHMARK['cases']) if BENCHMARK else 0,
+        'base_metrics': learner.evaluate(BASE_NB, BENCHMARK, len(SYMPTOMS)) if STATE['ready'] else None,
+    }
