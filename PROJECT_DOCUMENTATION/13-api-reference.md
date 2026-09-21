@@ -18,6 +18,13 @@ district_admin · **DR** doctor · **CA** clinic_assistant · **AU** auditor.
 
 ## 1. Conventions
 
+### Request IDs
+
+Every response carries **`X-Request-Id`**. A caller may send its own (8–64 characters
+of `A-Z a-z 0-9 _ -`) to correlate retries; anything else is replaced. A 500 body
+includes it as `request_id`, and a failed or slow API call is logged under it — so a
+report of "it failed" can be looked up.
+
 ### Idempotent writes
 
 `POST /api/patients` and `POST /api/visits` accept an **`Idempotency-Key`** header.

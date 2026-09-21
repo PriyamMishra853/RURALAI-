@@ -916,9 +916,15 @@ plane.
 > once the reports are quiet — a variable, not a code change, because a wrong
 > directive in enforcing mode is a blank screen in a clinic.
 >
+> **Request tracing.** Every response carries an `X-Request-Id`; a 500 body carries
+> it as `request_id`; and any API call that fails or takes longer than
+> `SLOW_REQUEST_MS` (5 s) is logged once with method, path (query string stripped),
+> status, duration and that ID. The lab-report timeout that took a database query and
+> a guess to diagnose would have been one line.
+>
 > **Not done:** the installable app and offline capture themselves, sync with
 > conflict handling, realtime across instances, shared-store rate limiting, the
-> worker pool, enforcing the CSP, and tracing.
+> worker pool, enforcing the CSP, and distributed tracing beyond a request ID.
 
 **Goal.** Work without a connection; scale beyond one instance.
 

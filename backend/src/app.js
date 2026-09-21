@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { contentSecurityPolicy, cspReportRoute } from './middleware/contentSecurity.middleware.js';
+import { traceRequests } from './middleware/requestTrace.middleware.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -35,6 +36,10 @@ const app = express();
 // rather than the load balancer's. Without this every request behind the LB
 // shares one bucket and the limiters are meaningless.
 app.set('trust proxy', 1);
+
+// Every request gets an ID first, so everything after it — including the error
+// handler — can name it.
+app.use(traceRequests());
 
 // Middleware
 app.use(
@@ -233,10 +238,14 @@ if (HAS_FRONTEND) {
 // production. Internal errors routinely carry table names, query fragments and
 // upstream provider detail, and that is reconnaissance material.
 app.use((err, req, res, next) => {
-  console.error('Unhandled Server Error:', err);
+  console.error(`Unhandled Server Error [${req.id}]:`, err);
 
   const status = err.status || 500;
-  const body = { error: status === 500 ? 'Internal Server Error' : err.name || 'Request Error' };
+  const body = {
+    error: status === 500 ? 'Internal Server Error' : err.name || 'Request Error',
+    // Quotable: "it failed" becomes a search in the logs.
+    request_id: req.id
+  };
 
   if (!config.isProduction || status < 500) {
     body.message = err.message || 'An unexpected error occurred.';
