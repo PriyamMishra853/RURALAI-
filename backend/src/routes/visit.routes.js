@@ -5,6 +5,7 @@ import {
 import { exportVisitAsFhir } from '../controllers/fhirExport.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { requireFeature, FEATURES } from '../config/features.js';
+import { idempotent } from '../middleware/idempotency.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { ROLES } from '../config/roles.js';
 
@@ -13,7 +14,7 @@ const router = Router();
 router.use(authenticateUser);
 router.use(denyAdminClinicalAccess);
 
-router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), createVisit);
+router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), idempotent('visits.create'), createVisit);
 router.get('/:id', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), getVisitById);
 // The doctor's decision, read by the assistant who opened the visit.
 router.get('/:id/review', authorizeRoles(ROLES.CLINIC_ASSISTANT, ROLES.DOCTOR), getVisitReview);

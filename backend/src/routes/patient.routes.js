@@ -6,6 +6,7 @@ import {
 import { getConsents, grantConsent, withdrawConsent } from '../controllers/consent.controller.js';
 import { authenticateUser, authorizeRoles } from '../middleware/auth.middleware.js';
 import { requireFeature, FEATURES } from '../config/features.js';
+import { idempotent } from '../middleware/idempotency.middleware.js';
 import { denyAdminClinicalAccess } from '../middleware/clinicalAccess.middleware.js';
 import { patientSearchRateLimiter } from '../middleware/rateLimit.middleware.js';
 import { ROLES } from '../config/roles.js';
@@ -33,7 +34,7 @@ router.post('/consents/grant', ...CONSENT, grantConsent);
 router.post('/consents/withdraw', ...CONSENT, withdrawConsent);
 
 router.get('/', patientSearchRateLimiter, CLINICAL, getPatients);
-router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), createPatient);
+router.post('/', authorizeRoles(ROLES.CLINIC_ASSISTANT), idempotent('patients.create'), createPatient);
 
 // Emergency bypass: a provisional record for a patient who needs care before
 // their documents exist. Deliberately a separate endpoint — createPatient's

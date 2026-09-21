@@ -4,6 +4,7 @@ import { config } from './config/env.js';
 import { setupRealtimeHub } from './services/realtimeHub.js';
 import { startConsultationSweeper } from './services/consultationSweeper.js';
 import { recoverAbandonedJobs } from './services/documentJobs.js';
+import { purgeExpiredIdempotencyKeys } from './middleware/idempotency.middleware.js';
 import { getVideoProvider } from './services/video/index.js';
 
 const PORT = config.port || 5000;
@@ -42,6 +43,10 @@ const server = http.createServer(app);
  */
 recoverAbandonedJobs().catch((err) =>
   console.error('Abandoned document jobs could not be closed:', err.message));
+
+// Yesterday's idempotency keys are rubbish, not history.
+purgeExpiredIdempotencyKeys().catch((err) =>
+  console.warn('Expired idempotency keys could not be purged:', err.message));
 
 // One WebSocket surface: /realtime carries notifications and consultation call
 // signalling together. A second server on /signal used to sit alongside it,

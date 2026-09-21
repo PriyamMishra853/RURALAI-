@@ -18,6 +18,20 @@ district_admin · **DR** doctor · **CA** clinic_assistant · **AU** auditor.
 
 ## 1. Conventions
 
+### Idempotent writes
+
+`POST /api/patients` and `POST /api/visits` accept an **`Idempotency-Key`** header.
+The first request with a key does the work and its response is stored; a repeat of
+the same key returns that response with `Idempotency-Replayed: true` and touches
+nothing. The same key with a different body is **409** — that is a client bug, and
+answering it with the earlier result would be worse. Keys are per staff member,
+expire after 24 hours, and are optional: a caller that sends none behaves exactly as
+before. A failed write is never stored, so it stays retryable, and if the store
+cannot be reached the write proceeds without the protection rather than failing.
+
+This is what makes a queued, offline-first client possible (Roadmap v3, Phase 6): a
+replay queue without idempotency is a duplicate generator.
+
 ### Error shape
 
 ```json

@@ -901,6 +901,18 @@ plane.
 
 ### Phase 6 — Offline-first and platform scale · *L, cross-cutting*
 
+> **Status: the groundwork is in.** `POST /api/patients` and `POST /api/visits`
+> honour an `Idempotency-Key` (migration 23): the work happens once, a repeat
+> returns the stored answer, and the same key with a different body is refused.
+> This is the prerequisite for everything else here — a replay queue without
+> idempotency is a duplicate generator, and the failure it prevents (the request
+> arrives, the answer does not, the assistant presses the button again) already
+> happens on a rural link today, offline client or not.
+>
+> **Not done:** the installable app and offline capture themselves, sync with
+> conflict handling, realtime across instances, shared-store rate limiting, the
+> worker pool, the content security policy, and tracing.
+
 **Goal.** Work without a connection; scale beyond one instance.
 
 **Scope.**
