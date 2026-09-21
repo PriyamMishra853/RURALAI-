@@ -22,8 +22,8 @@ import { serverText } from '../i18n/serverLabels.js';
  *   because "12 km away" from a district centroid is a different claim from
  *   12 km from where you are standing.
  *
- *   Nothing here implies a bed is free. There is no live bed feed for UP
- *   district hospitals; the phone number is at least as prominent as the route
+ *   Nothing here implies a bed is free. There is no live bed feed for any
+ *   district hospital; the phone number is at least as prominent as the route
  *   button, and the instruction to ring ahead is not collapsible. Sending a
  *   critical patient on a long drive to a hospital that cannot admit them is
  *   the worst thing this feature could cause.

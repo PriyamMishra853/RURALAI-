@@ -74,8 +74,9 @@ export default function PatientRegistrationPage() {
       }));
   }, [t]);
 
-  // District suggestions follow the selected state. Seeded for UP only, so this
-  // is a datalist rather than a select — any Indian district must be enterable.
+  // District suggestions follow the selected state. Only the states this system
+  // serves are seeded, so this is a datalist rather than a select — any Indian
+  // district must be enterable.
   useEffect(() => {
     if (!form.address_state_id) { setDistricts([]); return; }
     api.get('/regions/districts', { params: { stateId: form.address_state_id } })

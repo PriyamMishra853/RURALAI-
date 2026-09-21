@@ -164,8 +164,8 @@ export default function TierResult({ workflow, assessment, visitId, onScheduleCo
               ))}
             </div>
 
-            {/* Never invented. There is no live bed feed for UP district
-                hospitals, and a fabricated number here would be the most
+            {/* Never invented. There is no live bed feed for any
+                district hospital, and a fabricated number here would be the most
                 dangerous thing on the screen. */}
             <Alert tone="warning" icon={AlertTriangle} title={t('referral.bedsUnconfirmed', 'Bed availability not confirmed')}>
               {serverText(t, workflow.referral, 'capacity_instruction')}

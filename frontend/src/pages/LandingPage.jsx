@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Activity, ShieldCheck, Stethoscope, ArrowRight, AlertTriangle,
   Sun, Moon, Monitor, MapPin, Languages, Lock, Scale, Wifi
 } from 'lucide-react';
-import DistrictNetwork3D from '../components/DistrictNetwork3D';
+import CarePathway from '../components/CarePathway';
+import api from '../services/api';
 import { Counter, TierExplorer, WorkflowTimeline, RoleCard } from '../components/landing/Interactive';
 import { useTheme } from '../context/ThemeContext';
 import { Button, Card } from '../components/ui';
@@ -45,10 +46,16 @@ const reveal = {
  * public page is the difference between "not translated yet" and "broken".
  */
 
+/*
+ * Counted, not typed. These were constants — 75 districts, 1,880 records, 375
+ * doctors — true once and wrong from the day Maharashtra was seeded. They now
+ * come from /api/public/stats; until it answers, the figure is left blank
+ * rather than shown as a stale number.
+ */
 const STATS = [
-  { key: 'districts', value: 75, label: 'Districts covered', suffix: '' },
-  { key: 'records', value: 1880, label: 'Patient records', suffix: '' },
-  { key: 'doctors', value: 375, label: 'Doctors on the roster', suffix: '' },
+  { key: 'districts', from: 'districts', label: 'Districts covered', suffix: '' },
+  { key: 'records', from: 'patients', label: 'Patient records', suffix: '' },
+  { key: 'doctors', from: 'doctors', label: 'Doctors on the roster', suffix: '' },
   { key: 'tiers', value: 4, label: 'Triage tiers', suffix: '' }
 ];
 
@@ -98,7 +105,15 @@ function ThemeSwitch() {
 }
 
 export default function LandingPage() {
-  const [hoveredDistrict, setHoveredDistrict] = useState(null);
+  const [coverage, setCoverage] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    api.get('/public/stats')
+      .then((res) => { if (live) setCoverage(res.data); })
+      .catch(() => { /* the figures stay blank; nothing is invented */ });
+    return () => { live = false; };
+  }, []);
   const t = useT();
   const { formatNumber } = useI18n();
 
@@ -149,9 +164,12 @@ export default function LandingPage() {
           >
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gov-50 dark:bg-gov-100 text-gov-700 dark:text-gov-600 text-[11px] font-bold uppercase tracking-wider">
               <MapPin className="w-3 h-3" />
-              {hoveredDistrict
-                ? t('landing.hero.district', '{name} district', { name: hoveredDistrict })
-                : t('landing.hero.region', 'Uttar Pradesh · {count} districts', { count: formatNumber(75) })}
+              {coverage
+                ? t('landing.hero.coverage', '{states} · {count} districts', {
+                  states: coverage.states.map((st) => st.name).join(' · '),
+                  count: formatNumber(coverage.districts)
+                })
+                : t('landing.hero.network', 'District clinic network')}
             </span>
 
             {/*
@@ -193,14 +211,15 @@ export default function LandingPage() {
             </div>
           </motion.div>
 
-          {/* The map is the product's real data, not decoration. */}
+          {/* What the platform does, drawn: a patient moving through six hands
+              without the record being lost. */}
           <motion.div
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.8, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
             className="relative h-72 sm:h-96 lg:h-[30rem] rounded-card overflow-hidden bg-surface-sunken border border-line"
           >
-            <DistrictNetwork3D className="absolute inset-0" onDistrictHover={setHoveredDistrict} />
+            <CarePathway className="absolute inset-0" />
           </motion.div>
         </div>
       </section>
@@ -211,7 +230,9 @@ export default function LandingPage() {
           {STATS.map((s) => (
             <div key={s.key} className="text-center">
               <p className="font-display text-3xl sm:text-4xl font-bold text-white dark:text-gov-800 tabular-nums">
-                <Counter to={s.value} suffix={s.suffix} />
+                {s.from && !coverage
+                  ? <span className="opacity-40">—</span>
+                  : <Counter to={s.from ? coverage[s.from] : s.value} suffix={s.suffix} />}
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-wider text-gov-100 dark:text-gov-600">
                 {t('landing.stat.' + s.key, s.label)}
