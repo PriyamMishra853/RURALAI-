@@ -16,26 +16,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-    <script>
-      /**
-       * Apply the saved theme before first paint.
-       *
-       * Without this the page renders light, then React swaps to dark a frame
-       * later — a white flash straight into someone's eyes at night, which is
-       * exactly when dark mode matters.
-       */
-      (function () {
-        try {
-          var saved = localStorage.getItem('vvc_theme') || 'system';
-          var dark = saved === 'dark' ||
-            (saved === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.classList.toggle('dark', dark);
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        } catch (e) {
-          /* storage blocked; light default is fine */
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
