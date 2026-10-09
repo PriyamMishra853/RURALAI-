@@ -1,0 +1,63 @@
+# Keeps the Supabase project awake, and tells us when it is not.
+#
+# Supabase pauses a free-tier project after roughly seven days without
+# activity. A paused project stops resolving in DNS, so the API cannot reach
+# Postgres or Auth — and because every sign-in failure returns one identical
+# message, the whole platform looks like "Invalid email or password." That is
+# exactly what happened in October 2026, and it is a bad thing to discover the
+# morning of a demo.
+#
+# One request a day is enough to count as activity. The request goes through
+# /api/health, which runs a real query against the districts table, so it
+# wakes the database and not only the web container.
+#
+# The job fails when the database is not reachable, which is the point: a
+# failed scheduled run emails the repository owner, so a pause or an outage
+# surfaces days before anyone is standing in front of judges.
+#
+# Note: GitHub disables scheduled workflows in a repository with no activity
+# for 60 days. If this repository goes quiet, re-enable it from the Actions
+# tab, or push any commit.
+
+name: Keep-alive
+
+on:
+  schedule:
+    # 02:30 UTC = 08:00 IST, daily.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the API and check the database
+        env:
+          # Override in Settings → Secrets and variables → Actions → Variables
+          # if the backend ever moves.
+          HEALTH_URL: ${{ vars.HEALTH_URL || 'https://ruralai-production-220.up.railway.app/api/health' }}
+        run: |
+          set -u
+
+          # Three attempts, because a cold start or a momentary blip should not
+          # send an alarm. A real pause fails all three.
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt of 3 — $HEALTH_URL"
+            body=$(curl -s -m 30 "$HEALTH_URL" || true)
+            echo "Response: ${body:-<empty>}"
+
+            status=$(printf '%s' "$body" | jq -r '.database // empty' 2>/dev/null || true)
+            if [ "$status" = "ok" ]; then
+              latency=$(printf '%s' "$body" | jq -r '.database_latency_ms // "?"')
+              echo "Database reachable (${latency} ms)."
+              exit 0
+            fi
+
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+
+          echo "::error::Database not reachable after 3 attempts. The Supabase project is most likely paused — resume it at supabase.com/dashboard."
+          exit 1
