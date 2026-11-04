@@ -9,7 +9,14 @@ platform closes that gap.**
 Built for **Smart India Hackathon 2026 — Problem Statement 3: AI-Powered Virtual
 Clinic for Rural Healthcare.**
 
----
+ ## 🏆 Achievements
+------------------------------------------------------------
+| Achievement      | Event                                 |
+|:----------------:|---------------------------------------|
+| 🥇 **1st Prize** | YuvaSpark '26 – Antaragni, IIT Kanpur |
+| 🥇 **1st Prize** | IBM Bob Hackathon – CSJMU             |
+| 🥇 **1st Prize** | IEEE HBTU Kanpur Ideathon             |
+-----------------------------------------------------------
 
 ## What it does
 
