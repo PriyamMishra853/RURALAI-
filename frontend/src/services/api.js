@@ -3,7 +3,7 @@ import { getToken, clearSession } from './session.js';
 import { currentLang } from '../i18n/index.jsx';
 import { plainT } from '../i18n/plain.js';
 
-const DEPLOYED_API = 'https://ruralai-production-220.up.railway.app/api';
+const DEPLOYED_API = 'https://xlr8-production-f5f784ee.up.railway.app/api';
 
 /**
  * Where the API lives.
@@ -56,12 +56,18 @@ const resolveApiBase = () => {
    */
   const fallback = sameOriginProxyAvailable() ? '/api' : DEPLOYED_API;
 
-  const configured = String(import.meta.env.VITE_API_URL || '').trim();
+  let configured = String(import.meta.env.VITE_API_URL || '').trim();
   if (!configured) return fallback;
 
   // An explicitly relative base is same-origin and needs no validation — the
   // checks below exist to catch a websocket URL, which cannot be relative.
   if (configured.startsWith('/')) return configured.replace(/\/+$/, '') || '/api';
+
+  // If a domain/host was provided without a scheme (e.g. xlr8-production-f5f784ee.up.railway.app/api),
+  // automatically prepend https:// so a missing protocol doesn't break every request.
+  if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//i.test(configured)) {
+    configured = `https://${configured}`;
+  }
 
   if (!/^https?:\/\//i.test(configured)) {
     console.error(

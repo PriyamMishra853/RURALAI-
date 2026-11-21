@@ -123,7 +123,11 @@ export const setupRealtimeHub = (httpServer) => {
     // Browsers do not apply CORS to WebSockets, so this origin check is the
     // only thing standing in for it.
     const origin = request.headers.origin;
-    if (origin && !config.allowedOrigins.includes(origin)) return refuse(socket, 403, 'Forbidden');
+    const isAllowed =
+      !origin ||
+      config.allowedOrigins.includes(origin) ||
+      /^https:\/\/([a-z0-9-]+\.)?vercel\.app$/i.test(origin);
+    if (!isAllowed) return refuse(socket, 403, 'Forbidden');
 
     // The browser WebSocket API cannot set an Authorization header, so the
     // token arrives as a query parameter. Short-lived, and not logged.

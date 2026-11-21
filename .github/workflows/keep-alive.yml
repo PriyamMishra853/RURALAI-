@@ -38,7 +38,7 @@ jobs:
         env:
           # Override in Settings → Secrets and variables → Actions → Variables
           # if the backend ever moves.
-          HEALTH_URL: ${{ vars.HEALTH_URL || 'https://ruralai-production-220.up.railway.app/api/health' }}
+          HEALTH_URL: ${{ vars.HEALTH_URL || 'https://xlr8-production-f5f784ee.up.railway.app/api/health' }}
         run: |
           set -u
 

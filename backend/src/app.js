@@ -63,7 +63,13 @@ app.use(
   cors({
     origin(origin, callback) {
       // Same-origin and non-browser callers (curl, health checks) send no Origin.
-      if (!origin || config.allowedOrigins.includes(origin)) return callback(null, true);
+      if (
+        !origin ||
+        config.allowedOrigins.includes(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)?vercel\.app$/i.test(origin)
+      ) {
+        return callback(null, true);
+      }
 
       // Deny by withholding the CORS headers — never by throwing. An error here
       // propagates to the global handler and turns the request into a 500, which

@@ -22,8 +22,8 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import { WebSocket } from 'ws';
 
-const H = 'https://ruralai-production-220.up.railway.app';
-const WS = 'wss://ruralai-production-220.up.railway.app/realtime';
+const H = 'https://xlr8-production-f5f784ee.up.railway.app';
+const WS = 'wss://xlr8-production-f5f784ee.up.railway.app/realtime';
 const ORIGIN = 'https://ruralai-psi.vercel.app';
 
 const c = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });

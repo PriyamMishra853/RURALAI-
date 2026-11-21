@@ -62,18 +62,24 @@ const resolveAllowedOrigins = () => {
     .map((o) => o.trim())
     .filter(Boolean);
 
-  if (configured.length > 0) return configured;
+  const defaultOrigins = [
+    'https://ruralai-psi.vercel.app',
+    'https://xlr8-production-f5f784ee.up.railway.app'
+  ];
+
+  if (configured.length > 0) {
+    return Array.from(new Set([...configured, ...defaultOrigins]));
+  }
 
   if (isProduction) {
-    throw new Error(
-      'Refusing to start: CORS_ALLOWED_ORIGINS is not set. List the exact origins the frontend is served from.'
-    );
+    return defaultOrigins;
   }
 
   // The API also serves the built frontend, so its own origin must be allowed
   // or the app cannot call itself when PORT is anything non-default.
   const ownPort = process.env.PORT || 5000;
   return [
+    ...defaultOrigins,
     `http://localhost:${ownPort}`,
     `http://127.0.0.1:${ownPort}`,
     'http://localhost:3000',

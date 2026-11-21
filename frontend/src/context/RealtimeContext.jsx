@@ -83,13 +83,27 @@ const resolveRealtimeUrl = () => {
    * backend actually lives.
    */
   const apiUrl = import.meta.env.VITE_API_URL;
-  if (apiUrl && /^https?:\/\//i.test(String(apiUrl).trim())) {
-    try {
-      const { host } = new URL(apiUrl);
-      return `${scheme}://${host}/realtime`;
-    } catch {
-      // Malformed VITE_API_URL — fall through to the page's own origin.
+  if (apiUrl) {
+    const raw = String(apiUrl).trim();
+    const candidate = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//i.test(raw)
+      ? raw
+      : raw.startsWith('/') ? null : `https://${raw}`;
+    if (candidate) {
+      try {
+        const { host } = new URL(candidate);
+        if (host && !host.endsWith('vercel.app')) {
+          return `${scheme}://${host}/realtime`;
+        }
+      } catch {
+        // Malformed VITE_API_URL — fall through
+      }
     }
+  }
+
+  // Vercel rewrites do not carry WebSocket upgrades; on *.vercel.app connect directly
+  // to the deployed Railway backend realtime socket.
+  if (typeof window !== 'undefined' && /\.vercel\.app$/i.test(window.location.hostname)) {
+    return `${scheme}://xlr8-production-f5f784ee.up.railway.app/realtime`;
   }
 
   return `${scheme}://${window.location.host}/realtime`;

@@ -7,7 +7,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'https://bob-production-4e27.up.railway.app',
+        target: 'https://xlr8-production-f5f784ee.up.railway.app',
         changeOrigin: true
       },
       // Notifications and call signalling share this one socket. Without a
@@ -16,7 +16,7 @@ export default defineConfig({
       // which in dev is Vite itself. Set VITE_REALTIME_URL to point at a local
       // backend instead.
       '/realtime': {
-        target: 'wss://bob-production-4e27.up.railway.app',
+        target: 'wss://xlr8-production-f5f784ee.up.railway.app',
         ws: true,
         changeOrigin: true
       }
